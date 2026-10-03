@@ -13,9 +13,10 @@ struct EditorPane: NSViewRepresentable {
     @AppStorage(AppearanceKey.editorTheme) private var themeName = AppearanceDefault.editorTheme
     @AppStorage(AppearanceKey.editorThemeFollowsSystem) private var followsSystem = false
     @Environment(\.colorScheme) private var colorScheme
+    private var settings = EditorSettings()
 
     private var theme: EditorTheme {
-        ThemeLibrary.resolve(name: themeName, followSystem: followsSystem, systemIsDark: colorScheme == .dark)
+        settings.apply(to: ThemeLibrary.resolve(name: themeName, followSystem: followsSystem, systemIsDark: colorScheme == .dark))
     }
     /// Lets the toolbar and menus reach the text view this pane creates.
     var editor: EditorHandle?
@@ -25,6 +26,7 @@ struct EditorPane: NSViewRepresentable {
     func makeNSView(context: Context) -> NSScrollView {
         let (scrollView, textView) = MarkdownTextView.makeScrollView(theme: theme)
         textView.delegate = context.coordinator
+        textView.behavior = settings.behavior
         textView.string = document.text
         context.coordinator.textView = textView
         scrollSync.attach(editor: textView)
@@ -38,7 +40,10 @@ struct EditorPane: NSViewRepresentable {
         // when it hands the view a different document instance (Revert To / Browse All Versions).
         context.coordinator.undoManager = context.environment.undoManager
         context.coordinator.bind(to: document)
-        if let textView = context.coordinator.textView, textView.theme.name != theme.name { textView.theme = theme }
+        guard let textView = context.coordinator.textView else { return }
+        textView.behavior = settings.behavior
+        let theme = theme
+        if textView.theme.name != theme.name || textView.theme.font != theme.font { textView.theme = theme }
     }
 
     @MainActor

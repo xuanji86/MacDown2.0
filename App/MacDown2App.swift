@@ -13,6 +13,6 @@ struct MacDown2App: App {
             AppearanceCommands()
             FormatCommands()
         }
-        Settings { EmptyView() }
+        Settings { SettingsView() }
     }
 }

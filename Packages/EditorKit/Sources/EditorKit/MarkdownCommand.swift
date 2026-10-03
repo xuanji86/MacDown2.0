@@ -16,7 +16,7 @@ public struct TextEdit: Equatable, Sendable {
     }
 }
 
-/// The editing-assistance settings of PLAN §5.4 (the Settings UI that drives them arrives later; defaults are the
+/// The editing-assistance settings of PLAN §5.4 (driven by the Editor settings page; defaults are the
 /// original MacDown's).
 public struct EditorBehavior: Equatable, Sendable {
     /// Auto-pair brackets, quotes and `*` `_` `` ` ``.

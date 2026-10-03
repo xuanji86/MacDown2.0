@@ -67,6 +67,15 @@ public struct EditorTheme: @unchecked Sendable {
         }
     }
 
+    /// The theme with the user's font choice: `name` empty or unknown = the system monospaced font. Sizes are clamped
+    /// to what the editor can lay out sensibly.
+    public func withFont(name: String, size: CGFloat) -> EditorTheme {
+        var copy = self
+        let size = min(max(size, 8), 72)
+        copy.font = (name.isEmpty ? nil : NSFont(name: name, size: size)) ?? .monospacedSystemFont(ofSize: size, weight: .regular)
+        return copy
+    }
+
     /// Attributes of unstyled text.
     var baseAttributes: [NSAttributedString.Key: Any] { [.font: font, .foregroundColor: text] }
 

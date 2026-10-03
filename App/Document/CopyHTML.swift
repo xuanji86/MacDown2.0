@@ -14,7 +14,7 @@ enum CopyHTML {
         do {
             let renderer = try renderer ?? JSCRenderer()
             self.renderer = renderer
-            let html = clean(try await renderer.render(markdown, options: RenderOptions()).html)
+            let html = clean(try await renderer.render(markdown, options: RenderSettings.current).html)
             pasteboard.clearContents()
             pasteboard.setString(html, forType: .html)
             pasteboard.setString(html, forType: .string)
