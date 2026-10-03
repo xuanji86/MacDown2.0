@@ -44,12 +44,12 @@ struct DocumentToolbar: ToolbarContent {
         }
         ToolbarSpacer(.fixed)
         ToolbarItemGroup {
-            command("Blockquote", "text.quote", .blockquote, shortcut: "⌘'")
+            command("Blockquote", "text.quote", .blockquote, shortcut: "⇧⌘B")
             command("Code Block", "chevron.left.forwardslash.chevron.right", .codeBlock, shortcut: "⌥⌘K")
         }
         ToolbarSpacer(.fixed)
         ToolbarItemGroup {
-            command("Link", "link", .link, shortcut: "⌘K")
+            command("Link", "link", .link, shortcut: "⇧⌘K")
             command("Image", "photo", .image, shortcut: "⇧⌘I")
         }
         ToolbarSpacer(.fixed)

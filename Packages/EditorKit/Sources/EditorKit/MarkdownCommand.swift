@@ -37,6 +37,8 @@ public struct EditorBehavior: Equatable, Sendable {
 /// applies it through the text system so it is undoable.
 public enum MarkdownCommand: Equatable, Sendable {
     case bold, italic, underline, strikethrough, highlight, inlineCode
+    /// `<!-- … -->`: wraps the selection, or removes the comment markers around it.
+    case comment
     /// 1...6; out-of-range levels are clamped.
     case heading(Int)
     case paragraph
@@ -56,6 +58,7 @@ public enum MarkdownCommand: Equatable, Sendable {
         case .strikethrough: return Inline.toggle(text, selection, "~~", "~~")
         case .highlight: return Inline.toggle(text, selection, "==", "==")
         case .inlineCode: return Inline.toggle(text, selection, "`", "`")
+        case .comment: return Inline.toggle(text, selection, "<!-- ", " -->")
         case .heading(let level): return Lines.heading(text, selection, level: min(max(level, 1), 6))
         case .paragraph: return Lines.heading(text, selection, level: 0)
         case .unorderedList: return Lines.unorderedList(text, selection, behavior)

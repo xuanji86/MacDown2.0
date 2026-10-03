@@ -12,6 +12,15 @@ struct InlineCommandTests {
         #expect(run(.inlineCode, "⟦x⟧") == "`⟦x⟧`")
     }
 
+    @Test func commentWrapsAndUnwraps() {
+        #expect(run(.comment, "a ⟦note⟧ b") == "a <!-- ⟦note⟧ --> b")
+        #expect(run(.comment, "a |b") == "a <!-- | -->b")
+        #expect(run(.comment, "a <!-- ⟦note⟧ --> b") == "a ⟦note⟧ b")
+        #expect(run(.comment, "a ⟦<!-- note -->⟧ b") == "a ⟦note⟧ b")
+        #expect(run(.comment, "a <!-- | -->b") == "a |b")
+        #expect(run(.comment, "⟦你好\n😀⟧") == "<!-- ⟦你好\n😀⟧ -->")
+    }
+
     @Test func aCaretGetsAnEmptyPairWithTheCaretBetween() {
         #expect(run(.bold, "a |b") == "a **|**b")
         #expect(run(.underline, "|") == "<u>|</u>")
