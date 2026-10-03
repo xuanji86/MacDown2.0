@@ -181,7 +181,8 @@ struct PreviewPane: View {
     @ObservedObject var document: MarkdownDocument
     /// File URL of the document (nil while unsaved); relative images resolve against its folder.
     var documentURL: URL?
-    @State private var model = PreviewModel()
+    /// Owned by `DocumentView` so scroll sync can drive it.
+    let model: PreviewModel
 
     var body: some View {
         WebView(model.page)
