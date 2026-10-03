@@ -14,6 +14,7 @@ test:
 	cd Web && npm test
 	Scripts/check-web-drift.sh
 	Scripts/check-module-boundaries.sh
+	Scripts/test-doc-resolver.sh
 	# Each swift test run leaves a dead Dock tile on macOS 27; clean up even when a test fails.
 	status=0; for p in Packages/*/; do if [ -d "$$p/Tests" ]; then (cd "$$p" && swift test $(SWIFT_TEST_FLAGS)) || { status=1; break; }; fi; done; \
 	  Scripts/clean-dock-ghosts.sh; exit $$status

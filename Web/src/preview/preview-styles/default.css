@@ -73,7 +73,7 @@ blockquote > :last-child { margin-bottom: 0; }
 code, pre { font: 0.875em/1.5 ui-monospace, "SF Mono", Menlo, monospace; }
 code { padding: 0.15em 0.4em; background: var(--bg-subtle); border: 1px solid var(--border); border-radius: 6px; }
 pre { padding: 14px 16px; overflow: auto; background: var(--bg-subtle); border: 1px solid var(--border); border-radius: 8px; }
-pre code { padding: 0; background: none; border: 0; font-size: 1em; }
+pre code, pre code.hljs { padding: 0; background: none; border: 0; font-size: 1em; }
 
 table { display: block; width: max-content; max-width: 100%; overflow: auto; border-collapse: collapse; }
 th, td { padding: 6px 13px; border: 1px solid var(--border); }
