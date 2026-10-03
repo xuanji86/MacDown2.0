@@ -61,7 +61,8 @@ final class PreviewModel {
 
     private let documentRoot = DocumentRoot()
     private let messages = PreviewMessageHandler()
-    private let optionsJSON: String
+    private var options: RenderOptions
+    private var optionsJSON: String
     private var loading: Task<Bool, Never>?
     private var debounce: Task<Void, Never>?
     // Updates arriving while a JS call is in flight collapse into `pending`; the latest text always wins, in order.
@@ -76,7 +77,9 @@ final class PreviewModel {
     private var style: (light: String, dark: String?) = PreviewStyles.resolve(id: PreviewStyles.defaultID, followSystem: false)
     private var pageLoaded = false
 
-    init() {
+    init(options: RenderOptions = RenderSettings.current) {
+        self.options = options
+        optionsJSON = Self.json(options)
         var configuration = WebPage.Configuration()
         configuration.urlSchemeHandlers[URLScheme(PreviewAssetHandler.scheme)!] = PreviewAssetHandler(documentRoot: documentRoot)
         configuration.userContentController.add(messages, name: "macdown2")
@@ -84,8 +87,20 @@ final class PreviewModel {
         #if DEBUG
         page.isInspectable = true
         #endif
-        optionsJSON = (try? String(data: JSONEncoder().encode(RenderOptions()), encoding: .utf8)) ?? "{}"
         messages.onMessage = { [weak self] message in self?.handle(message) }
+    }
+
+    private static func json(_ options: RenderOptions) -> String {
+        (try? String(data: JSONEncoder().encode(options), encoding: .utf8)) ?? "{}"
+    }
+
+    /// New render settings. The page rebuilds the whole document when it sees a different options string, so this only
+    /// has to push the current text again.
+    func setOptions(_ new: RenderOptions) {
+        guard new != options else { return }
+        options = new
+        optionsJSON = Self.json(new)
+        if let lastMarkdown { schedule(lastMarkdown) }
     }
 
     /// Debounced (~150 ms) so typing bursts render once.
@@ -215,10 +230,12 @@ struct PreviewPane: View {
     let model: PreviewModel
     @AppStorage(AppearanceKey.previewStyle) private var style = AppearanceDefault.previewStyle
     @AppStorage(AppearanceKey.previewStyleFollowsSystem) private var followsSystem = false
+    private let renderSettings = RenderSettings.shared
 
     var body: some View {
         WebView(model.page)
             .webViewContentBackground(.hidden)
+            .onChange(of: renderSettings.options) { _, options in model.setOptions(options) }
             .onChange(of: "\(style)|\(followsSystem)", initial: true) { model.setStyle(id: style, followSystem: followsSystem) }
             .onReceive(document.$text) { model.schedule($0) }
             .onChange(of: documentURL, initial: true) { _, url in model.documentDirectory = url?.deletingLastPathComponent() }
