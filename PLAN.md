@@ -537,7 +537,10 @@ editorLine(y):上式反函数,再由 LineTable 求该行 fragment 的 y,NSTextVi
 
 - `QLPreviewProvider` 子类(数据式),`providePreview(for:)` 读文件 → `JSCRenderer` 渲染 → 组静态 HTML:内联 GitHub(白底)预览样式 + hljs 主题;有数学时再内联 KaTeX CSS,字体(20 个 woff2)作 `cid:` 附件(`QLPreviewReplyAttachment`,S5 实测 `cid:` 与 `data:` 均可用于图片与 `@font-face`)→ `QLPreviewReply(dataOfContentType: .html, …)`。去掉 `data-line`/`data-line-end`。
 - **不依赖 JS**:KaTeX 是 `renderToString` 的静态 HTML,Mermaid 不渲染(保持代码块),任务列表只显示。S5 实测 QL 的 HTML 预览**会**执行内联 `<script>`,且不理会 `<meta>` CSP(macOS 27.2、`qlmanage -p`),所以安全上不能指望宿主禁 JS:QL 渲染一律 `allowRawHTML = false`(文档里的原始 HTML 被转义显示),页面自己不含脚本。
-- **同目录图片读不到**:S5 实测沙盒扩展对被预览文件的同级文件 `open` 返回 `EPERM`(`QLFilePreviewRequest` 只授权该文件本身;`user-selected.read-only` 不适用)。相对路径图片显示文字占位 `[图片: alt]`;绝对 URL(`https:`/`data:`)原样保留。备选(未做):`com.apple.security.temporary-exception.files.absolute-path.read-only`,换来读同目录图片,代价是 Mac App Store 不可用、沙盒放宽——待用户拍板。
+- **同目录图片(2026-10-03 用户拍板:放宽沙盒读本地图,网络图片照常加载)**:S5 实测默认沙盒下扩展对被预览文件的同级文件 `open` 返回 `EPERM`(`QLFilePreviewRequest` 只授权该文件本身)。现给扩展加**只读**临时例外 `com.apple.security.temporary-exception.files.home-relative-path.read-only = ["/"]`(整个家目录,含 `~/Library/Mobile Documents` 即 iCloud Drive;不加写权限、不关沙盒)。`QuickLookPage.make(documentDirectory:)` 对相对路径 `<img>` 走与 App 共用的 `MarkdownCore.DocumentFileResolver`(拒绝 `..`;解析符号链接后须仍在文档目录内,带尾斜杠前缀比较;只读常规文件),且扩展名须属图片类型,有界读取,以 `cid:md2-img-N` 附件交给 `QLPreviewReply`(同一路径只附一次)。单张上限 10 MB(`maxImageBytes`)、总上限 50 MB(`maxTotalImageBytes`),超限、越界、缺失或非图片的仍显示占位 `[图片: alt]`;绝对 URL(`https:`/`data:`)原样保留,**网络图片不拦截**(由宿主加载,沿用既有行为)。
+  - **安全边界的变化**:扩展原先只能读被预览的那一个文件,现在进程**有能力**读家目录下任意文件(沙盒不再替我们拦);路径约束由 `DocumentFileResolver` 在代码里保证,而该进程正是在渲染不可信 `.md` 的那个(JSC 解析、无 JIT)。缓解:`allowRawHTML` 恒关、页面不含脚本、图片只经 `cid:` 回给宿主、大小上限防内存;残余风险=渲染链路被攻破时可读家目录。家目录之外(`/Volumes` 外接盘、`/Users/Shared`、`/tmp`)读不到,仍是占位——不加 `/Volumes/` absolute-path 例外,因为它把可读范围扩到所有外接盘,换来的只是外接盘上文档的图片。
+  - **分发**:带 `temporary-exception` 的沙盒扩展过不了 Mac App Store 审核;本项目本来就走 Developer ID + 公证直发(§1),不受影响,也就此确认不上 App Store。
+  - 验证(`qlmanage -p`,窗口截图):同目录 `img/green.png` 显示;`../secret.png`、指向目录外的符号链接、缺失文件均为占位。
 - 读取用户主题/选项:目前**没有** App Group(无签名 team),QL 全部用默认值(GitHub 白底、默认 `RenderOptions`);App Group 就绪后改读共享 `UserDefaults`。QL 永远关闭 Mermaid。
 - 扩展开关:QL **不链接**任何 `*Extension` 模块。每次 `providePreview` 用 `FlavorManifest.resolve(utType:isEnabled:)` 决定 flavor/chunk(`isEnabled` 目前恒 true;App Group 就绪后读 `settingKey`);开且文件 UTType 匹配 → `RenderOptions(flavor:renderChunks:)` + 清单里的 `stylesheets`;关 → 普通 Markdown。不在 QL 进程内缓存开关值。`QLSupportedContentTypes` 现只列 `net.daringfireball.markdown`,`org.quarto.qmd` 随 Quarto 扩展落地时加。qmd 扩展与 QL 无关。
 - 大文件:最多读 **256 KB**(`QuickLookPage.maxBytes`),在最后一个换行处截断,页面顶部和底部各显示「文档过大,仅显示开头部分。在 MacDown2.0 中打开查看全文。」(英文系统显示英文)。256 KB ≈ 0.65 s;1 MB 预计 > 2.5 s,故由 PLAN 原定 1 MB 下调。`# lazy: 解释器线性约 2.6 ms/KB,升级路径=后台增量渲染/只渲染可见页`。
@@ -940,7 +943,7 @@ CI:
 
 **S2 结论(已完成,2026-10-03,release、M5 Pro、合成 1 MB 文档;详见 §4.1.3 / §4.1.4 / §4.4.1 / §4.4.2 / §4.7)**:`WebPage` 桥可直接用于生产——1 MB 纯桥接开销约 3.5 ms、渲染 61–85 ms(冷启动 139 ms)、全量刷新约 350 ms;JS→Swift 主通道用 `userContentController` 的 message handler(`macdown2-bridge:` scheme 仅作回退),1000 事件 0 丢失/0 重复/顺序不乱;`URLSchemeHandler` 可服页面、JS/CSS、图片(三个坑已入 §4.4.2);滚动几何回调约 57–60 Hz;`WebPage.isInspectable` 存在;`exported(as: .pdf)` 只出长条页(§4.7 待拍板)。遗留人手确认:真实触控板/惯性/120 Hz 滚动、Safari Inspector 实际挂载(列入 `docs/manual-qa.md`)。
 
-**S5 结论(已完成,2026-10-03,macOS 27.2、M5 Pro、Xcode 27、Debug 构建、`qlmanage -p`、ad-hoc 签名沙盒扩展;详见 §4.9)**:100 KB 混合文档(标题/表格/代码/KaTeX/任务列表)渲染稳态 **约 270–300 ms**(JS 上下文创建 ≈ 20 ms),冷启动首次(刚重装扩展)约 640 ms;256 KB 稳态约 650 ms(冷首次 1.3 s)——100 KB 达标。**QL 的 HTML 预览会执行内联脚本,且不理会 meta CSP**,故设计不依赖 JS 之外还对原始 HTML 转义。**`cid:` 附件可用**(图片、`@font-face` 字体),`data:` URI 同样可用;**同目录图片读不到**(沙盒 `EPERM`),显示占位。QL 进程里 JSC 无 JIT。未验证:Finder 空格键预览(只用 `qlmanage -p`,二者走同一 `QLPreviewReply` 路径)、Release/公证签名下的耗时。
+**S5 结论(已完成,2026-10-03,macOS 27.2、M5 Pro、Xcode 27、Debug 构建、`qlmanage -p`、ad-hoc 签名沙盒扩展;详见 §4.9)**:100 KB 混合文档(标题/表格/代码/KaTeX/任务列表)渲染稳态 **约 270–300 ms**(JS 上下文创建 ≈ 20 ms),冷启动首次(刚重装扩展)约 640 ms;256 KB 稳态约 650 ms(冷首次 1.3 s)——100 KB 达标。**QL 的 HTML 预览会执行内联脚本,且不理会 meta CSP**,故设计不依赖 JS 之外还对原始 HTML 转义。**`cid:` 附件可用**(图片、`@font-face` 字体),`data:` URI 同样可用;同目录图片在**默认沙盒下**读不到(`EPERM`;其后用户拍板加只读临时例外解决,见 §4.9)。QL 进程里 JSC 无 JIT。未验证:Finder 空格键预览(只用 `qlmanage -p`,二者走同一 `QLPreviewReply` 路径)、Release/公证签名下的耗时。
 
 
 ---
@@ -1032,7 +1035,7 @@ CI:
 1. ~~`WebPage` 是否存在 JS→Swift script message handler 等价 API~~ — **已查证(S2)**:有,`WebPage.Configuration.userContentController`;见「已查证」小节。
 2. `WebPage.isInspectable` **存在**(可读写,默认 `false`;S2 已查证),**⚠ 但 Safari Web Inspector 能否真的挂上该页面仍待人手验证**(Safari ▸ 设置 ▸ 高级 ▸ 显示网页开发者功能,开发 ▸ 本机 ▸ App ▸ 页面)。**部分解决。**
 3. ~~1 MB 文档 markdown-it 在 WebView 内渲染耗时~~ — **已查证(S2)**:85 ms(完整选项)/ 61 ms(精简)/ 冷启动 139 ms,≤ 150 ms 达标;见「已查证」小节。
-4. ~~QL 扩展内 JSC(无 JIT)渲染 100 KB 耗时(目标 ≤ 500 ms);QL HTML 预览不执行 JS 的官方说明;QL 扩展读取同目录图片的权限~~ — **已查证(S5)**:稳态约 270–300 ms;QL 会执行内联 JS 且忽略 meta CSP(官方文档仍无说明,以实测为准);同目录图片读不到;见「已查证」小节。
+4. ~~QL 扩展内 JSC(无 JIT)渲染 100 KB 耗时(目标 ≤ 500 ms);QL HTML 预览不执行 JS 的官方说明;QL 扩展读取同目录图片的权限~~ — **已查证(S5)**:稳态约 270–300 ms;QL 会执行内联 JS 且忽略 meta CSP(官方文档仍无说明,以实测为准);同目录图片在默认沙盒下读不到——**已解决**:用户拍板加 `home-relative-path.read-only` 只读临时例外(家目录)+ 共用 `DocumentFileResolver` 读图(单张 10 MB/总 50 MB),安全边界变化与不上 App Store 见 §4.9;见「已查证」小节。
 5. `@mdit/plugin-katex` 的 `delimiters` 选项名/是否支持 `\(…\)`。
 6. `qmd collection list` 是否支持 `--format json`;`qmd search`/`query --format json` 的字段名;`qmd update -c` 是否存在;`qmd mcp --http` 的 `/query` 响应 schema。
 7. `.qmd` 无官方 UTI,`org.quarto.qmd` 为本项目拟定。

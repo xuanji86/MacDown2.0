@@ -7,8 +7,8 @@ import WebAssets
 enum AppearanceKey {
     static let editorTheme = "editorTheme"
     static let editorThemeFollowsSystem = "editorThemeFollowsSystem"
-    static let previewStyle = "previewStyle"
-    static let previewStyleFollowsSystem = "previewStyleFollowsSystem"
+    static let previewStyle = PreviewStyles.styleKey
+    static let previewStyleFollowsSystem = PreviewStyles.followsSystemKey
 }
 
 enum AppearanceDefault {

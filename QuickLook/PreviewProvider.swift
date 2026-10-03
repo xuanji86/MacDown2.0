@@ -23,7 +23,7 @@ final class PreviewProvider: QLPreviewProvider, QLPreviewingController {
         // Per request on purpose: a fresh context costs ~one bundle evaluation, and nothing leaks between previews.
         let renderer = try JSCRenderer()
         let ready = ContinuousClock.now
-        let page = try await QuickLookPage.make(data: data, utType: utType, renderer: renderer)
+        let page = try await QuickLookPage.make(data: data, utType: utType, renderer: renderer, documentDirectory: request.fileURL.deletingLastPathComponent())
         let done = ContinuousClock.now
         Self.log.info("rendered \(data.count, privacy: .public) bytes: total \(Self.ms(done - started), privacy: .public) ms (JS context \(Self.ms(ready - started), privacy: .public), render+page \(Self.ms(done - ready), privacy: .public)), truncated=\(page.truncated, privacy: .public)")
 
