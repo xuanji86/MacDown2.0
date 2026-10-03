@@ -1,0 +1,73 @@
+import Foundation
+import SwiftTreeSitter
+import TreeSitterMarkdown
+import TreeSitterMarkdownInline
+
+/// Semantic token names (PLAN 4.5). Query capture names are these raw values.
+public enum TokenKind: String, CaseIterable, Sendable {
+    case heading, headingMarker
+    case emphasis, strong, strikethrough
+    case code, codeBlock, codeFence
+    case link, linkURL, linkLabel, image
+    case quote, quoteMarker
+    case listMarker, taskMarker
+    case hr, html, frontMatter, math, escape, delimiter
+    case tableHeader, tableDelimiter
+}
+
+/// Compiled once. Our own capture names (instead of the grammar's nvim-style highlights.scm) because the shipped
+/// queries do not cover strikethrough, tables, task lists or front matter.
+enum Grammar {
+    static let block = Language(tree_sitter_markdown())
+    static let inline = Language(tree_sitter_markdown_inline())
+
+    /// Capture "inline" is not a style: it marks the ranges the inline grammar must be run over.
+    static let inlineCapture = "inline"
+
+    static let blockQuery: Query = {
+        let source = """
+        (atx_heading (inline) @heading)
+        (setext_heading (paragraph) @heading)
+        [(atx_h1_marker) (atx_h2_marker) (atx_h3_marker) (atx_h4_marker) (atx_h5_marker) (atx_h6_marker)
+         (setext_h1_underline) (setext_h2_underline)] @headingMarker
+        (block_quote) @quote
+        [(block_quote_marker) (block_continuation)] @quoteMarker
+        [(fenced_code_block) (indented_code_block)] @codeBlock
+        [(fenced_code_block_delimiter) (info_string)] @codeFence
+        [(list_marker_plus) (list_marker_minus) (list_marker_star) (list_marker_dot) (list_marker_parenthesis)] @listMarker
+        [(task_list_marker_checked) (task_list_marker_unchecked)] @taskMarker
+        (thematic_break) @hr
+        (html_block) @html
+        [(minus_metadata) (plus_metadata)] @frontMatter
+        (pipe_table_header) @tableHeader
+        (pipe_table_delimiter_row) @tableDelimiter
+        (link_reference_definition (link_label) @linkLabel)
+        (link_reference_definition (link_destination) @linkURL)
+        (backslash_escape) @escape
+        (inline) @inline
+        """
+        return try! Query(language: block, data: Data(source.utf8))
+    }()
+
+    static let inlineQuery: Query = {
+        let source = """
+        (emphasis) @emphasis
+        (strong_emphasis) @strong
+        (strikethrough) @strikethrough
+        (code_span) @code
+        [(emphasis_delimiter) (code_span_delimiter) (latex_span_delimiter)] @delimiter
+        (inline_link (link_text) @link)
+        (full_reference_link (link_text) @link)
+        (collapsed_reference_link (link_text) @link)
+        (shortcut_link (link_text) @link)
+        (image (image_description) @image)
+        [(link_destination) (uri_autolink) (email_autolink)] @linkURL
+        (link_label) @linkLabel
+        (link_title) @linkLabel
+        (latex_block) @math
+        (html_tag) @html
+        [(backslash_escape) (entity_reference) (numeric_character_reference)] @escape
+        """
+        return try! Query(language: inline, data: Data(source.utf8))
+    }()
+}
