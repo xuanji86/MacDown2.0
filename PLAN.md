@@ -74,7 +74,7 @@
 │       │                  ├─ EditingAssistant (配对/续写/缩进)               │
 │       │                  └─ LineTable (行号↔UTF-16 偏移)                     │
 │       ├─ PreviewPane ── WebView(WebPage)                                    │
-│       │                  ├─ PreviewBridge (callJavaScript / scheme handler) │
+│       │                  ├─ PreviewBridge (callJavaScript / message handler)│
 │       │                  ├─ ScrollSyncController (纯函数 + 状态机)           │
 │       │                  └─ [AlternatePreviewMode 由扩展提供,如 Quarto 真渲染]│
 │       ├─ OutlineInspector (.inspector)                                      │
@@ -115,7 +115,7 @@ MacDown2.0/
 │   ├── Extensions/ ExtensionRegistry.swift  ExtensionHostImpl.swift   # 唯一注册内置扩展的地方
 │   ├── Document/   MarkdownDocument.swift  DocumentState.swift  FileTypes.swift
 │   ├── Editor/     EditorPane.swift  (薄壳,逻辑在 EditorKit)
-│   ├── Preview/    PreviewPane.swift  PreviewBridge.swift  ImageSchemeHandler.swift  BridgeSchemeHandler.swift  PreviewModeBanner.swift
+│   ├── Preview/    PreviewPane.swift  PreviewBridge.swift  ImageSchemeHandler.swift  BridgeSchemeHandler.swift(回退通道)  PreviewModeBanner.swift
 │   ├── Workspace/  WorkspaceSidebar.swift  FileTree.swift  FolderWatcher.swift  SearchPanel.swift
 │   ├── Search/     SearchService.swift  BuiltinSearchBackend.swift        # 核心自带的 SearchProvider
 │   ├── Tools/      LoginShellEnvironment.swift                             # 懒加载,只被扩展经 ExtensionHost 触发
@@ -231,7 +231,7 @@ MacDown2.0/
 | 供应链 | cargo 依赖树中等;编译进二进制 | npm 小插件多、维护参差(用 2026-09 仍活跃的 @mdit/* 替代 2023 停更的 markdown-it-mark/sup/sub);靠 lockfile + vendored 产物 + 升级审阅缓解 | Apple 维护,最小 |
 | QL / CLI / 导出复用 | 同一 xcframework 四处链接;QL 扩展里 Rust 静态库无额外限制 | 同一 bundle 经 JSC 复用;QL 扩展(沙盒、无 JIT)走解释器,100 KB 文档量级可接受(`⚠未验证` 具体耗时,见 S5) | 同 A |
 | 调试难度 | lldb 跨 FFI 弱;panic 跨边界需兜底 | Web Inspector 可直接断点预览内 JS;JSC 路径可在 Node 里复现 | 最易 |
-| 性能(1 MB 文档) | 最快(估 20–40 ms 解析+渲染) | WebView JIT 下估 80–150 ms(`⚠未验证`,见 S2);配合 80–150 ms 防抖与块级 patch,用户感知差异小 | 快 |
+| 性能(1 MB 文档) | 最快(估 20–40 ms 解析+渲染) | WebView JIT 实测 61–85 ms(S2:release、M5 Pro、合成 1 MB;冷启动首次 139 ms;全量刷新含 `innerHTML`+布局约 350 ms);配合 80–150 ms 防抖与块级 patch,用户感知差异小 | 快 |
 | KaTeX/Mermaid 整合 | 仍要在 WebView 侧跑 JS 后处理 | 同一 JS 运行时内完成,KaTeX 渲染期静态输出 | 同 A |
 
 ### 3.3 决策理由(一句话版)
@@ -312,7 +312,11 @@ Hoedown/MacDown 选项 → markdown-it 映射见 §5 对等清单"Markdown 偏�
 
 #### 4.1.3 安全
 
-- `html: true`(MacDown 允许原生 HTML),但预览页用 CSP:`default-src 'none'; img-src macdown2-res: data: https:; style-src 'self' 'unsafe-inline'; script-src 'self' 'nonce-<随机>'; connect-src macdown2-bridge:`。用户 Markdown 里的 `<script>` 不会执行,`on*` 属性被 CSP 拦。
+- `html: true`(MacDown 允许原生 HTML),但预览页用 CSP:`default-src 'none'; img-src macdown2-res: data: https:; style-src macdown2-res://app 'unsafe-inline'; script-src macdown2-res://app 'nonce-<随机>'; connect-src macdown2-bridge:`。用户 Markdown 里的 `<script>` 不会执行,`on*` 属性被 CSP 拦。各项与 S2 实测对齐的理由:
+  - **`connect-src macdown2-bridge:` 只为回退通道服务**。主通道 `window.webkit.messageHandlers.<name>.postMessage` 不受 CSP 约束;回退用的 `fetch("macdown2-bridge://…")` 在 `default-src 'none'` 下会被静默拦成 `TypeError: Load failed`,必须显式放行。回退通道若最终砍掉,此项一并删除。
+  - **`img-src macdown2-res:` 取代 `'self'`**。`'self'` 匹配 scheme + host + port:文档图片在 host `doc`、应用资源在 host `app`,换 host 的请求会被 `img-src` 拦掉(S2 实测:`macdown2-res://img/red.png` 被拦)。按 scheme 放行最省事,路径越界由 handler 自己守(见 §4.4.2)。
+  - **`script-src` / `style-src` 同理不能用 `'self'`**:预览页自身与 `macdown2-res://app/*` 资源不一定同 host,所以写成 `macdown2-res://app`,不放开 `doc` 主机——用户文档目录里的 `.js` 不会被执行。实现时由集成测试断言脚本、样式、图片均加载成功。
+  - 仓库里现有 `Web/src/preview/preview.html` 的 CSP 仍是 M0 的 `img-src 'self' …`、无 `connect-src`、无 nonce,待按本条同步(本次只改 PLAN)。
 - 相对资源只允许文档所在目录及其子目录(符号链接解析后比较),防 `../../etc/passwd` 式图片读取(macdown3000 #386 同类问题)。
 - 外链点击交给系统浏览器(`NavigationDeciding` 返回 `.cancel` + `NSWorkspace.open`),预览 WebView 永不导航到外部 URL(Quarto 真渲染模式只允许 `http://127.0.0.1:<port>`)。
 
@@ -321,7 +325,9 @@ Hoedown/MacDown 选项 → markdown-it 映射见 §5 对等清单"Markdown 偏�
 | 场景 | 目标 | 测法 |
 |---|---|---|
 | 50 KB 典型文档,单键 → 预览更新完成 | ≤ 40 ms(渲染 ≤ 15 ms + patch ≤ 10 ms) | XCTest `measure` 经 PreviewBridge |
-| 1 MB 纯文本 Markdown,全量渲染 | ≤ 150 ms(WebView JIT) `⚠未验证` | 同上;S2 spike 实测后修正 |
+| 1 MB 文档,`callJavaScript` 纯桥接开销(传入 1 MB、取回约 3.4 MB 结果,扣除 JS 内耗时) | ≤ 10 ms(回归线);**S2 实测 3.5 ms(p95 4.1 ms)** | S2 spike:`DispatchTime` 包 `await page.callJavaScript` 减去 JS 内 `performance.now()` 耗时,3 次预热 + 20 次取中位 |
+| 1 MB 纯文本 Markdown,纯渲染(`MacDown2.render`,不含 DOM) | ≤ 150 ms(WebView JIT);**S2 实测 85 ms(完整选项:tables/strikethrough/autolink/smartPunctuation/headingAnchors)、61 ms(精简:tables + strikethrough),冷启动首次调用 139 ms** | 同上;linkify + typographer 约占 23 ms。合成文档,真实文档(更多代码块/KaTeX/原生 HTML)会偏移 |
+| 1 MB 文档,全量刷新(渲染 + `innerHTML` + 强制布局) | 无硬目标;**S2 实测约 350 ms(p95 384 ms)**,50 KB 约 19 ms | 这是用户可见的真实成本,印证防抖 + 块级 patch(§4.4.3)必要 |
 | 1 MB 文档,单键局部编辑后 patch | ≤ 30 ms(只替换 1–2 块) | JS `performance.now()` 上报 |
 | QL 扩展(JSC 解释器)渲染 100 KB | ≤ 500 ms `⚠未验证` | S5 |
 | 编辑区高亮,1 MB 文档单键 | 可见区 ≤ 8 ms(同步),全文后台 | Neon 计时 |
@@ -388,13 +394,13 @@ Hoedown/MacDown 选项 → markdown-it 映射见 §5 对等清单"Markdown 偏�
 | 需求 | API | 状态 |
 |---|---|---|
 | Swift→JS 调用并取返回值 | `WebPage.callJavaScript(_:arguments:in:contentWorld:) async throws -> Any?`,arguments 字典在 JS 作用域可见 | 已验证(WWDC25 231 + 多篇实测) |
-| 加载文档旁相对图片 | `WebPage.Configuration.urlSchemeHandlers[URLScheme("macdown2-res")] = handler`;`URLSchemeHandler.reply(for:) -> some AsyncSequence<URLSchemeTaskResult, any Error>`(`.response`/`.data`) | 已验证 |
-| JS→Swift 推送(任务列表勾选、点击链接、错误上报) | WebPage **未见** script message handler 等价物(`⚠未验证`:Apple 文档页抓取失败;社区文章与 WWDC 讲稿均无此 API) | 对策:JS 用 `fetch("macdown2-bridge://event?type=…&line=…")`(GET + query,避开 scheme handler 可能丢 POST body 的历史问题),由第二个 `URLSchemeHandler` 接收并回 204;链接点击用 `NavigationDeciding.decidePolicy` 拦截。**S2 验证**;回退:`WKWebView` + `NSViewRepresentable` + `WKScriptMessageHandler`(此时 AppKit 组件变两个,接受)。 |
-| 读/设预览滚动位置 | `.webViewScrollPosition($pos)` + `pos.scrollTo(y:)`;`.webViewOnScrollGeometryChange(for:of:action:)` 读 `contentOffset.y` / `contentSize` | 已验证(TrozWare 实测) |
+| 加载文档旁相对图片 | `WebPage.Configuration.urlSchemeHandlers[URLScheme("macdown2-res")] = handler`;`URLSchemeHandler.reply(for:) -> some AsyncSequence<URLSchemeTaskResult, any Error>`(`.response`/`.data`) | 已验证(S2 实测:页面本身、JS/CSS、PNG/SVG/1200×800 图片、相对路径、404 均正常;**三个坑见 §4.4.2 末**) |
+| JS→Swift 推送(任务列表勾选、点击链接、错误上报) | **主通道:message handler。** `WebPage.Configuration.userContentController` 就是 `WKUserContentController`:`var cfg = WebPage.Configuration(); cfg.userContentController.add(handler, name: "macdown2")`(`handler: NSObject, WKScriptMessageHandler`),JS 端 `window.webkit.messageHandlers.macdown2.postMessage({...})`,回调在**主线程**(别在里面做重活)。不受 CSP/CORS 约束。**回退通道:** `fetch("macdown2-bridge://event?type=…&line=…")`(GET + query)→ 第二个 `URLSchemeHandler` 回 204 + `Access-Control-Allow-Origin: *`,需 CSP `connect-src macdown2-bridge:`(§4.1.3);实测 POST 的 `httpBody` 也能到,但仍选 GET。链接点击用 `NavigationDeciding.decidePolicy` 拦截。 | **已验证(S2)**,原"WebPage 无 message handler 等价物"的前提不成立,不再需要 `WKWebView` + `NSViewRepresentable` 回退。实测 100 事件/s × 10 s(1000 个):message handler 0 丢失、0 重复、顺序不乱,延迟中位 0.91 ms / p95 1.47 ms;与每 ~150 ms 一次的 1 MB 渲染并发(41 次)同样 0 丢失,中位 1.29 ms;瞬发 1000 个(8 ms 内)0 丢失、0 重复、顺序不乱。scheme fetch 回退通道同样全部 0 丢失/0 重复/顺序不乱(空闲 1.17 ms;并发渲染 1.27 ms;15 ms 内瞬发 1000 个,中位 6.1 ms / p95 8.6 ms)。未测 `addScriptMessageHandlerWithReply`。 |
+| 读/设预览滚动位置 | `.webViewScrollPosition($pos)` + `pos.scrollTo(y:)`;`.webViewOnScrollGeometryChange(for:of:action:)` 读 `contentOffset.y` / `contentSize` | 已验证(TrozWare 实测;**S2 实测**:1 MB 文档(867,386 px 高)下回调约 57–60 Hz,与显示帧率同步,四种合成驱动(JS rAF `scrollBy`、JS smooth scroll、Swift `ScrollPosition.scrollTo` 120 Hz 定时器、进程内合成滚轮事件)均 ≥ 30 Hz)。合成事件绕过了系统事件通路,**真实触控板、惯性滚动、120 Hz 屏未覆盖**,需人手 30 秒确认,列入 `docs/manual-qa.md`(§6.1) |
 | 页内查找 | `.findNavigator(isPresented:)` | 已验证(替换不可用,预览本来只读) |
 | 禁止外部导航 | `WebPage(configuration:navigationDecider:)`,返回 `.cancel` 并 `NSWorkspace.shared.open` | 已验证 |
-| PDF 导出 | `WebPage` 是 `Transferable`,`try await page.exported(as: .pdf(allowTransparentBackground:))`(单页长图式 PDF) | 二手实证(博客);**分页 PDF** 见 §4.7 |
-| Web Inspector 调试 | `WKWebView.isInspectable` 对应物在 `WebPage` 上是否存在 `⚠未验证` | 开发期若无,则在 Debug 构建用 `WKWebView` 包装调试页面 |
+| PDF 导出 | `WebPage` 是 `Transferable`;`func exported(as representation: WebPage.ExportedContentConfiguration) async throws -> Data`,配置 `.pdf(region: Region = .contents, allowTransparentBackground: Bool = false)`(`Region` 为 `.rect(_:)` / `.contents`) | **签名已验证(S2)**。产出是**屏幕宽度、单页最高 14400 pt 的长条页,不是 Letter/A4 分页**(1 MB 文档 61 页 883×14400 pt、4.5 MB、1.5 s;50 KB 4 页、56 ms)。`.pdf(region: .rect(0,0,600,800))` 恰好一页;`WKWebView.pdf()` 的字节与分页和 `WebPage` 路线相同。`.image(snapshotWidth:)` 在长页面上失败,不可用于整页导出。**分页 PDF** 见 §4.7 |
+| Web Inspector 调试 | `WebPage.isInspectable`(`@MainActor var isInspectable: Bool { get set }`,默认 `false`;置 `true` 后底层 `WKWebView.isInspectable` 同步为 `true`)。Debug 构建 `#if DEBUG page.isInspectable = true` | **属性存在且可读写(S2 实测)**;Safari Web Inspector 实际能否挂上 `⚠未验证`(本机 Safari 未开 Develop 菜单,需人手一次:Safari ▸ 设置 ▸ 高级 ▸ 显示网页开发者功能,开发 ▸ 本机 ▸ App ▸ 页面),见附录 A 第 2 条 |
 
 #### 4.4.2 预览页结构
 
@@ -409,6 +415,13 @@ Hoedown/MacDown 选项 → markdown-it 映射见 §5 对等清单"Markdown 偏�
 </head><body><article id=doc data-flavor=markdown></article></body></html>
 ```
 `macdown2-res://app/*` 由 handler 映射到 `WebAssets` bundle 资源;`macdown2-res://doc/*` 映射到文档目录(目录越界拒绝)。主题切换 = 换 `<link href>` 并 cache-bust,不重载页面。flavor chunk 按需加载:`chunk-loader.ts` 在 `renderAndPatch` 收到 `renderChunks` 非空且尚未加载时,动态插入带同一 nonce 的 `<script src="macdown2-res://app/quarto.chunk.js">` 与对应 `<link>`(`quarto-approx.css`),等 `load` 后再渲染;扩展关闭或文档非该 flavor 时永不加载。
+
+**`URLSchemeHandler` 的三个坑(S2 实测,真实 `preview.html` + 逐字 CSP 下得出)**:
+1. **`urlSchemeHandlers` 在 `WebPage` 创建后就改不了**(`Configuration` 只在创建时生效)。所以每个文档的根目录不能配置进去,handler 必须在 `reply(for:)` 里**动态解析**:用 host(或路径前缀)当文档 id,查 `[docID: 目录]` 表。
+2. **CSP 的 `'self'` 会拦掉换了 host 的请求**:`'self'` 匹配 scheme + host + port,`macdown2-res://img/red.png` 在 `img-src 'self'` 下被拦。解法:CSP 写 `img-src macdown2-res:`(§4.1.3),或把所有文档放同一 host 下用路径前缀区分。
+3. **百分号编码的 `..` 能穿到 handler**:`..%2f..%2fPackage.swift` 到 handler 时是 `/img/../../Package.swift`;字面 `../..` 则被浏览器先规范化,handler 只会看到 `/Package.swift`(404)。handler 必须**自己在解码后拦截 `..` 路径分量**(并在符号链接解析后与文档根比较,§4.1.3),返回 403。
+
+S2 的实测路径是**页面本身也由 handler 服务**(`macdown2-res://doc/index.html`),`loadHTMLString(_, baseURL:)` 这一加载方式未单独测;未测:大图流式、Range 请求、音视频。
 
 #### 4.4.3 增量 DOM patch 策略
 
@@ -496,7 +509,7 @@ editorLine(y):上式反函数,再由 LineTable 求该行 fragment 的 y,NSTextVi
 ### 4.7 导出
 
 - **HTML**:`JSCRenderer.render(target: .export)` → 套固定模板:内联预览主题 CSS、hljs CSS、KaTeX CSS(字体按设置内联);图片按设置 内联 base64 / 保持相对路径 / 复制到 `<name>_files/`;Mermaid 用预览里已渲好的 SVG(从 WebView `callJavaScript("return MacDown2.exportSVGs()")` 取回替换)。
-- **PDF**:需分页(Letter/A4、页边距)。`WebPage.exported(as: .pdf)` 产单页长 PDF,不满足;方案:App 内一个**离屏 `WKWebView`**(非 UI 组件,不进视图层级)加载导出 HTML,`printOperation(with: NSPrintInfo)`,`jobDisposition = .save`、`NSPrintSavePath` 指向目标文件,`runModal(for:)`。⌘P 同路径走系统打印面板。Quarto 真渲染模式下导出 = 调 `quarto render --to pdf/html`(需用户确认,因会执行代码)。
+- **PDF**:需分页(Letter/A4、页边距)。S2 实测:`WebPage.exported(as: .pdf(region:allowTransparentBackground:)) async throws -> Data` 产出的是**屏幕宽度、单页最高 14400 pt 的长条页**(1 MB 文档 61 页 883×14400 pt、1.5 s),不是 Letter/A4 分页;`WKWebView.pdf()` 结果相同,`.image(snapshotWidth:)` 在长页面上直接失败。**「导出 PDF」是接受长条页(实现最简单:一行 API、17 ms–1.5 s),还是改走分页打印路线,列为 `⚠未验证` 待拍板项(附录 A 第 16 条)**;方案默认仍按分页打印路线设计(`NSPrintOperation` 路线 S2 未测):App 内一个**离屏 `WKWebView`**(非 UI 组件,不进视图层级)加载导出 HTML,`printOperation(with: NSPrintInfo)`,`jobDisposition = .save`、`NSPrintSavePath` 指向目标文件,`runModal(for:)`。⌘P 同路径走系统打印面板。Quarto 真渲染模式下导出 = 调 `quarto render --to pdf/html`(需用户确认,因会执行代码)。
 - **复制 HTML**(⌘⇧C):渲染片段进剪贴板(`public.html` + 纯文本)。
 
 ### 4.8 设置(Settings 场景)
@@ -799,9 +812,9 @@ public protocol SearchProvider: Sendable {
 | Swift 单元 | Swift Testing | `ScrollSync` 数学、`LineTable`、`EditingAssistant`(用 `NSTextView` 无窗口实例驱动)、`HoedownCompat` 映射、`QuartoLocator`(QuartoExtension)、`QmdSearchProvider` JSON 解码(QmdSearchExtension,用录制的 fixture)、`BuiltinSearchBackend`、UTType 识别、`FlavorManifest` 与各扩展 `DocumentFlavor.id`/`renderChunks` 一致性 |
 | 扩展开/关两态 | Swift Testing + XCUITest | 每个扩展的功能测试在 enabled / disabled 两态各跑一遍。**关闭态断言(零进程、零探测)**:注入可计数的 `ProcessSpawner` 与 `ToolEnvironment` 桩,断言 spawn 次数 = 0、环境抓取次数 = 0;`ExtensionRegistry` 未调用该扩展 `activate`;菜单/工具栏无其命令;`JSCRenderer` 渲染 `.qmd` 后 context 全局无 `MacDown2.flavors.quarto`(chunk 未加载);搜索结果来源只有 `builtin`,面板文案不含 "qmd"。**运行中关闭断言**:用 sleep 脚本冒充 `quarto preview` 起一个真渲染后 `deactivate()`,进程 3 s 内退出、横幅与命令消失;冒充的 qmd daemon(PID 文件)被停止。**QL**:同一 `.qmd` 在开/关两态下输出含 / 不含 `callout` class。 |
 | 性能 | XCTest `measure`(与 Swift Testing 并存,仅性能用) | 渲染 50 KB/1 MB、高亮 1 MB、patch 单键;阈值写进测试,超 20% 失败 |
-| 集成 | Swift Testing(需 WebKit) | `PreviewBridge` 往返:1 MB 文本经 `callJavaScript` 的耗时与正确性;scheme handler 图片/事件 |
+| 集成 | Swift Testing(需 WebKit) | `PreviewBridge` 往返:1 MB 文本经 `callJavaScript` 的耗时与正确性;scheme handler 图片;message handler 事件(回退 scheme 事件通道也各测一遍) |
 | UI | XCUITest(≤ 8 条) | 启动建文档;打开 fixture 预览非空;键入后预览更新;⌘⇧E 导出 HTML 文件存在;.qmd 显示 Quarto 徽标;关闭 Quarto 扩展后 .qmd 顶部出现一次性提示且预览无 callout;qmd 扩展关闭时搜索面板只有内置来源;开启 qmd 扩展但未安装时显示安装提示 |
-| 手工清单 | `docs/manual-qa.md` | 中文/日文 IME 组字、VoiceOver、深色模式、Increase Contrast、公证后首启 Gatekeeper |
+| 手工清单 | `docs/manual-qa.md` | 中文/日文 IME 组字、VoiceOver、深色模式、Increase Contrast、公证后首启 Gatekeeper;**S2 遗留的两项人手确认**:真实触控板/惯性滚动/120 Hz 屏下滚动几何回调 ≥ 30 Hz(30 秒)、Safari Web Inspector 能否挂上 `isInspectable` 页面 |
 
 ### 6.2 CI(`.github/workflows/ci.yml`)
 
@@ -867,7 +880,7 @@ CI:
 | 风险 | 影响 | 对策 |
 |---|---|---|
 | `DocumentGroup` + `ReferenceFileDocument` 自动保存/撤销与 NSTextView 不合(自动保存绑 UndoManager;iCloud 重命名后停止保存的已知 bug) | 高:文档层返工 | S1 先验;回退 `NSDocument` + `NSHostingView`,其余模块零改动 |
-| `WebPage` 缺 JS→Swift 推送、缺 inspectable、1 MB 字串经 `callJavaScript` 开销 | 中 | S2;回退 `WKWebView`+`NSViewRepresentable` |
+| ~~`WebPage` 缺 JS→Swift 推送、缺 inspectable、1 MB 字串经 `callJavaScript` 开销~~ → S2 已消除:message handler 可用、`isInspectable` 存在、桥接开销 3.5 ms。残余:Safari Inspector 实际挂载待人手验证(附录 A 第 2 条) | 低 | `WKWebView`+`NSViewRepresentable` 回退保留但预计用不上 |
 | TextKit 2 自身 bug(渲染属性不刷、视口高度抖动、IME 选区) | 中 | 不用渲染属性;不伪造高度;IME 期间不写属性;问题集中在 `MarkdownTextView` 一处可替换为 STTextView(BSD/MIT)作为最终回退 |
 | Neon 处于预发布;SwiftTreeSitter 与 tree-sitter-markdown 的 `Package.swift` 依赖两套 Swift 绑定 | 中 | pin commit;必要时 fork grammar 的 Package.swift 只保留 C target;Neon 只用 `TreeSitterClient`,UI 接口自写(接口面小) |
 | 两套解析器(markdown-it / tree-sitter)边角不一致 | 低 | 文档说明;高亮以"看得懂"为目标,不追求与渲染 1:1 |
@@ -899,7 +912,7 @@ CI:
 | # | 问题 | 做法 | 通过标准 | 失败回退 |
 |---|---|---|---|---|
 | S1 | DocumentGroup + ReferenceFileDocument + NSTextView 的撤销/自动保存/Versions/iCloud 是否顺畅;能否抑制启动空白文档 | 新建最小工程,NSTextView delegate 返回环境 UndoManager;在 iCloud Drive 建/改/重命名文档 | ⌘Z 跨保存有效;自动保存触发;Versions 可浏览;重命名后仍保存;无空白文档启动可控 | `NSDocument` 子类 + `NSHostingView` |
-| S2 | `WebPage` 桥:`callJavaScript` 传 1 MB 字串往返耗时;`URLSchemeHandler` 服图片与事件 GET;`webViewOnScrollGeometryChange` 频率;是否可 inspect | 最小工程加 markdown-it bundle | 1 MB 往返 < 60 ms;事件 GET 100/s 不丢;滚动几何回调 ≥ 30 Hz | `WKWebView` + `NSViewRepresentable` |
+| S2 ✅ | `WebPage` 桥:`callJavaScript` 传 1 MB 字串往返耗时;JS→Swift 通道;`URLSchemeHandler` 服图片与事件;`webViewOnScrollGeometryChange` 频率;是否可 inspect;PDF 导出 API | 最小工程加 markdown-it bundle | 桥接开销与渲染耗时分别达标(§4.1.4);事件 100/s 不丢;滚动几何回调 ≥ 30 Hz | 未触发(`WKWebView` + `NSViewRepresentable` 回退保留) |
 | S3 | 侧栏打开文档进同窗标签 | `openDocument(at:)` + `NSWindow.tabbingMode/.tabbingIdentifier` | 100% 进同一标签组且不受系统偏好影响 | 新窗口打开(功能降级,不阻塞) |
 | S4 | TextKit 2 + SwiftTreeSitter + Neon:1 MB 高亮;中/日 IME;grammar 包依赖冲突;tree-sitter-quarto 试跑 | 用 10 个真实 .md/.qmd + 1 MB 生成文档 | 可见区同步高亮 < 8 ms;组字不中断;无符号冲突 | fork grammar Package.swift;IME 期间整体暂停高亮;tree-sitter-quarto 不达标则用叠加方案 |
 | S5 | QL 扩展内 JSC 跑 bundle(含 KaTeX)速度;`cid:` 附件;同目录图片可读性;QL 是否执行 JS | 写最小 QL 扩展预览 100 KB 文档 | < 500 ms;图片显示;确认 JS 不执行(或执行也不依赖) | 截断 + 占位图 |
@@ -908,6 +921,8 @@ CI:
 | S8 | 签名公证全链路(需账号):hardened runtime + `allow-jit` + Sparkle SPM + QL 扩展沙盒 | 在 CI 跑一次 release.yml 到 draft | `spctl` 通过,全新用户账户首启无拦截,Sparkle 校验通过 | 调整 entitlements/重签顺序 |
 | S9 | 登录 shell 环境抓取:zsh/bash/fish 三种 shell、含 nvm/conda init 的慢 rc、rc 里有 `echo`;`env -0` 解析;超时行为 | 构造三个测试账户 rc | 三种 shell 都拿到完整 PATH;慢 rc 5 s 内回退不卡 UI;值含换行的变量解析正确 | 回退 PATH 兜底 + 手动路径 |
 | S10 | 真渲染切换体验原型:近似 ⇄ Quarto 切换时的预览状态保持、横幅、无行号下的大纲读取、杀进程时机 | 用 S6 的进程封装 + 一个 WebPage | 切换 10 次无残留进程、无白屏超过 1 帧(显示上一帧或进度)、切回后滚到当前行 | 简化为"Quarto 输出开新窗口"(功能降级) |
+
+**S2 结论(已完成,2026-10-03,release、M5 Pro、合成 1 MB 文档;详见 §4.1.3 / §4.1.4 / §4.4.1 / §4.4.2 / §4.7)**:`WebPage` 桥可直接用于生产——1 MB 纯桥接开销约 3.5 ms、渲染 61–85 ms(冷启动 139 ms)、全量刷新约 350 ms;JS→Swift 主通道用 `userContentController` 的 message handler(`macdown2-bridge:` scheme 仅作回退),1000 事件 0 丢失/0 重复/顺序不乱;`URLSchemeHandler` 可服页面、JS/CSS、图片(三个坑已入 §4.4.2);滚动几何回调约 57–60 Hz;`WebPage.isInspectable` 存在;`exported(as: .pdf)` 只出长条页(§4.7 待拍板)。遗留人手确认:真实触控板/惯性/120 Hz 滚动、Safari Inspector 实际挂载(列入 `docs/manual-qa.md`)。
 
 ---
 
@@ -993,9 +1008,11 @@ CI:
 
 ## 附录 A · `⚠未验证` 汇总
 
-1. `WebPage` 是否存在 JS→Swift script message handler 等价 API(方案按"无"设计,用 scheme handler GET 事件)。
-2. `WebPage` 是否有 `isInspectable` 等价。
-3. 1 MB 文档 markdown-it 在 WebView 内渲染耗时(目标 ≤ 150 ms)。
+> 共 16 条(原 15 条 + 新增第 16 条)。**已查证 3 条**(1、3、13,见文末「已查证」小节);**部分解决 1 条**(2,属性已证实、Safari 实际挂载仍待人手);**仍未验证 13 条**(含第 2 条与新增的第 16 条)。编号保持不变以便与旧引用对应。
+
+1. ~~`WebPage` 是否存在 JS→Swift script message handler 等价 API~~ — **已查证(S2)**:有,`WebPage.Configuration.userContentController`;见「已查证」小节。
+2. `WebPage.isInspectable` **存在**(可读写,默认 `false`;S2 已查证),**⚠ 但 Safari Web Inspector 能否真的挂上该页面仍待人手验证**(Safari ▸ 设置 ▸ 高级 ▸ 显示网页开发者功能,开发 ▸ 本机 ▸ App ▸ 页面)。**部分解决。**
+3. ~~1 MB 文档 markdown-it 在 WebView 内渲染耗时~~ — **已查证(S2)**:85 ms(完整选项)/ 61 ms(精简)/ 冷启动 139 ms,≤ 150 ms 达标;见「已查证」小节。
 4. QL 扩展内 JSC(无 JIT)渲染 100 KB 耗时(目标 ≤ 500 ms);QL HTML 预览不执行 JS 的官方说明;QL 扩展读取同目录图片的权限。
 5. `@mdit/plugin-katex` 的 `delimiters` 选项名/是否支持 `\(…\)`。
 6. `qmd collection list` 是否支持 `--format json`;`qmd search`/`query --format json` 的字段名;`qmd update -c` 是否存在;`qmd mcp --http` 的 `/query` 响应 schema。
@@ -1005,11 +1022,19 @@ CI:
 10. TextKit 2 下 `NSTextView.showsInvisibleCharacters` 是否可用。
 11. SwiftUI DocumentGroup 下抑制启动空白文档、关闭自动保存的可行性。
 12. GitHub `xcode-27` runner 标签 GA 时间。
-13. `WebPage.exported(as: .pdf)` 的确切签名(二手来源)。
+13. ~~`WebPage.exported(as: .pdf)` 的确切签名~~ — **已查证(S2)**,见「已查证」小节;其产出非分页的后续问题见新增第 16 条。
 14. fish/tcsh 下 `$SHELL -l -c 'env -0'` 的行为(zsh 已本机验证)。
 15. tree-sitter-markdown 的 injections 查询能否匹配 Quarto 的 ```` ```{python} ```` info string(花括号需剥离)。
+16. **(新增,S2 引出)「导出 PDF」是接受 `WebPage.exported(as: .pdf)` 的长条页,还是改走分页打印路线**(离屏 `WKWebView` + `NSPrintOperation`,Letter/A4 + 页边距)。长条页路线已实测(屏幕宽度、单页 ≤ 14400 pt),分页打印路线 S2 未测,需在 M1 导出实现前原型验证并拍板(§4.7)。
 
 ### 已查证、不再标 ⚠ 的事实(便于复核)
+
+- **S2 spike(2026-10-03,macOS 27.2、Xcode 27.0 SDK、M5 Pro、release 构建、合成 1 MB 文档)**:
+  - (原第 1 条)`WebPage.Configuration.userContentController` 是 `WKUserContentController`,`.add(handler, name:)` 可用,JS 端 `window.webkit.messageHandlers.<name>.postMessage`,回调在主线程;100 事件/s × 10 s、瞬发 1000 个、并发 1 MB 渲染下均 0 丢失、0 重复、顺序不乱。`macdown2-bridge:` scheme fetch 通道同样无丢失,作为回退。
+  - (原第 3 条)1 MB 纯渲染 85 ms(完整选项)/ 61 ms(精简选项),冷启动首次 139 ms;`callJavaScript` 纯桥接开销约 3.5 ms(p95 4.1 ms);1 MB 全量刷新(渲染 + `innerHTML` + 布局)约 350 ms。
+  - (原第 13 条)`func exported(as representation: WebPage.ExportedContentConfiguration) async throws -> Data`,`ExportedContentConfiguration.pdf(region: Region = .contents, allowTransparentBackground: Bool = false)`;产出为屏幕宽度、单页最高 14400 pt 的长条页(1 MB 文档 61 页、1.5 s)。
+  - `URLSchemeHandler` 可服页面本身、JS/CSS、PNG/SVG/大图;`urlSchemeHandlers` 创建后不可改;CSP `'self'` 匹配 scheme+host+port;百分号编码 `..` 能穿到 handler 须自行拦截(§4.4.2)。
+  - 滚动几何回调约 57–60 Hz(与帧率同步);`WebPage.isInspectable` 存在、可读写、默认 `false`。
 
 - GUI App 的 launchd 默认 `PATH=/usr/bin:/bin:/usr/sbin:/sbin`;本机 zsh 登录 shell PATH 含 `/opt/homebrew/bin`、`~/.local/bin` 等;`/usr/bin/env -0` 可用。
 - Pandoc `sourcepos` 扩展只对 commonmark/gfm/commonmark_x 读取器生效(2.11.3 加入)→ Quarto HTML 无源码位置。
