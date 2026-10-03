@@ -4,5 +4,11 @@
 <dict>
 	<key>com.apple.security.app-sandbox</key>
 	<true/>
+	<!-- Read-only, home folder only (includes ~/Library/Mobile Documents = iCloud Drive): lets the preview load images
+	     next to the document. A Mac App Store build cannot ship this (PLAN 4.9). -->
+	<key>com.apple.security.temporary-exception.files.home-relative-path.read-only</key>
+	<array>
+		<string>/</string>
+	</array>
 </dict>
 </plist>

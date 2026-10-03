@@ -27,6 +27,10 @@ public enum PreviewStyles {
         }
     }()
 
+    /// UserDefaults keys of the choice (written by the app's settings, read by the app, export and Quick Look).
+    public static let styleKey = "previewStyle"
+    public static let followsSystemKey = "previewStyleFollowsSystem"
+
     public static var all: [PreviewStyle] { registry.styles }
     public static var defaultID: String { registry.default }
 

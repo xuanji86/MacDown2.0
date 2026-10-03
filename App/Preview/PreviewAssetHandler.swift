@@ -1,4 +1,5 @@
 import Foundation
+import MarkdownCore
 import UniformTypeIdentifiers
 import WebAssets
 import WebKit

@@ -2,8 +2,8 @@ import Foundation
 import Testing
 @testable import MarkdownCore
 
-private func page(_ markdown: String, utType: String = "net.daringfireball.markdown", manifest: FlavorManifest? = nil, isEnabled: (String) -> Bool = { _ in true }) async throws -> QuickLookPage {
-    try await QuickLookPage.make(data: Data(markdown.utf8), utType: utType, renderer: JSCRenderer(), manifest: manifest, isEnabled: isEnabled)
+private func page(_ markdown: String, utType: String = "net.daringfireball.markdown", manifest: FlavorManifest? = nil, directory: URL? = nil, isEnabled: ((String) -> Bool)? = nil) async throws -> QuickLookPage {
+    try await QuickLookPage.make(data: Data(markdown.utf8), utType: utType, renderer: JSCRenderer(), manifest: manifest, documentDirectory: directory, isEnabled: isEnabled)
 }
 
 @Test func pageIsStaticStyledHTMLWithoutLineMarkers() async throws {
@@ -50,6 +50,79 @@ private func page(_ markdown: String, utType: String = "net.daringfireball.markd
     #expect(p.html.contains(#"<img src="data:image/png;base64,AAAA""#))
     #expect(p.html.contains(#"<img src="//cdn.example.com/x.png""#))
     #expect(!p.html.contains(#"src="pic.png""#))
+}
+
+@Test func localImagesBecomeCidAttachments() async throws {
+    let t = try ResolverTree(); defer { t.remove() }
+    let p = try await page("![a](img/a%20b.png) ![again](img/a%20b.png) ![s](same.png)", directory: t.doc)
+    #expect(p.html.contains(#"<img src="cid:md2-img-0" alt="a">"#))
+    #expect(p.html.contains(#"<img src="cid:md2-img-0" alt="again">"#))  // same path, one attachment
+    #expect(p.html.contains(#"<img src="cid:md2-img-1" alt="s">"#))  // the symlink is another path, read again
+    #expect(p.attachments.map(\.id) == ["md2-img-0", "md2-img-1"])
+    #expect(p.attachments.allSatisfy { $0.fileExtension == "png" && $0.data == Data("png".utf8) })
+    #expect(!p.html.contains("md2-ql-note\">[image"))
+}
+
+@Test func localImagesOutsideTheFolderOrNotImagesStayPlaceholders() async throws {
+    let t = try ResolverTree(); defer { t.remove() }
+    try Data("text".utf8).write(to: t.doc.appending(path: "notes.txt"))
+    let p = try await page("![up](../secret.txt) ![up2](img/../../secret.txt) ![link](out.txt) ![dir](outdir/secret.txt) ![txt](notes.txt) ![gone](missing.png) ![abs](/etc/hosts)", directory: t.doc)
+    #expect(p.attachments.isEmpty)
+    #expect(!p.html.contains("<img"))
+    #expect(p.html.components(separatedBy: #"class="md2-ql-note">[image"#).count == 8)
+}
+
+@Test func localImageCapsAreEnforced() async throws {
+    let t = try ResolverTree(); defer { t.remove() }
+    let nine = Data(count: 9 * 1024 * 1024)
+    try Data(count: QuickLookPage.maxImageBytes + 1).write(to: t.doc.appending(path: "big.png"))
+    try Data(count: QuickLookPage.maxImageBytes).write(to: t.doc.appending(path: "exact.png"))
+    for i in 0..<6 { try nine.write(to: t.doc.appending(path: "n\(i).png")) }
+    let over = try await page("![big](big.png) ![ok](exact.png)", directory: t.doc)
+    #expect(over.attachments.count == 1)
+    #expect(over.html.contains("[image: big]"))
+    // 10 MB (exact) + 4 x 9 MB = 46 MB fits; the 5th 9 MB image would make 55 MB and stays a placeholder.
+    let total = try await page("![](exact.png) ![](n0.png) ![](n1.png) ![](n2.png) ![](n3.png) ![](n4.png) ![](n5.png)", directory: t.doc)
+    #expect(total.attachments.count == 5)
+    #expect(total.attachments.reduce(0) { $0 + $1.data.count } <= QuickLookPage.maxTotalImageBytes)
+    #expect(total.html.contains("[image: n4.png]") && total.html.contains("[image: n5.png]"))
+}
+
+@Test func appPreferencesDriveTheQuickLookPage() async throws {
+    let suite = "ql-prefs-\(UUID().uuidString)"
+    let defaults = try #require(UserDefaults(suiteName: suite))
+    defer { defaults.removePersistentDomain(forName: suite) }
+    let source = Data("line one\nline two\n\n<b>raw</b>\n".utf8)
+    func make(_ d: UserDefaults?) async throws -> QuickLookPage {
+        try await QuickLookPage.make(data: source, utType: "net.daringfireball.markdown", renderer: JSCRenderer(), manifest: nil, defaults: d)
+    }
+    let plain = try await make(nil)
+    #expect(!plain.html.contains("<br"))
+    #expect(plain.html.contains(#"content="light""#))
+
+    defaults.set(true, forKey: RenderPreferences.Key.hardBreaks)
+    defaults.set(true, forKey: RenderPreferences.Key.allowRawHTML)  // the app allows raw HTML; Quick Look still must not
+    defaults.set("github-dark", forKey: "previewStyle")
+    let custom = try await make(defaults)
+    #expect(custom.html.contains("<br"))
+    #expect(custom.html.contains("&lt;b&gt;raw"))
+    #expect(custom.html.contains(#"content="light dark""#))
+    #expect(custom.html != plain.html)
+}
+
+@Test func extensionSwitchesComeFromTheAppPreferences() async throws {
+    let suite = "ql-prefs-\(UUID().uuidString)"
+    let defaults = try #require(UserDefaults(suiteName: suite))
+    defer { defaults.removePersistentDomain(forName: suite) }
+    let url = try #require(Bundle.module.url(forResource: "flavors.json", withExtension: nil, subdirectory: "Fixtures"))
+    let manifest = try FlavorManifest(data: Data(contentsOf: url))
+    func render() async throws -> QuickLookPage {
+        try await QuickLookPage.make(data: Data("# x\n".utf8), utType: "org.quarto.qmd", renderer: JSCRenderer(), manifest: manifest, defaults: defaults)
+    }
+    // unset = on: the manifest's chunk is requested (the fixture names a chunk that is not bundled)
+    await #expect(throws: RenderError.missingAsset("quarto.chunk.js")) { _ = try await render() }
+    defaults.set(false, forKey: "extension.quarto.enabled")
+    #expect(try await render().html.contains(#"data-flavor="markdown""#))
 }
 
 @Test func oversizedDocumentIsCutAtALineAndFlagged() async throws {

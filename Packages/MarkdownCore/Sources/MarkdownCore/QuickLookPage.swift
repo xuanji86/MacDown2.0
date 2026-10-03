@@ -1,4 +1,5 @@
 import Foundation
+import UniformTypeIdentifiers
 import WebAssets
 
 /// The static HTML page the Quick Look extension hands to `QLPreviewReply`. Lives here (not in the extension target)
@@ -8,8 +9,9 @@ import WebAssets
 /// - no scripts: KaTeX is already static HTML from `renderToString`, Mermaid is not rendered (it stays a code block);
 /// - raw HTML in the document is escaped, because the host ran inline `<script>` and ignored a `<meta>` CSP in testing
 ///   (macOS 27.2), so an untrusted `.md` must not be able to inject markup;
-/// - images next to the document cannot be read (the extension's sandbox denies siblings of the previewed file), so
-///   relative `<img>` become a text placeholder; fonts come from the bundle and travel as `cid:` attachments.
+/// - relative `<img>` are read from the document's folder (the extension has a read-only sandbox exception for that, PLAN 4.9;
+///   same containment rules as the app, `DocumentFileResolver`) and travel as `cid:` attachments like the KaTeX fonts; an image
+///   that is missing, outside the folder, not an image or over the size caps stays a text placeholder.
 public struct QuickLookPage: Sendable {
     public struct Attachment: Sendable, Hashable {
         /// Referenced from the HTML as `cid:<id>`.
@@ -24,6 +26,9 @@ public struct QuickLookPage: Sendable {
 
     /// Documents beyond this many bytes are cut at a line boundary (S5 measured the render cost; see PLAN appendix A item 4).
     public static let maxBytes = 256 * 1024
+    /// Per-image and per-page caps for local images; beyond them the placeholder stays. Attachments sit in memory until the reply is sent.
+    public static let maxImageBytes = 10 * 1024 * 1024
+    public static let maxTotalImageBytes = 50 * 1024 * 1024
 
     /// `data` is what the extension read from the file: at most `maxBytes + 1` bytes (the extra byte only tells us there is more).
     public static func make(
@@ -31,11 +36,14 @@ public struct QuickLookPage: Sendable {
         utType: String,
         renderer: some MarkdownRenderer,
         manifest: FlavorManifest? = try? .bundled(),
-        isEnabled: (String) -> Bool = { _ in true }  // QL cannot read the app's preferences until an App Group exists; defaults apply
+        documentDirectory: URL? = nil,  // nil = no local images (placeholders)
+        defaults: UserDefaults? = nil,  // the app's preferences (render switches, preview style); nil/absent keys = defaults
+        isEnabled: ((String) -> Bool)? = nil  // extension switches; default reads `defaults`, an unset switch counts as on
     ) async throws -> QuickLookPage {
         let (source, truncated) = decode(data)
-        var options = RenderOptions()
-        options.allowRawHTML = false
+        let isEnabled = isEnabled ?? { defaults?.object(forKey: $0) as? Bool ?? true }
+        var options = defaults.map { RenderPreferences(defaults: $0).options } ?? RenderOptions()
+        options.allowRawHTML = false  // whatever the app's setting says: the host runs scripts (see above)
         options.headingAnchors = true
         var styleSheets: [String] = []
         if let manifest {
@@ -46,19 +54,38 @@ public struct QuickLookPage: Sendable {
         }
         let result = try await renderer.render(source, options: options)
         var body = HTMLExporter.stripSourceLines(result.html)
+        var attachments: [Attachment] = []
+        var loaded: [String: String?] = [:]  // path -> cid (nil = refused), so a repeated image is read once
+        var imageBytes = 0
         body = replacing(#"<img src="([^"]*)" alt="([^"]*)"[^>]*>"#, in: body) { m in
             let src = m[1], alt = m[2]
             if src.hasPrefix("//") || src.range(of: #"^[A-Za-z][A-Za-z0-9+.-]*:"#, options: .regularExpression) != nil { return m[0] }
+            if let path = HTMLExporter.relativePath(of: src), let directory = documentDirectory {
+                if let known = loaded[path] {
+                    if let id = known { return #"<img src="cid:\#(id)" alt="\#(alt)">"# }
+                } else if let image = Self.readImage(path, in: directory, budget: maxTotalImageBytes - imageBytes) {
+                    let id = "md2-img-\(attachments.count)"
+                    imageBytes += image.data.count
+                    attachments.append(Attachment(id: id, data: image.data, fileExtension: image.fileExtension))
+                    loaded[path] = id
+                    return #"<img src="cid:\#(id)" alt="\#(alt)">"#
+                } else {
+                    loaded[path] = .some(nil)
+                }
+            }
             return #"<span class="md2-ql-note">[\#(Strings.image): \#(alt.isEmpty ? src : alt)]</span>"#
         }
 
-        var css = [asset("preview-styles/\(PreviewStyles.defaultID).css"), asset("hljs-themes/\(hljsTheme).css")]
+        let style = PreviewStyles.resolve(
+            id: defaults?.string(forKey: PreviewStyles.styleKey) ?? PreviewStyles.defaultID,
+            followSystem: defaults?.bool(forKey: PreviewStyles.followsSystemKey) ?? false
+        )
+        var css = [HTMLExporter.styleCSS(style)]
         css += styleSheets.map(asset)
         css.append(Self.noteCSS)
-        var attachments: [Attachment] = []
         if body.contains("katex") {
             let fonts = (try? FileManager.default.contentsOfDirectory(at: WebAssets.url("katex/fonts")!, includingPropertiesForKeys: nil)) ?? []
-            attachments = fonts.filter { $0.pathExtension == "woff2" }.compactMap { url in
+            attachments += fonts.filter { $0.pathExtension == "woff2" }.compactMap { url in
                 (try? Data(contentsOf: url)).map { Attachment(id: url.deletingPathExtension().lastPathComponent, data: $0, fileExtension: "woff2") }
             }
             css.append(replacing(#"url\(fonts/([^)]+)\.woff2\)"#, in: asset("katex/katex.min.css")) { "url(cid:\($0[1]))" })
@@ -67,7 +94,7 @@ public struct QuickLookPage: Sendable {
         let banner = truncated ? #"<p class="md2-ql-note md2-ql-truncated">\#(Strings.truncated)</p>"# : ""
         let html = """
         <!doctype html>
-        <html><head><meta charset="utf-8"><meta name="color-scheme" content="light">
+        <html><head><meta charset="utf-8"><meta name="color-scheme" content="\(colorScheme(style))">
         <style>\(css.joined(separator: "\n"))</style></head>
         <body><article id="doc" data-flavor="\(options.flavor.rawValue)">\(banner)\(body)\(banner)</article></body></html>
         """
@@ -76,13 +103,26 @@ public struct QuickLookPage: Sendable {
 
     // MARK: - Internals
 
+    /// A regular image file inside `directory` (`DocumentFileResolver` rules), at most `maxImageBytes` and `budget`. The read is
+    /// bounded, not just the size attribute, so a file that grows meanwhile cannot slip through.
+    private static func readImage(_ path: String, in directory: URL, budget: Int) -> (data: Data, fileExtension: String)? {
+        guard case .file(let file) = DocumentFileResolver.resolve(path: "/" + path, root: directory),
+              UTType(filenameExtension: file.pathExtension)?.conforms(to: .image) == true,
+              let handle = try? FileHandle(forReadingFrom: file) else { return nil }
+        defer { try? handle.close() }
+        let limit = min(maxImageBytes, budget)
+        guard limit > 0, let data = try? handle.read(upToCount: limit + 1), !data.isEmpty, data.count <= limit else { return nil }
+        return (data, file.pathExtension.lowercased())
+    }
+
     private static let noteCSS = """
     .md2-ql-note { color: var(--fg-muted); font-style: italic; }
     .md2-ql-truncated { padding: 8px 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-subtle); font-style: normal; }
     """
 
-    private static var hljsTheme: String {
-        PreviewStyles.all.first { $0.id == PreviewStyles.defaultID }?.hljs ?? "github"
+    /// What the page may be drawn in: a dark style or a light/dark pair needs the host to allow dark.
+    private static func colorScheme(_ style: (light: String, dark: String?)) -> String {
+        style.dark != nil || PreviewStyles.all.first { $0.id == style.light }?.appearance == "dark" ? "light dark" : "light"
     }
 
     private static func asset(_ name: String) -> String {
