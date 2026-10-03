@@ -1,7 +1,8 @@
-// Builds the vendored web assets: render.bundle.js, flavors.json, THIRD_PARTY_LICENSES.txt.
+// Builds the vendored web assets: render.bundle.js, preview.bundle.js (+ preview.html, preview-styles/),
+// flavors.json, THIRD_PARTY_LICENSES.txt.
 // Usage: node build.mjs [outDir]   (default: the WebAssets package resources; drift check passes a temp dir)
 import { build } from 'esbuild';
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -21,6 +22,21 @@ const { metafile } = await build({
   metafile: true,
   logLevel: 'warning',
 });
+
+// Preview page: its own bundle (no npm deps, so nothing to add to the license notices) + static files as-is.
+await build({
+  entryPoints: [join(here, 'src/preview/main.ts')],
+  outfile: join(outDir, 'preview.bundle.js'),
+  bundle: true,
+  format: 'iife',
+  globalName: 'MacDown2Preview',
+  target: 'es2022',
+  minify: true,
+  legalComments: 'none',
+  logLevel: 'warning',
+});
+cpSync(join(here, 'src/preview/preview.html'), join(outDir, 'preview.html'));
+cpSync(join(here, 'src/preview/preview-styles'), join(outDir, 'preview-styles'), { recursive: true });
 
 // flavors.json: merged from src/<flavor>/manifest.json (Quick Look / CLI read it without linking extensions).
 const flavors = {};
