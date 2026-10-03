@@ -20,6 +20,7 @@ const { metafile } = await build({
   minify: true,
   legalComments: 'none', // third-party notices go to THIRD_PARTY_LICENSES.txt instead
   metafile: true,
+  tsconfigRaw: '{}', // tsconfig.json is for tsc only; its `strict` would make esbuild prepend "use strict" to the bundles
   logLevel: 'warning',
 });
 
@@ -33,6 +34,7 @@ await build({
   target: 'es2022',
   minify: true,
   legalComments: 'none',
+  tsconfigRaw: '{}', // tsconfig.json is for tsc only; its `strict` would make esbuild prepend "use strict" to the bundles
   logLevel: 'warning',
 });
 cpSync(join(here, 'src/preview/preview.html'), join(outDir, 'preview.html'));

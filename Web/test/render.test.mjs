@@ -11,7 +11,7 @@ const defaults = {
   headingAnchors: true,
   codeHighlighting: true,
   codeLineNumbers: false,
-  mathDelimiters: 'both',
+  inlineDollarMath: false,
   frontMatterDisplay: 'hidden',
 };
 

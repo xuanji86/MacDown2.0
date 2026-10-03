@@ -22,13 +22,13 @@ export function frontMatter(md: MarkdownIt, display: FrontMatterDisplay): void {
     if (display === 'hidden') return `<div class="front-matter" hidden${attrs}></div>\n`;
     let data: unknown;
     try {
-      data = load(t.meta as string);
+      data = load(t.meta as unknown as string);
     } catch {
       data = undefined;
     }
     // Not a mapping (or unparsable): show the source as is.
     if (typeof data !== 'object' || data === null || Array.isArray(data)) {
-      return `<pre class="front-matter"${attrs}><code>${esc(t.meta as string)}</code></pre>\n`;
+      return `<pre class="front-matter"${attrs}><code>${esc(t.meta as unknown as string)}</code></pre>\n`;
     }
     const rows = Object.entries(data as Record<string, unknown>)
       .map(([k, v]) => `<tr><th>${esc(k)}</th><td>${esc(cell(v))}</td></tr>`)

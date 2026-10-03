@@ -19,7 +19,7 @@ export function toc(md: MarkdownIt): void {
     }
   });
   md.renderer.rules.toc = (tokens: Token[], idx, _o, env, slf) =>
-    `<nav class="toc"${slf.renderAttrs(tokens[idx])}>${tocList(env.outline ?? [], md.utils.escapeHtml)}</nav>\n`;
+    `<nav class="toc"${slf.renderAttrs(tokens[idx])}>${tocList((env as { outline?: OutlineItem[] }).outline ?? [], md.utils.escapeHtml)}</nav>\n`;
 }
 
 // lazy: a heading that skips levels (h1 then h3) nests one list deeper, and one that climbs back

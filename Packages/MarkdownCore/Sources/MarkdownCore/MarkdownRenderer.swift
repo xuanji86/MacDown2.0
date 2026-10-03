@@ -14,11 +14,6 @@ public enum MarkdownExtension: String, Codable, Sendable, CaseIterable {
     case mark, sup, sub, underline, footnotes, taskLists, math, toc, frontMatter, cjkEmphasis
 }
 
-/// Which math delimiters the renderer recognises: `$…$` / `$$…$$`, `\(…\)` / `\[…\]`, or both.
-public enum MathDelimiters: String, Codable, Sendable, CaseIterable {
-    case dollars, brackets, both
-}
-
 /// What the preview shows for a leading YAML front matter block (the raw text is always in `RenderResult.frontMatter`).
 public enum FrontMatterDisplay: String, Codable, Sendable, CaseIterable {
     case hidden, table
@@ -37,7 +32,8 @@ public struct RenderOptions: Sendable, Codable, Hashable {
     public var codeHighlighting = true
     public var codeLineNumbers = false
     public var headingAnchors = true
-    public var mathDelimiters: MathDelimiters = .both
+    /// Inline `$…$`. Off by default (as in MacDown 1) so prices like "$5 to $10" stay text; `$$…$$`, `\(…\)` and `\[…\]` are always on with `.math`.
+    public var inlineDollarMath = false
     public var frontMatterDisplay: FrontMatterDisplay = .hidden
 
     public init() {}
