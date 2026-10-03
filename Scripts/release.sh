@@ -52,7 +52,7 @@ DL_URL=https://github.com/$REPO/releases/download/$TAG
 
 if [ "$PUBLISH" = 1 ]; then
   [ -z "$(git status --porcelain)" ] || die "working tree is dirty; commit or stash first"
-  git branch -r --contains HEAD | grep -q . || die "HEAD is not pushed; push it so the tag has a commit to point at"
+  [ -n "$(git branch -r --contains HEAD)" ] || die "HEAD is not pushed; push it so the tag has a commit to point at"
   command -v gh >/dev/null || die "gh is required for --publish"
 fi
 
@@ -82,11 +82,14 @@ sign "$APP_PATH"
 # ---- 3. Verify the signed bundle ----
 step "Verifying signatures"
 codesign --verify --deep --strict "$APP_PATH"
-codesign -dv "$APP_PATH" 2>&1 | grep -q 'Signature=adhoc' || die "app is not ad-hoc signed"
+# Capture first: `cmd | grep -q` under pipefail fails spuriously when grep exits before cmd finishes writing.
+INFO=$(codesign -dv "$APP_PATH" 2>&1)
+[[ "$INFO" == *"Signature=adhoc"* ]] || die "app is not ad-hoc signed"
 APPEX=$APP_PATH/Contents/PlugIns/MacDown2QuickLook.appex
 [ -d "$APPEX" ] || die "Quick Look appex is not embedded"
 codesign --verify --strict "$APPEX"
-codesign -d --entitlements - "$APPEX" 2>&1 | grep -q 'com.apple.security.app-sandbox' || die "appex lost its sandbox entitlement"
+ENTS=$(codesign -d --entitlements - "$APPEX" 2>&1)
+[[ "$ENTS" == *"com.apple.security.app-sandbox"* ]] || die "appex lost its sandbox entitlement"
 PLIST=$APP_PATH/Contents/Info.plist
 [ "$(plutil -extract CFBundleShortVersionString raw "$PLIST")" = "$VERSION" ] || die "version not stamped into Info.plist"
 ED_KEY=$(plutil -extract SUPublicEDKey raw "$PLIST" 2>/dev/null || true)
@@ -118,7 +121,7 @@ PREV=$(git describe --tags --abbrev=0 --match 'v*' 2>/dev/null || true)
 
 # ---- 6. Sparkle EdDSA signature + appcast ----
 step "Sparkle signature and appcast"
-SIGN_UPDATE=${SIGN_UPDATE:-$(find "$DERIVED/SourcePackages/artifacts/sparkle" -path '*old_dsa_scripts*' -prune -o -name sign_update -type f -print 2>/dev/null | head -1)}
+SIGN_UPDATE=${SIGN_UPDATE:-$(find "$DERIVED/SourcePackages/artifacts/sparkle" -path '*old_dsa_scripts*' -prune -o -name sign_update -type f -print 2>/dev/null | head -1 || true)}
 GENERATE_KEYS=${SIGN_UPDATE:+$(dirname "$SIGN_UPDATE")/generate_keys}
 ED_SIG=""
 if [ -x "${SIGN_UPDATE:-}" ]; then
