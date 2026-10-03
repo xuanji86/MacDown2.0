@@ -14,6 +14,7 @@
 		A10000000000000000000002 /* WebAssets in Frameworks */ = {isa = PBXBuildFile; productRef = A10000000000000000000022 /* WebAssets */; };
 		A10000000000000000000003 /* ExtensionAPI in Frameworks */ = {isa = PBXBuildFile; productRef = A10000000000000000000023 /* ExtensionAPI */; };
 		A10000000000000000000004 /* EditorKit in Frameworks */ = {isa = PBXBuildFile; productRef = A10000000000000000000027 /* EditorKit */; };
+		A10000000000000000000094 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = A10000000000000000000093 /* Sparkle */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -100,6 +101,7 @@
 				A10000000000000000000002 /* WebAssets in Frameworks */,
 				A10000000000000000000003 /* ExtensionAPI in Frameworks */,
 				A10000000000000000000004 /* EditorKit in Frameworks */,
+				A10000000000000000000094 /* Sparkle in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -173,6 +175,7 @@
 				A10000000000000000000022 /* WebAssets */,
 				A10000000000000000000023 /* ExtensionAPI */,
 				A10000000000000000000027 /* EditorKit */,
+				A10000000000000000000093 /* Sparkle */,
 			);
 			productName = MacDown2;
 			productReference = A10000000000000000000010 /* MacDown2.app */;
@@ -210,6 +213,7 @@
 				A10000000000000000000025 /* XCLocalSwiftPackageReference "Packages/WebAssets" */,
 				A10000000000000000000026 /* XCLocalSwiftPackageReference "Packages/ExtensionAPI" */,
 				A10000000000000000000028 /* XCLocalSwiftPackageReference "Packages/EditorKit" */,
+				A10000000000000000000029 /* XCRemoteSwiftPackageReference "Sparkle" */,
 			);
 			productRefGroup = A10000000000000000000013 /* Products */;
 			projectDirPath = "";
@@ -448,6 +452,17 @@
 		};
 /* End XCLocalSwiftPackageReference section */
 
+/* Begin XCRemoteSwiftPackageReference section */
+		A10000000000000000000029 /* XCRemoteSwiftPackageReference "Sparkle" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/sparkle-project/Sparkle";
+			requirement = {
+				kind = exactVersion;
+				version = 2.10.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
 /* Begin XCSwiftPackageProductDependency section */
 		A10000000000000000000091 /* MarkdownCore */ = {
 			isa = XCSwiftPackageProductDependency;
@@ -472,6 +487,11 @@
 		A10000000000000000000027 /* EditorKit */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = EditorKit;
+		};
+		A10000000000000000000093 /* Sparkle */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A10000000000000000000029 /* XCRemoteSwiftPackageReference "Sparkle" */;
+			productName = Sparkle;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

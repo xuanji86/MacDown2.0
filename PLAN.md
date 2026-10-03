@@ -2,7 +2,7 @@
 
 > 版本:2026-10-03 初稿 · 面向"一名熟练开发者 + AI 辅助"直接开工。
 > 文中 `⚠未验证` = 查了但没拿到一手确证的点,开工前在对应 spike 里补证。
-> 已拍板、不再讨论的前提:全新项目(非 fork)、Swift 6 零 ObjC、最低 macOS 26、仅 Apple Silicon、左源码右预览分栏、Developer ID + 公证 + Sparkle 2 + GitHub Releases 分发、**渲染核心 = markdown-it(方案 B)**、**项目许可 AGPL-3.0**。
+> 已拍板、不再讨论的前提:全新项目(非 fork)、Swift 6 零 ObjC、最低 macOS 26、仅 Apple Silicon、左源码右预览分栏、**不申请 Apple Developer 账号、不上 App Store(2026-10-03 用户拍板):ad-hoc 签名、不公证,以 Homebrew(自有 tap)+ GitHub Releases 为主要分发渠道,Sparkle 2(EdDSA)自更新**、**渲染核心 = markdown-it(方案 B)**、**项目许可 AGPL-3.0**。
 
 ---
 
@@ -19,7 +19,7 @@
 | 扩展机制 | Quarto 与 qmd 搜索做成**内置可选扩展**(Obsidian "核心插件"式:随 App 编译签名,只能开/关,不支持第三方/下载插件)。核心只定义 `MacDown2Extension` / `DocumentFlavor` / `SearchProvider` 三个接缝;每个扩展一个 SPM 模块,只有 App target 注册;关闭 = 零开销(不探测、不读环境、不加载 JS chunk、不起进程、无 UI)。见 §4.17。 |
 | Quarto `.qmd` | `QuartoExtension`,**默认开**。两档:近似预览(markdown-it + 复用 quarto-dev/quarto 的 markdown-it 插件,拆成独立 `quarto.chunk.js` 按需加载;代码单元只高亮不执行);真渲染(扩展内子开关,默认开;用户显式切换后起 `quarto preview --no-browser`,预览栏显示其输出)。扩展关闭时 `.qmd` 按普通 Markdown 打开。 |
 | 本地搜索 | 核心内置全文搜索始终可用;`QmdSearchExtension`(tobi/qmd,**默认关**)启用后调其 **CLI**(`--format json`)做关键词/语义搜索,注册 collection 前征得用户同意。关闭时界面无任何 qmd 字样。 |
-| 分发 | Developer ID 签名 + hardened runtime + 公证 + staple → DMG → Sparkle 2(SPM,EdDSA)appcast 挂 GitHub Release。不上 App Store、不强制沙盒(QL 扩展除外,扩展必须沙盒)。 |
+| 分发 | **无 Apple 开发者账号**:ad-hoc 签名(`codesign -s -`),不开 hardened runtime、不公证、无 App Group。渠道 = 自有 Homebrew tap `xuanji86/homebrew-tap`(cask `postflight_steps` 去隔离)+ GitHub Releases(dmg 手动下载需"仍要打开")。自更新 = Sparkle 2(SPM 固定版本,EdDSA 签名 zip,appcast 挂 GitHub Release)。不上 App Store、不强制沙盒(QL 扩展除外,扩展必须沙盒)。详见 §4.14、§6.3。 |
 | 测试 | Swift Testing(含经 JSC 跑的渲染快照测试,语料取自 macdown3000 Fixtures)+ `node --test` 测 JS 纯函数 + XCTest `measure` 性能基准 + 少量 XCUITest。 |
 | 许可 | **AGPL-3.0**;README 声明与 MacDown / MacDown 3000 无隶属关系;Mou 来源 CSS 不复用。 |
 
@@ -35,7 +35,7 @@
 4. Quarto `.qmd` 支持作为**内置可选扩展**(默认开):近似预览零依赖;本机有 Quarto 时一键真渲染(子开关)。
 5. 文件夹工作区 + 本地搜索(内置全文始终可用;tobi/qmd 关键词/语义搜索为内置可选扩展,默认关)。
 6. 用最新平台能力:Liquid Glass、Icon Composer 图标、WebKit for SwiftUI、TextKit 2、Swift 6 严格并发。
-7. 可持续发版:一条 `git tag` 到用户收到 Sparkle 更新全自动。
+7. 可持续发版:一条命令(`Scripts/release.sh <version> --publish`)出齐 dmg/zip/appcast/cask 并建 draft Release,人工审阅后发布,用户即收到 Sparkle 更新。
 
 ### 1.2 非目标(明确砍掉的 MacDown 历史功能及理由)
 
@@ -122,7 +122,7 @@ MacDown2.0/
 │   ├── Outline/    OutlineInspector.swift
 │   ├── Export/     HTMLExporter.swift  PDFExporter.swift  (PDF 用离屏 WKWebView 打印)
 │   ├── Settings/   AppSettings.swift  GeneralPane.swift  EditorPane.swift  MarkdownPane.swift  RenderingPane.swift  ExtensionsPane.swift  UpdatesPane.swift
-│   ├── Updates/    SparkleController.swift
+│   ├── Updates/    UpdaterController.swift(Sparkle 封装;菜单项在 Commands/UpdateCommands.swift)
 │   ├── Themes/     EditorTheme.swift  PreviewStyle.swift  ThemeLibrary.swift
 │   ├── Resources/  Assets.xcassets  AppIcon.icon  Localizable.xcstrings  help.md
 │   ├── MacDown2.entitlements  Info.plist
@@ -147,9 +147,10 @@ MacDown2.0/
 │   ├── src/preview/  main.ts  dom-patch.ts  geometry.ts  bridge.ts  tasklist.ts  chunk-loader.ts  mermaid-loader.ts
 │   ├── test/         *.test.mjs (node --test)
 │   └── dist/ → 构建后复制到 Packages/WebAssets/Sources/WebAssets/Resources/ (产物提交进仓)
-├── Scripts/  build-web.sh  check-web-drift.sh  check-module-boundaries.sh  make-dmg.sh  sign-and-notarize.sh  make-appcast.sh  bump-version.sh
+├── Scripts/  build-web.sh  check-web-drift.sh  check-module-boundaries.sh  release.sh  update-appcast.py
+├── Distribution/homebrew/macdown2.rb.template   # cask 模板(release.sh 填版本与 sha256 → tap 仓库的 Casks/macdown2.rb)
 ├── Tests/UITests/                     # XCUITest
-└── .github/workflows/  ci.yml  release.yml
+└── .github/workflows/  ci.yml         # 发版在本机跑 Scripts/release.sh(ed25519 私钥在本机钥匙串),不做 release.yml
 ```
 
 ### 2.3 SPM 包划分与依赖
@@ -286,7 +287,7 @@ public protocol MarkdownRenderer: Sendable {
 ```
 
 实现:
-- `JSCRenderer`(MarkdownCore):`actor` 内持 `JSContext`,`evaluateScript(render.bundle.js)` 一次,之后调用 `globalThis.MacDown2.render(md, optsJSON)`,返回 JSON 字串解码为 `RenderResult`。QL/CLI/导出/测试用。若 `options.renderChunks` 非空,先在同一 context 里 `evaluateScript` 对应 chunk(每个 context 每个 chunk 只加载一次;chunk 自己调用 `MacDown2.flavors.register(id, setup)`)。QL/CLI 不链接扩展模块,靠 `FlavorManifest`(读 `WebAssets/flavors.json` + App Group 里的扩展开关)决定 flavor 与 chunk(§4.17)。
+- `JSCRenderer`(MarkdownCore):`actor` 内持 `JSContext`,`evaluateScript(render.bundle.js)` 一次,之后调用 `globalThis.MacDown2.render(md, optsJSON)`,返回 JSON 字串解码为 `RenderResult`。QL/CLI/导出/测试用。若 `options.renderChunks` 非空,先在同一 context 里 `evaluateScript` 对应 chunk(每个 context 每个 chunk 只加载一次;chunk 自己调用 `MacDown2.flavors.register(id, setup)`)。QL/CLI 不链接扩展模块,靠 `FlavorManifest`(读 `WebAssets/flavors.json` + 主 App 偏好域里的扩展开关,见 §4.9)决定 flavor 与 chunk(§4.17)。
 - `PreviewRenderer`(App/Preview):`callJavaScript("return MacDown2.renderAndPatch(md, opts)", arguments: ["md": text, "opts": json])`,JS 在页面内渲染 + patch,返回元数据(不回传 HTML)。预览用。
 - 两者吃同一个 `render.bundle.js`,差别只在"HTML 去哪儿"。
 
@@ -520,7 +521,7 @@ editorLine(y):上式反函数,再由 LineTable 求该行 fragment 的 y,NSTextVi
 
 ### 4.8 设置(Settings 场景)
 
-`AppSettings: @Observable`,属性经 `UserDefaults(suiteName: "<TEAMID>.io.github.xuanji86.MacDown2.shared")`(App Group,QL 扩展可读)持久化,KVO 监听外部变更。分页:
+`AppSettings: @Observable`,属性经 `UserDefaults.standard`(App 自己的偏好域 `io.github.xuanji86.MacDown2`)持久化,KVO 监听外部变更。**没有 App Group**(需要 Developer 账号登记 team 前缀;已决定不申请),沙盒内的 QL 扩展要读这些偏好,只能走沙盒临时例外 `com.apple.security.temporary-exception.shared-preference.read-only`(值为 App 的偏好域;非 App Store 可用)`⚠未验证`,见 §4.9。分页:
 
 | 页 | 项(默认值) |
 |---|---|
@@ -528,8 +529,8 @@ editorLine(y):上式反函数,再由 LineTable 求该行 fragment 的 y,NSTextVi
 | Editor | 字体(SF Mono 13)、行距、水平/垂直内边距、限宽(off,760px)、编辑器在右(off)、自动配对(on)、列表自增(on)、Tab 转空格(on, 4)、智能 Home(on)、块内续前缀(on)、滚动越过末尾(off)、文件尾保证换行(on)、显示不可见字符(off)、无序列表标记(`-`)、编辑器主题(Default Dark,不跟随系统;可选「跟随系统」)、显示行号(on)、显示字数(on)+ 计数类型、滚动同步(on)、跟随光标(on) |
 | Markdown | 表格(on)、自动链接(on)、删除线(on)、高亮 `==`(on)、上标 `^`(off)、下标 `~`(off)、下划线 `_`(off)、脚注(on)、任务列表(on)、智能标点(off)、`[TOC]`(on)、front matter(检测 on,显示:隐藏/表格)、原生 HTML(on)、硬换行(off)、CJK 友好强调(on,已定默认开;markdown-it 侧自写 inline 规则,M1) |
 | Rendering | 预览样式(GitHub 白底,不跟随系统;可选「跟随系统」)、代码高亮(on)+ 主题、行号(off)、代码块语言标签(on)、数学(on)+ 分隔符模式、Mermaid(on)、预览缩放、默认导出目录 |
-| 扩展 | 每个内置扩展一行:名称、一句说明、开关(存 App Group `extension.<id>.enabled`,QL 也读);展开显示该扩展的 `settingsPane()`,关闭时子设置折叠隐藏且不做任何探测。**Quarto(on)**:子开关「Quarto 真渲染」(on;关则不探测 quarto、无按钮/菜单)、检测到的路径/版本(含来源:手动/登录 shell PATH/兜底目录;首次展开才探测)、手动指定 quarto 路径、`QUARTO_PYTHON`/`QUARTO_R` 当前值(只读显示 + 可覆盖)、"渲染前每次询问"(on)、真渲染 `--render` 格式(html)、侧栏显示 Quarto 输出(off)。**qmd 搜索(off)**:检测到的 `qmd` 路径/版本、手动指定 qmd 路径、语义搜索(off;开启时说明 ~2 GB 模型下载)、CJK 嵌入模型(off → 设 `QMD_EMBED_MODEL` 为 Qwen3-Embedding,提示需 `qmd embed -f`)、自动 `qmd embed`(空闲时,on)、重排(off)、常驻 qmd 服务(off,带安全说明) |
-| Updates | Sparkle 自动检查(on)、自动下载(off)、立即检查 |
+| 扩展 | 每个内置扩展一行:名称、一句说明、开关(存 `extension.<id>.enabled`,QL 经上述只读偏好例外读取);展开显示该扩展的 `settingsPane()`,关闭时子设置折叠隐藏且不做任何探测。**Quarto(on)**:子开关「Quarto 真渲染」(on;关则不探测 quarto、无按钮/菜单)、检测到的路径/版本(含来源:手动/登录 shell PATH/兜底目录;首次展开才探测)、手动指定 quarto 路径、`QUARTO_PYTHON`/`QUARTO_R` 当前值(只读显示 + 可覆盖)、"渲染前每次询问"(on)、真渲染 `--render` 格式(html)、侧栏显示 Quarto 输出(off)。**qmd 搜索(off)**:检测到的 `qmd` 路径/版本、手动指定 qmd 路径、语义搜索(off;开启时说明 ~2 GB 模型下载)、CJK 嵌入模型(off → 设 `QMD_EMBED_MODEL` 为 Qwen3-Embedding,提示需 `qmd embed -f`)、自动 `qmd embed`(空闲时,on)、重排(off)、常驻 qmd 服务(off,带安全说明) |
+| Updates | 自动检查更新(on)、检查频率(每天/每周/每月,默认每天)、立即检查(**已实现**,§4.14)。自动下载(off)暂未做 |
 
 ### 4.9 Quick Look 扩展
 
@@ -539,17 +540,17 @@ editorLine(y):上式反函数,再由 LineTable 求该行 fragment 的 y,NSTextVi
 - **不依赖 JS**:KaTeX 是 `renderToString` 的静态 HTML,Mermaid 不渲染(保持代码块),任务列表只显示。S5 实测 QL 的 HTML 预览**会**执行内联 `<script>`,且不理会 `<meta>` CSP(macOS 27.2、`qlmanage -p`),所以安全上不能指望宿主禁 JS:QL 渲染一律 `allowRawHTML = false`(文档里的原始 HTML 被转义显示),页面自己不含脚本。
 - **同目录图片(2026-10-03 用户拍板:放宽沙盒读本地图,网络图片照常加载)**:S5 实测默认沙盒下扩展对被预览文件的同级文件 `open` 返回 `EPERM`(`QLFilePreviewRequest` 只授权该文件本身)。现给扩展加**只读**临时例外 `com.apple.security.temporary-exception.files.home-relative-path.read-only = ["/"]`(整个家目录,含 `~/Library/Mobile Documents` 即 iCloud Drive;不加写权限、不关沙盒)。`QuickLookPage.make(documentDirectory:)` 对相对路径 `<img>` 走与 App 共用的 `MarkdownCore.DocumentFileResolver`(拒绝 `..`;解析符号链接后须仍在文档目录内,带尾斜杠前缀比较;只读常规文件),且扩展名须属图片类型,有界读取,以 `cid:md2-img-N` 附件交给 `QLPreviewReply`(同一路径只附一次)。单张上限 10 MB(`maxImageBytes`)、总上限 50 MB(`maxTotalImageBytes`),超限、越界、缺失或非图片的仍显示占位 `[图片: alt]`;绝对 URL(`https:`/`data:`)原样保留,**网络图片不拦截**(由宿主加载,沿用既有行为)。
   - **安全边界的变化**:扩展原先只能读被预览的那一个文件,现在进程**有能力**读家目录下任意文件(沙盒不再替我们拦);路径约束由 `DocumentFileResolver` 在代码里保证,而该进程正是在渲染不可信 `.md` 的那个(JSC 解析、无 JIT)。缓解:`allowRawHTML` 恒关、页面不含脚本、图片只经 `cid:` 回给宿主、大小上限防内存;残余风险=渲染链路被攻破时可读家目录。家目录之外(`/Volumes` 外接盘、`/Users/Shared`、`/tmp`)读不到,仍是占位——不加 `/Volumes/` absolute-path 例外,因为它把可读范围扩到所有外接盘,换来的只是外接盘上文档的图片。
-  - **分发**:带 `temporary-exception` 的沙盒扩展过不了 Mac App Store 审核;本项目本来就走 Developer ID + 公证直发(§1),不受影响,也就此确认不上 App Store。
+  - **分发**:带 `temporary-exception` 的沙盒扩展过不了 Mac App Store 审核;本项目不上 App Store(§4.14),不受影响。
   - 验证(`qlmanage -p`,窗口截图):同目录 `img/green.png` 显示;`../secret.png`、指向目录外的符号链接、缺失文件均为占位。
-- 读取用户主题/选项:目前**没有** App Group(无签名 team),QL 全部用默认值(GitHub 白底、默认 `RenderOptions`);App Group 就绪后改读共享 `UserDefaults`。QL 永远关闭 Mermaid。
-- 扩展开关:QL **不链接**任何 `*Extension` 模块。每次 `providePreview` 用 `FlavorManifest.resolve(utType:isEnabled:)` 决定 flavor/chunk(`isEnabled` 目前恒 true;App Group 就绪后读 `settingKey`);开且文件 UTType 匹配 → `RenderOptions(flavor:renderChunks:)` + 清单里的 `stylesheets`;关 → 普通 Markdown。不在 QL 进程内缓存开关值。`QLSupportedContentTypes` 现只列 `net.daringfireball.markdown`,`org.quarto.qmd` 随 Quarto 扩展落地时加。qmd 扩展与 QL 无关。
+- 读取用户主题/选项:**永远没有** App Group(无 Developer 账号,见 §4.14),QL 目前全部用默认值(GitHub 白底、默认 `RenderOptions`);需要读用户设置时改用沙盒临时例外 `com.apple.security.temporary-exception.shared-preference.read-only` 读主 App 的偏好域 `⚠未验证`(同类例外:上面的图片读取已用 `temporary-exception.files.home-relative-path.read-only`)。QL 永远关闭 Mermaid。
+- 扩展开关:QL **不链接**任何 `*Extension` 模块。每次 `providePreview` 用 `FlavorManifest.resolve(utType:isEnabled:)` 决定 flavor/chunk(`isEnabled` 目前恒 true;偏好读取方案就绪后读 `settingKey`);开且文件 UTType 匹配 → `RenderOptions(flavor:renderChunks:)` + 清单里的 `stylesheets`;关 → 普通 Markdown。不在 QL 进程内缓存开关值。`QLSupportedContentTypes` 现只列 `net.daringfireball.markdown`,`org.quarto.qmd` 随 Quarto 扩展落地时加。qmd 扩展与 QL 无关。
 - 大文件:最多读 **256 KB**(`QuickLookPage.maxBytes`),在最后一个换行处截断,页面顶部和底部各显示「文档过大,仅显示开头部分。在 MacDown2.0 中打开查看全文。」(英文系统显示英文)。256 KB ≈ 0.65 s;1 MB 预计 > 2.5 s,故由 PLAN 原定 1 MB 下调。`# lazy: 解释器线性约 2.6 ms/KB,升级路径=后台增量渲染/只渲染可见页`。
 - JSC 在 QL 扩展内**没有 JIT**(S5:同进程 3e7 次空循环 1.16 s,JIT 通常 < 0.15 s),全程走解释器。
 - 注册:见 PR 描述。开发机上 `xcodebuild` 会 `lsregister` App,`pluginkit -m -p com.apple.quicklook.preview` 即可见 `io.github.xuanji86.MacDown2.QuickLook`;用户安装 App 后首次启动即被系统发现,必要时系统设置 ▸ 隐私与安全性 ▸ 扩展 ▸ 快速查看 里勾选。
 
 ### 4.10 CLI(`macdown2`)
 
-- Swift 可执行 target,产物放 `MacDown2.app/Contents/Helpers/macdown2`,随 App 签名公证。
+- Swift 可执行 target,产物放 `MacDown2.app/Contents/Helpers/macdown2`,随 App 一起 ad-hoc 签名(release.sh 按内层到外层的顺序签)。
 - 子命令(swift-argument-parser **不**引入,手写 20 行参数解析):
   - `macdown2 [file…]`:`NSWorkspace.shared.open(urls, withApplicationAt: <自身所在 .app>)`。
   - `macdown2 .` / `macdown2 <dir>`:打开文件夹工作区 → `open "macdown2://workspace?path=<percent-encoded>"`,App 的 `onOpenURL` 处理(新窗口 + 侧栏)。
@@ -597,10 +598,25 @@ editorLine(y):上式反函数,再由 LineTable 求该行 fragment 的 y,NSTextVi
 
 ### 4.14 Sparkle 更新
 
-- Sparkle 2.10.x(SPM,"Embed & Sign";最低 macOS 12;已移除 CocoaPods 发布),`SPUStandardUpdaterController(startingUpdater: true, updaterDelegate: nil, userDriverDelegate: nil)` 在 `App.init` 创建;`CommandGroup(after: .appInfo) { CheckForUpdatesView(updater) }`。
-- Info.plist:`SUFeedURL = https://github.com/<owner>/MacDown2.0/releases/latest/download/appcast.xml`(GitHub 的 `latest/download/<asset>` 永久跳转到最新 release 资产),`SUPublicEDKey = <generate_keys 公钥>`,`SUEnableInstallerLauncherService` 不需要(非沙盒)。
-- 预发布通道:`sparkle:channel` = `beta`,设置项控制 `allowedChannels`。
-- Sparkle 组件(XPC、Autoupdate、Updater.app)经 SPM 由 Xcode 嵌入签名,公证可过(macdown3000 的 CocoaPods 重签脚本不再需要)。
+**分发前提(2026-10-03 用户拍板)**:不申请 Apple Developer 账号,所以没有 Developer ID 证书、没有公证、没有 App Group、不上 App Store。下面的 Gatekeeper / Homebrew / Sparkle 结论均已查证(来源在各条末尾),`⚠` 标出的是只有二手来源或未实测的点。
+
+**签名与 Gatekeeper**
+- 签名方式:**ad-hoc**(`codesign --force --sign -`),不开 hardened runtime(`ENABLE_HARDENED_RUNTIME = NO`;JavaScriptCore 的 JIT 因此不需要 `cs.allow-jit` 之类 entitlement)。Quick Look 扩展**仍然沙盒**(`com.apple.security.app-sandbox`,pluginkit 要求)。Apple Silicon 上 arm64 代码至少要 ad-hoc 签名才能运行,所以"不签"不可选。
+- 签名顺序必须由内到外(Sparkle 的 XPC/Autoupdate/Updater.app → Sparkle.framework → QL appex → App),**不能对整个 App 用 `--deep`**:实测 `codesign --force --deep -s -` 会把 QL appex 的沙盒 entitlement 剥掉(`Scripts/release.sh` 用逐包 `--preserve-metadata=entitlements` 并断言 entitlement 仍在)。
+- 用户侧:浏览器/`curl` 之外带隔离标记下载的 App 会被 Gatekeeper 拦("无法验证开发者")。macOS 15 起不能再靠右键"打开"绕过,要到 **系统设置 ▸ 隐私与安全性**,滚到底点 **"仍要打开"**,再确认一次;之后即成为例外,双击可开(来源:[Apple 支持:Safely open apps on your Mac](https://support.apple.com/en-us/102445))。命令行替代:`xattr -dr com.apple.quarantine /Applications/MacDown2.app`。
+
+**Homebrew**
+- **官方 `homebrew/cask` 不收**:Acceptable Casks 要求"可被 Gatekeeper 评估的 App 必须通过 Gatekeeper 检查,且不得要求绕过 Gatekeeper"([docs.brew.sh/Acceptable-Casks](https://docs.brew.sh/Acceptable-Casks));Homebrew 5.0.0 起"未签名 cask 已弃用",并宣布 2026-09 起停用官方 tap 里不过 Gatekeeper 的 cask([brew.sh/2025/11/12/homebrew-5.0.0](https://brew.sh/2025/11/12/homebrew-5.0.0/);跟踪 issue [Homebrew/brew#20755](https://github.com/Homebrew/brew/issues/20755))。实例:原版 MacDown 的 cask 本机 `brew info --cask macdown` 显示 *Disabled because it does not pass the macOS Gatekeeper check! It was disabled on 2026-09-01*(`disable! date: "2026-09-01", because: :fails_gatekeeper_check`)。所以用**自有 tap `xuanji86/homebrew-tap`**。
+- **`--no-quarantine` 已不存在**:4.7.0(2025-10)弃用,代码在 2026-07 删除,没有替代选项或环境变量(`⚠` 日期取自二手来源:[quota-otter#7](https://github.com/panbanda/quota-otter/pull/7)、[boring.notch#1106](https://github.com/TheBoredTeam/boring.notch/issues/1106);5.0.0 发布说明只确认"已弃用,因为 Homebrew 不愿轻易提供绕过 macOS 安全功能的手段")。因此 README 里**不要**写 `--no-quarantine`。
+- **第三方 tap 里的 cask 去隔离:没有任何禁令,但没有官方背书**。依据:Homebrew 的 Gatekeeper 要求只写给"官方 tap 的 macOS cask"([Cask Cookbook](https://docs.brew.sh/Cask-Cookbook) 的 *Official macOS casks must also meet the Gatekeeper requirement*);本机 Homebrew 7.0.6 源码 `cask/audit.rb` 对非官方 tap 默认**跳过**签名审计(`return if !cask.tap&.official? && !signing?`,只有显式 `--signing` 才查);`brew install` 的安装路径里没有任何对第三方 cask 的 Gatekeeper 拒装逻辑。#7 的维护者原话也是"安装后清除属性,是除签名公证以外现在唯一的办法"。风险点:Homebrew 可能日后收紧(`⚠` 趋势是越来越严,属推断)。
+- **写法(Homebrew 7 的现行 DSL)**:cask 用 `postflight_steps` + `run "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "{{appdir}}/MacDown2.app"]`,**不用**老的 `postflight do … system_command` 块——Cookbook 说官方 tap 必须用结构化 `*flight_steps`,旧块"暂时保留给第三方 tap 兼容"(`brew style` 对旧块报 `Cask/InstallSteps`)。`depends_on macos:` 的写法是符号 `depends_on macos: :tahoe`(= 最低 macOS 26),**不是** `">= :tahoe"`(Cookbook 现行写法;旧的字符串比较写法已弃用);`depends_on arch: :arm64`;`auto_updates true`(Cookbook:App 菜单里有真正会下载安装的"检查更新…"时使用——本 App 满足)。模板见 `Distribution/homebrew/macdown2.rb.template`,已用 `brew style` 与 `Cask::CaskLoader` 本机加载验证;**未做**真实 `brew install`(release 与 tap 尚不存在)。
+
+**Sparkle 2**
+- 版本固定:SPM `exactVersion = 2.10.0`(2026-09-13 发布的稳定版,`Package.resolved` 也钉了 revision)。`SPUStandardUpdaterController` 由 `UpdaterController`(`App/Updates/UpdaterController.swift`)创建,菜单项在 `App/Commands/UpdateCommands.swift`,设置页 Updates 见 §4.8。Xcode 对 SPM 里的 Sparkle 自动嵌入 `Contents/Frameworks`(不需要手写 Embed Frameworks 阶段——手写会因 `Sparkle-product` 路径报错)。
+- feed URL 是常量 `UpdaterController.feedURL = https://github.com/xuanji86/MacDown2.0/releases/latest/download/appcast.xml`(经 `SPUUpdaterDelegate.feedURLString(for:)` 提供,不放 Info.plist)。**`latest/download` 只指向最新的、非 draft、非 prerelease 的 Release 的资产**,所以:① 每个 Release 都必须带**完整**的 appcast(`Scripts/update-appcast.py` 合并历史条目);② beta 版也要作为普通 Release 发布(**不要**勾 prerelease),否则 feed 不再前进;③ 先不用 `sparkle:channel`——App 还没有 `allowedChannels` 设置,带 channel 的条目没人收得到;要分稳定/测试通道时再同时加 channel 与设置项。**私有仓库的 Release 资产匿名读不到(404),转公开前 Sparkle 无法工作**(实测:用临时密钥启动的构建访问该 URL 得 404,Sparkle 后台检查静默失败)。
+- **EdDSA 与 Apple 账号无关**:`sign_update` 用 ed25519 私钥(登录钥匙串)给 zip 签名,App 内 `SUPublicEDKey` 验证;`generate_keys` 由用户在发版前执行**一次**(私钥丢失 = 老用户无法再自动更新,务必离线备份;本仓库不含也不生成密钥)。`SUPublicEDKey` 现为占位符,占位期间 `UpdaterController` 不启动 Sparkle(否则 Sparkle 会在每次启动弹"无法检查更新"),菜单项与设置页置灰并说明。
+- **Sparkle 在未公证 App 上能正常更新**(读 Sparkle 2.10.0 源码核实):`SUUpdateValidator` 的规则是"EdDSA 签名有效 **或** Apple 代码签名链有效"二者过其一即可,且**禁止撤掉已有的代码签名**(旧版已签名、新版未签名会被拒;其错误信息明说"没有 Apple 证书时,至少用 ad-hoc 签名")——所以每个版本都必须保持 ad-hoc 签名,不能发未签名包;ad-hoc 的 cdhash 每版不同,不影响 EdDSA 路径;`SUPlainInstaller` 在安装新 App 前调用 `releaseItemFromQuarantineAtRootURL:` 清除新包的 `com.apple.quarantine`,所以经 Sparkle 更新的版本不会再触发 Gatekeeper 拦截。**首次安装**之后的所有更新都不需要用户再点"仍要打开"。`⚠` 未做端到端更新实测(需要真实 Release 与密钥)。
+- ad-hoc 的一个副作用:每个版本 cdhash 不同,系统可能把更新后的 App 视作"新程序"而重新询问文件夹/自动化等隐私授权(TCC 绑定代码身份)`⚠`(推断,待首个 beta 观察)。
 
 ### 4.15 Liquid Glass 与图标
 
@@ -624,11 +640,11 @@ editorLine(y):上式反函数,再由 LineTable 求该行 fragment 的 y,NSTextVi
 ### 4.17 扩展机制(内置可选扩展)
 
 **范围**:只做 Quarto 与 qmd 搜索这两个扩展真正需要的接缝;**不做**通用插件框架,不支持第三方插件,不支持单独下载/安装的插件,没有插件市场。理由:
-1. App 开 hardened runtime 且**不加** `com.apple.security.cs.disable-library-validation`,库校验只允许加载与 App 同一 Team ID 签名的代码——第三方 dylib/bundle 装进来也加载不了,做了白做。
+1. (原理由已不成立:App 现为 ad-hoc 签名、不开 hardened runtime,没有库校验兜底,第三方 dylib/bundle 技术上能被加载。)改由"不提供加载入口"保证:不枚举、不 `dlopen` 任何外部 bundle,扩展只能是编进 App 的 SPM 模块。
 2. Apple 的 ExtensionKit 扩展必须进沙盒,而这两个扩展的本质是 spawn `quarto`/`qmd`/node/python/R 并读写用户目录,沙盒里做不到。
 3. 对接代码很小(进程封装 + 几十行 UI 注册),真正重的是外部工具自身;再抽一层通用框架只会多出维护面。
 
-**形态**:类似 Obsidian 的"核心插件"——随 App 一起编译、签名、公证、发布;用户只能在「扩展」设置页开/关。
+**形态**:类似 Obsidian 的"核心插件"——随 App 一起编译、签名、发布;用户只能在「扩展」设置页开/关。
 
 **模块与依赖方向**(见 §2.3):`ExtensionAPI` 只有协议与值类型;`QuartoExtension`、`QmdSearchExtension` 各自实现,只 import `ExtensionAPI`/`MarkdownCore`/系统框架,互不依赖;核心包、`QuickLook`、`CLI` 不得 import `*Extension`;只有 **App target** 一处注册:`ExtensionRegistry.builtin = [QuartoExtension(), QmdSearchExtension()]`。
 
@@ -654,7 +670,7 @@ public protocol ExtensionHost: AnyObject {
     func register(searchProvider: any SearchProvider)
     func register(commands: [ExtensionCommand])        // 菜单项 / 工具栏项(含 keyboardShortcut),deactivate 时自动撤销
     var toolEnvironment: ToolEnvironment { get }       // §4.16 的懒加载门面;首次 await 才真正抓登录 shell 环境
-    var settings: ExtensionSettingsStore { get }       // App Group 偏好,键自动加 "extension.<id>." 前缀
+    var settings: ExtensionSettingsStore { get }       // 主 App 偏好域,键自动加 "extension.<id>." 前缀
     func presentBanner(_ banner: PreviewBanner, in document: DocumentID)
 }
 
@@ -685,10 +701,10 @@ public protocol SearchProvider: Sendable {
 }
 ```
 
-**Flavor 静态清单**:`WebAssets/flavors.json`,由 esbuild 构建时从各 `Web/src/<flavor>/manifest.json` 汇总,例如 `{"quarto": {"utTypes": ["org.quarto.qmd"], "chunks": ["quarto.chunk.js"], "stylesheets": ["quarto-approx.css"], "settingKey": "extension.quarto.enabled"}}`。它让**不链接扩展模块**的 Quick Look 与 CLI 也能按同一规则渲染:读 App Group 里 `settingKey` → 开则按清单加载 chunk,关则按普通 Markdown。Swift 侧 `DocumentFlavor.id`/`renderChunks` 必须与清单一致(单测比对)。JS 侧:`render.bundle.js` 暴露 `MacDown2.flavors.register(id, setup)`,各 chunk 加载后自注册;`render(md, opts)` 按 `opts.flavor` 取 setup 构造(并缓存)对应的 markdown-it 实例。
+**Flavor 静态清单**:`WebAssets/flavors.json`,由 esbuild 构建时从各 `Web/src/<flavor>/manifest.json` 汇总,例如 `{"quarto": {"utTypes": ["org.quarto.qmd"], "chunks": ["quarto.chunk.js"], "stylesheets": ["quarto-approx.css"], "settingKey": "extension.quarto.enabled"}}`。它让**不链接扩展模块**的 Quick Look 与 CLI 也能按同一规则渲染:读主 App 偏好域里 `settingKey`(§4.9)→ 开则按清单加载 chunk,关则按普通 Markdown。Swift 侧 `DocumentFlavor.id`/`renderChunks` 必须与清单一致(单测比对)。JS 侧:`render.bundle.js` 暴露 `MacDown2.flavors.register(id, setup)`,各 chunk 加载后自注册;`render(md, opts)` 按 `opts.flavor` 取 setup 构造(并缓存)对应的 markdown-it 实例。
 
 **开关与生命周期**
-- 偏好键 `extension.<id>.enabled`(App Group,QL 可读);首次启动按 `enabledByDefault` 写入。
+- 偏好键 `extension.<id>.enabled`(主 App 偏好域,QL 经只读偏好例外可读);首次启动按 `enabledByDefault` 写入。
 - App 启动:`ExtensionRegistry` 对全部内置扩展调用廉价的 `init()`,只对 enabled 的调用 `activate(host:)`。
 - **关闭 = 零开销**:不 activate、不出现菜单/工具栏/设置子页、不加载对应 JS chunk(预览与 JSC 都不加载)、不探测 `quarto`/`qmd`、不触发 `LoginShellEnvironment`、不启动任何进程。`init()` 与 `activate()` 都禁止探测——探测只发生在用户真正用到功能时(`isAvailable()` / `prepare()` / 展开子设置页),这是 code review 清单项,并有测试(§6.1)。
 - 运行中关闭:`deactivate()`(契约:幂等、3 s 内完成)。Quarto:每个文档 `stop()`,预览切回核心渲染并把 `.qmd` 按普通 Markdown 重渲染,移除横幅与命令;qmd:`cancelAll()`、停止由 App 拉起的 `qmd mcp --http --daemon`(PID 文件 + 进程启动时间比对),搜索面板即时只剩内置后端。
@@ -827,7 +843,7 @@ public protocol SearchProvider: Sendable {
 | 性能 | XCTest `measure`(与 Swift Testing 并存,仅性能用) | 渲染 50 KB/1 MB、高亮 1 MB、patch 单键;阈值写进测试,超 20% 失败 |
 | 集成 | Swift Testing(需 WebKit) | `PreviewBridge` 往返:1 MB 文本经 `callJavaScript` 的耗时与正确性;scheme handler 图片;message handler 事件(回退 scheme 事件通道也各测一遍) |
 | UI | XCUITest(≤ 8 条) | 启动建文档;打开 fixture 预览非空;键入后预览更新;⌘⇧E 导出 HTML 文件存在;.qmd 显示 Quarto 徽标;关闭 Quarto 扩展后 .qmd 顶部出现一次性提示且预览无 callout;qmd 扩展关闭时搜索面板只有内置来源;开启 qmd 扩展但未安装时显示安装提示 |
-| 手工清单 | `docs/manual-qa.md` | 中文/日文 IME 组字、VoiceOver、深色模式、Increase Contrast、公证后首启 Gatekeeper;**S2 遗留的两项人手确认**:真实触控板/惯性滚动/120 Hz 屏下滚动几何回调 ≥ 30 Hz(30 秒)、Safari Web Inspector 能否挂上 `isInspectable` 页面 |
+| 手工清单 | `docs/manual-qa.md` | 中文/日文 IME 组字、VoiceOver、深色模式、Increase Contrast、全新用户账户首启:手动下载 dmg 走"仍要打开"流程 / `brew install --cask` 后直接启动无拦截 / Sparkle 更新后不再拦截;**S2 遗留的两项人手确认**:真实触控板/惯性滚动/120 Hz 屏下滚动几何回调 ≥ 30 Hz(30 秒)、Safari Web Inspector 能否挂上 `isInspectable` 页面 |
 
 ### 6.2 CI(`.github/workflows/ci.yml`)
 
@@ -835,26 +851,29 @@ public protocol SearchProvider: Sendable {
 - 步骤:checkout → `xcode-select` 固定版本 → `node 22` + `npm ci`(Web/)→ `npm test` → `Scripts/check-web-drift.sh`(重建 bundle 与提交产物逐字节比对)→ `xcodebuild -scheme MacDown2 -destination 'platform=macOS,arch=arm64' build-for-testing` → `test-without-building`(单元+集成,UI 测试在 nightly)→ 上传 `.xcresult`。`grep` 守卫:禁 `.layoutManager`、禁 `import ObjectiveC`。模块边界守卫 `Scripts/check-module-boundaries.sh`:核心包(`Packages/MarkdownCore|EditorKit|PreviewKit|WebAssets|ExtensionAPI`)、`QuickLook/`、`CLI/` 任一文件出现 `import QuartoExtension` 或 `import QmdSearchExtension` 即失败;`swift package show-dependencies --format json` 断言 `*Extension` 目标只依赖 `ExtensionAPI`/`MarkdownCore`。
 - Debug 签名:`CODE_SIGN_IDENTITY=-`(ad-hoc),不需证书。
 
-### 6.3 发版(`.github/workflows/release.yml`,触发 `v*` tag)
+### 6.3 发版(本机 `Scripts/release.sh <version> [--dry-run|--publish]`)
+
+不做 CI 发版 workflow:Sparkle 的 ed25519 私钥只在本机钥匙串(不进 GitHub Secrets),也没有证书/公证凭据可注入。流程:
 
 ```
-Scripts/bump-version.sh <ver>  →  git tag vX.Y.Z  →  push
-CI:
- 1. 构建 Release: xcodebuild archive (MARKETING_VERSION 来自 tag, CURRENT_PROJECT_VERSION 自增)
- 2. 导出: exportOptions method=developer-id, signingStyle=manual
-    - 证书: secrets.DEV_ID_APP_P12 / P12_PASSWORD → 临时 keychain
-    - entitlements: App 仅 hardened runtime 必需项(cs.allow-jit 给 JavaScriptCore;不加 disable-library-validation)
-      QL 扩展: app-sandbox + 继承只读
- 3. 校验: codesign --verify --deep --strict; spctl -a -t exec -vv; 断言 QL 扩展 sandbox entitlement 仍在(不用 --deep 重签)
- 4. DMG: Scripts/make-dmg.sh (hdiutil + 背景图 + Applications 链接), codesign DMG
- 5. 公证: xcrun notarytool submit --keychain-profile … --wait (凭据用 App Store Connect API key: ISSUER_ID/KEY_ID/P8);
-    xcrun stapler staple MacDown2.0.dmg;再 spctl -a -t open --context context:primary-signature -vv
- 6. appcast: Sparkle 的 generate_appcast(私钥 secrets.SPARKLE_ED_PRIVATE_KEY 注入)→ appcast.xml(含 delta,保留最近 3 版)
-    顺序必须是 公证+staple 之后 再生成(签名覆盖最终字节)
- 7. GitHub Release: 上传 DMG、appcast.xml、SHA256SUMS、源码 tarball 链接(自动);release notes 来自 CHANGELOG 段
- 8. 冒烟: 在 runner 上 hdiutil attach → 启动 App --version → detach
+Scripts/release.sh 0.1.0            # 默认 dry-run:产物全落在 build/release/0.1.0/,不建 Release、不推 tap
+Scripts/release.sh 0.1.0 --publish  # 另外:建 draft GitHub Release;若设了 $TAP_DIR 则在 tap 检出里提交 cask(不 push)
+
+ 1. Release 构建: xcodebuild Release,MARKETING_VERSION=<version>、CURRENT_PROJECT_VERSION=提交总数(单调递增;
+    版本号只通过构建设置注入,工程里保持开发版本号,所以 dry-run 不弄脏工作区)
+ 2. ad-hoc 签名,由内到外: Sparkle 的 XPC/Autoupdate/Updater.app → Sparkle.framework → QL appex → App;
+    逐包 `codesign --force --sign - --preserve-metadata=entitlements,identifier,flags`,不用 --deep(会剥掉 appex 沙盒 entitlement)
+ 3. 校验: codesign --verify --deep --strict;`Signature=adhoc`;appex 在位且仍有 app-sandbox;Info.plist 版本号已写入;
+    SUPublicEDKey 仍是占位符则警告
+ 4. 打包: zip(`ditto -c -k --keepParent`,给 Sparkle)+ dmg(hdiutil UDZO,含 Applications 链接,给人和 Homebrew)+ SHA256SUMS
+ 5. Release notes 草稿(RELEASE_NOTES.md): 上个 tag 以来的提交标题 + 安装说明 + "Source code: …/tree/vX.Y.Z (AGPL-3.0)"
+ 6. Sparkle: `sign_update` 给 zip 签 EdDSA(没有私钥则跳过并警告,appcast 条目不带签名,--publish 拒绝继续);
+    `update-appcast.py` 把新条目并入上一版 appcast(--publish 时取最新 Release 的 appcast.xml,否则取上次本地产物)
+ 7. cask: 用 Distribution/homebrew/macdown2.rb.template 填版本号与 dmg 的 sha256 → macdown2.rb(`ruby -c` 检查)
+ 8. --publish: 要求工作区干净、HEAD 已推送、SUPublicEDKey 是真密钥且与钥匙串里的私钥匹配、appcast 条目已签名;
+    `gh release create vX.Y.Z --draft`(上传 dmg、zip、appcast.xml、SHA256SUMS)。不勾 prerelease(见 §4.14)
 ```
-失败任一步不发布(不留 draft 半成品);appcast 以最新 Release 的 `latest/download/appcast.xml` 为准,老版本 App 自动拿到。
+人工步骤:审阅 draft → 点发布(发布后它成为 `latest`,老用户的 Sparkle 才会看到更新)→ 再把 cask 推到 tap(dmg 的下载地址此时才存在)。没有"自动冒烟"一步:dry-run 之后手动检查 zip/dmg 能解开、`codesign -dv` 为 adhoc、appex 签名有效(本次已做,见 PR)。
 
 ---
 
@@ -869,8 +888,8 @@ CI:
 
 ### M1 · 可用 beta(约 5–6 周)
 
-范围:tree-sitter 高亮 + 主题;编辑辅助全套;块级 DOM patch;双向滚动同步;相对图片 scheme handler;KaTeX;highlight.js + 行号 + 语言标签;任务列表双向;脚注/mark/sup/sub/underline/smart/TOC/front matter/anchor/**CJK 友好强调(默认开)**;大纲 inspector;状态栏字数;**「扩展」设置页 + `QuartoExtension`(默认开):Quarto 近似预览、`.qmd` UTType、装饰高亮、`quarto.chunk.js` 拆分与按需加载、扩展关闭时的一次性提示、关闭态零进程/零探测测试**;导出 HTML/PDF/复制 HTML/打印;Quick Look 扩展;Sparkle 接入;签名+公证+DMG+appcast 全自动发版(需 Developer 账号就位);首个 `v0.1.0-beta` 上 GitHub Releases。
-验收:§4.1.4 性能目标中 50 KB 场景达标;macdown3000 29 个 fixture 快照通过人工审阅;10 个 Quarto 官方示例 `.qmd` 近似预览无报错;关闭 Quarto 扩展后 `.qmd` 按普通 Markdown 预览、顶部出现一次性提示、QL 同步按普通 Markdown 渲染,且 `render.bundle.js` ≤ 800 KB、预览页未请求 `quarto.chunk.js`;QL 在 Finder 空格预览 `.md`/`.qmd`;公证通过、全新 Mac 首启无 Gatekeeper 拦截;Sparkle 从 beta.1 → beta.2 自动更新成功。
+范围:tree-sitter 高亮 + 主题;编辑辅助全套;块级 DOM patch;双向滚动同步;相对图片 scheme handler;KaTeX;highlight.js + 行号 + 语言标签;任务列表双向;脚注/mark/sup/sub/underline/smart/TOC/front matter/anchor/**CJK 友好强调(默认开)**;大纲 inspector;状态栏字数;**「扩展」设置页 + `QuartoExtension`(默认开):Quarto 近似预览、`.qmd` UTType、装饰高亮、`quarto.chunk.js` 拆分与按需加载、扩展关闭时的一次性提示、关闭态零进程/零探测测试**;导出 HTML/PDF/复制 HTML/打印;Quick Look 扩展;Sparkle 接入(已完成:菜单项 + 设置页 + 固定 2.10.0,见 §4.14);`Scripts/release.sh`(ad-hoc 签名 + zip/dmg + appcast + cask,已 dry-run 验证)+ 自有 Homebrew tap;首个 `v0.1.0-beta` 上 GitHub Releases(发版前置:生成 EdDSA 密钥、建 tap 仓库、仓库转公开,见 §9)。
+验收:§4.1.4 性能目标中 50 KB 场景达标;macdown3000 29 个 fixture 快照通过人工审阅;10 个 Quarto 官方示例 `.qmd` 近似预览无报错;关闭 Quarto 扩展后 `.qmd` 按普通 Markdown 预览、顶部出现一次性提示、QL 同步按普通 Markdown 渲染,且 `render.bundle.js` ≤ 800 KB、预览页未请求 `quarto.chunk.js`;QL 在 Finder 空格预览 `.md`/`.qmd`;全新 Mac:`brew install --cask xuanji86/tap/macdown2` 后首启无 Gatekeeper 拦截,手动下载 dmg 按"仍要打开"步骤可启动;Sparkle 从 beta.1 → beta.2 自动更新成功。
 
 ### M2 · 功能完整(约 4–5 周)
 
@@ -919,10 +938,15 @@ CI:
 | 向用户索引写入的隐私/同意 | 中 | 注册前明确告知写入位置与共享性;不自动 `embed`(下载模型) |
 | 扩展 "关闭即零开销" 的承诺被日后改动悄悄打破(有人在 `init()`/`activate()` 里探测工具或读环境) | 中 | §6.1 关闭态零 spawn/零环境抓取测试;code review 清单;`ExtensionHost.toolEnvironment` 首次访问打日志(含调用方)便于排查 |
 | 运行中关闭扩展留下孤儿进程 / 半渲染预览 / 残留菜单 | 中 | `deactivate()` 幂等 + 3 s 契约并有测试;命令由 host 统一注册、统一撤销;预览切回核心渲染前先保留上一帧 |
-| 扩展开关在 App 与 QL 之间不一致(QL 进程缓存旧值) | 低 | QL 每次 `providePreview` 重读 App Group,不缓存 |
+| 扩展开关在 App 与 QL 之间不一致(QL 进程缓存旧值) | 低 | QL 每次 `providePreview` 重读主 App 偏好域,不缓存 |
 | `flavors.json` 与 Swift `DocumentFlavor` 漂移(改了 chunk 名一边忘改) | 低 | 单测比对;drift 脚本断言主 bundle 不含 Quarto token |
 | JSC 在 QL 扩展无 JIT,大文件慢 | 低 | 1 MB 截断 + 超时 2 s 显示纯文本 |
-| 尚无 Apple Developer 账号 | 高:M1 发版阻塞 | 开工即申请(审核可能数天);S8 在拿到后立刻做一次端到端公证 |
+| 不申请 Apple Developer 账号(已拍板):Gatekeeper 会拦直接下载的 App,用户要手动"仍要打开" | 中:首装摩擦,流失一部分不愿折腾的用户 | 首选 `brew install --cask`(cask 去隔离);README 写清"仍要打开"与 `xattr` 两种办法;之后 Sparkle 更新不再触发(§4.14) |
+| 官方 `homebrew/cask` 不收未公证 App,自有 tap 的去隔离写法属"无禁令但无背书",Homebrew 日后可能收紧第三方 tap | 中 | 去隔离只在 tap 的 `postflight_steps` 里一处;若被禁,退回"README 指导用户 `xattr`";`--no-quarantine` 已被删除,不依赖它 |
+| ad-hoc 签名每版 cdhash 变化:TCC 隐私授权可能随更新重新询问;Apple 日后可能进一步收紧未公证 App | 低–中 | 首个 beta 观察;App 默认不依赖需要 TCC 授权的能力(文件访问走用户选择的路径) |
+| Sparkle EdDSA 私钥丢失/泄露:老用户无法再自动更新 / 恶意更新 | 高(发生概率低) | `generate_keys` 后立刻离线备份(`generate_keys -x`);私钥不进 CI、不进仓库;`release.sh --publish` 校验钥匙串私钥与 App 内公钥一致 |
+| 私有仓库的 Release 资产匿名不可读:转公开前 Sparkle 与 cask 下载都是 404 | 中(时序) | 转公开是发首个 beta 的前置条件(§9) |
+| 无 App Group:QL 扩展读不到主 App 设置(主题/扩展开关) | 低 | QL 暂用默认值;需要时用沙盒临时例外 `shared-preference.read-only` `⚠未验证`(§4.9) |
 | AGPL 吓退贡献者;App Store 永久关闭 | 低(已拍板) | README 写清;CLA 问题见 Q1 |
 | highlight.js 维护放缓 | 低 | 接口 `CodeHighlighter` 抽象,Shiki 4(JS 正则引擎、无 WASM)可替换 |
 
@@ -937,7 +961,7 @@ CI:
 | S5 ✅ | QL 扩展内 JSC 跑 bundle(含 KaTeX)速度;`cid:` 附件;同目录图片可读性;QL 是否执行 JS | 写最小 QL 扩展预览 100 KB 文档 | < 500 ms;图片显示;确认 JS 不执行(或执行也不依赖) | 截断 + 占位图 |
 | S6 | Quarto 插件 TS 编译进 bundle;`quarto preview` 进程:端口解析、保存刷新、SIGTERM 退出干净;**从 Finder 启动的 App** 能否用抓到的环境让 Quarto 找到 conda venv 的 Python;`{{< include >}}` 内联 | 用 quarto 官方示例 + 一个 conda 环境;另做一次"运行中关闭扩展" | 10 个示例近似预览无 JS 异常;进程 100% 可回收(含 `deactivate()` 路径);Finder 启动下 `quarto check` 等价输出里 Python 路径指向 venv;Quarto 插件能独立打成 `quarto.chunk.js` 并在主 bundle 之后注册 | 插件按需裁剪;真渲染改用 `quarto render` 一次性;手动指定 Python |
 | S7 | qmd CLI:`collection list` 是否有 `--format json`;`search`/`query --format json` 字段;`update` 是否支持 `-c` 与增量时长;`collection exclude` 效果;`mcp --http` 的 `/query` 请求/响应 schema 与 `/health` | 真机安装 qmd(Node 22 + brew sqlite)跑一遍,录制输出作 fixture;验证扩展关闭态面板无 qmd 痕迹、开启后首次打开面板才探测 | 固化 JSON 解码 fixture;`exclude` 后无 `-c` 的 `search` 不返回我们的 collection;关闭态 spawn 计数 0 | 解析文本输出;或仅内置搜索;常驻服务开关砍掉 |
-| S8 | 签名公证全链路(需账号):hardened runtime + `allow-jit` + Sparkle SPM + QL 扩展沙盒 | 在 CI 跑一次 release.yml 到 draft | `spctl` 通过,全新用户账户首启无拦截,Sparkle 校验通过 | 调整 entitlements/重签顺序 |
+| S8 | ad-hoc 发版全链路(无账号):Sparkle SPM + QL 扩展沙盒 + 分发渠道 | ① 本机 `Scripts/release.sh <ver>` dry-run(**已完成**:zip/dmg 可解开、`Signature=adhoc`、appex 在位且签名有效且保留沙盒 entitlement、appcast 格式正确;`sign_update` 因无私钥而跳过);② 真实密钥 + 真实 draft Release 各跑一次 `--publish`;③ 全新用户账户:`brew install --cask` 首启、手动 dmg"仍要打开"、beta.1 → beta.2 经 Sparkle 更新 | ①已过;②③:Sparkle 校验通过、更新后不再触发 Gatekeeper、QL 扩展被系统发现 | 签名顺序/entitlement 调整;Sparkle 拒绝更新则查 `SUUpdateValidator`(§4.14);brew 去隔离被拒则退回 README 指导 `xattr` |
 | S9 | 登录 shell 环境抓取:zsh/bash/fish 三种 shell、含 nvm/conda init 的慢 rc、rc 里有 `echo`;`env -0` 解析;超时行为 | 构造三个测试账户 rc | 三种 shell 都拿到完整 PATH;慢 rc 5 s 内回退不卡 UI;值含换行的变量解析正确 | 回退 PATH 兜底 + 手动路径 |
 | S10 | 真渲染切换体验原型:近似 ⇄ Quarto 切换时的预览状态保持、横幅、无行号下的大纲读取、杀进程时机 | 用 S6 的进程封装 + 一个 WebPage | 切换 10 次无残留进程、无白屏超过 1 帧(显示上一帧或进度)、切回后滚到当前行 | 简化为"Quarto 输出开新窗口"(功能降级) |
 
@@ -952,10 +976,10 @@ CI:
 
 1. **Xcode 27**(App Store 或 developer.apple.com;需 macOS 26.4+,本机 27.2 可用);首启安装 macOS 26/27 SDK 与 Command Line Tools 关联(`xcode-select -s /Applications/Xcode.app`)。Icon Composer 随 Xcode 附带(Xcode ▸ Open Developer Tool)。
 2. **Node.js 22 LTS**(仅改 JS 时需要;`brew install node@22`)→ `cd Web && npm ci && npm run build`。日常 Swift 开发不需要 Node。
-3. **Apple Developer Program**(US$99/年)→ 创建 **Developer ID Application** 证书(导出 `.p12` 作 CI 密钥)+ **App Store Connect API Key**(Developer 角色,下载 `.p8`,记 Issuer ID/Key ID)用于 `notarytool`。本机 `xcrun notarytool store-credentials "MacDown2-Notary" --key …p8 --key-id … --issuer …`。
-4. **Sparkle EdDSA 密钥**:SPM 拉下 Sparkle 后 `./bin/generate_keys`(私钥进钥匙串;`-x` 导出给 CI secret `SPARKLE_ED_PRIVATE_KEY`;公钥写 `SUPublicEDKey`)。**私钥丢失 = 老用户无法再自动更新**,离线备份一份。
-5. **GitHub 仓库**(用户自建;本方案不建):Secrets:`DEV_ID_APP_P12`、`P12_PASSWORD`、`NOTARY_KEY_P8`、`NOTARY_KEY_ID`、`NOTARY_ISSUER_ID`、`SPARKLE_ED_PRIVATE_KEY`;启用 Actions;分支保护 `main` 要求 CI 通过。
-6. **App Group 与标识**:在 Developer 后台登记 App Group `<TEAMID>.io.github.xuanji86.MacDown2.shared`(QL 扩展共享偏好用)。
+3. **不需要 Apple Developer Program**(2026-10-03 已拍板不申请):没有 Developer ID 证书、`notarytool` 凭据、App Group;ad-hoc 签名不需要任何证书(`codesign -s -`)。
+4. **Sparkle EdDSA 密钥(发版前由用户执行一次,本仓库不生成)**:`generate_keys`(`Scripts/release.sh` 构建后在 `build/release-derived/SourcePackages/artifacts/sparkle/Sparkle/bin/`,也可用 Sparkle 发布包里的 `bin/`)——私钥进登录钥匙串(账户 `ed25519`),屏幕上打印的公钥填进 `App/Info.plist` 的 `SUPublicEDKey`(现为占位符 `REPLACE_WITH_PUBLIC_KEY_FROM_generate_keys`)。**私钥丢失 = 老用户无法再自动更新**:`generate_keys -x <文件>` 导出后离线备份。占位期间 App 不启动 Sparkle。
+5. **GitHub 仓库**:`xuanji86/MacDown2.0` 目前私有;Sparkle feed 与 cask 的 dmg 都是匿名下载,**首个 beta 前必须转公开**。发版不依赖 Actions/Secrets(`Scripts/release.sh` 本机跑;`gh` 需已登录)。分支保护 `main` 要求 CI 通过。
+6. **Homebrew tap 仓库**(用户确认后再建,本方案不建):公开仓库 `xuanji86/homebrew-tap`,放 `Casks/macdown2.rb`(由 `release.sh` 从 `Distribution/homebrew/macdown2.rb.template` 生成);用户用 `brew install --cask xuanji86/tap/macdown2`。bundle id 等标识已定(§10.3)。
 7. 可选:`quarto`(`brew install --cask quarto`)与 `qmd`(`npm i -g @tobilu/qmd`,需 Homebrew sqlite)用于开发 M1/M2 对应功能;`create-dmg` 不需要(用 `hdiutil`)。
 8. 不需要:rustup、CocoaPods、Carthage。
 
@@ -1000,7 +1024,7 @@ CI:
 ### 10.3 命名与声明
 
 - 名称 **MacDown2.0**(已定)。README 首段:"MacDown2.0 is an independent project. It is **not affiliated with, endorsed by, or a fork of** MacDown (uranusjr) or MacDown 3000 (schuyler). No code from either project is used; some Markdown test fixtures from MacDown 3000 are reused under the MIT License (see Tests/Fixtures/LICENSE-macdown3000)."
-- **已定标识**(2026-10-03 用户拍板):bundle id `io.github.xuanji86.MacDown2`(不占 `com.uranusjr.*` 命名空间;日后有自有域名也**不要改**——改 bundle id 会丢失用户偏好与 Sparkle 身份,开工前定死);QL 扩展 `io.github.xuanji86.MacDown2.QuickLook`;URL scheme `macdown2`;App Group `<TEAMID>.io.github.xuanji86.MacDown2.shared`;偏好域同 App Group;CLI 名 `macdown2`。
+- **已定标识**(2026-10-03 用户拍板):bundle id `io.github.xuanji86.MacDown2`(不占 `com.uranusjr.*` 命名空间;日后有自有域名也**不要改**——改 bundle id 会丢失用户偏好与 Sparkle 身份,开工前定死);QL 扩展 `io.github.xuanji86.MacDown2.QuickLook`;URL scheme `macdown2`;无 App Group(无 Developer 账号);偏好域 = bundle id;CLI 名 `macdown2`。
 - `.qmd` UTI `org.quarto.qmd` 以 imported 方式声明(非我们所有),若 Quarto 官方日后声明官方 UTI,改为引用之。
 
 ---

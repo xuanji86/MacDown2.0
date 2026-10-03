@@ -14,7 +14,7 @@ struct SettingsView: View {
             Tab("Markdown", systemImage: "text.badge.checkmark") { MarkdownPage() }
             Tab("Rendering", systemImage: "eye") { RenderingPage() }
             Tab("扩展", systemImage: "puzzlepiece.extension") { PlaceholderPage("Quarto 和 qmd 搜索扩展即将推出") }
-            Tab("Updates", systemImage: "arrow.triangle.2.circlepath") { PlaceholderPage("自动更新(Sparkle)尚未接入。") }
+            Tab("Updates", systemImage: "arrow.triangle.2.circlepath") { UpdatesPage() }
         }
         .scenePadding()
         .frame(width: 560, height: 520)
@@ -134,6 +134,31 @@ private struct RenderingPage: View {
                 Toggle("渲染数学公式(KaTeX)", isOn: render.binding(.math))
                 Toggle("行内 $…$ 也算公式", isOn: $render.preferences.inlineDollarMath)
                     .disabled(!render.preferences.extensions.contains(.math))
+            }
+        }
+        .formStyle(.grouped)
+    }
+}
+
+// MARK: Updates
+
+private struct UpdatesPage: View {
+    @Bindable private var updater = UpdaterController.shared
+
+    var body: some View {
+        Form {
+            Section {
+                Toggle("自动检查更新", isOn: $updater.automaticallyChecks)
+                Picker("检查频率", selection: $updater.checkInterval) {
+                    ForEach(UpdaterController.intervals, id: \.seconds) { Text($0.label).tag($0.seconds) }
+                }
+                .disabled(!updater.automaticallyChecks)
+                Button("立即检查") { updater.checkForUpdates() }
+                    .disabled(!updater.canCheckForUpdates)
+            }
+            .disabled(!updater.isConfigured)
+            if !updater.isConfigured {
+                Section { Text("此构建没有配置更新签名公钥(SUPublicEDKey),更新检查已停用。").foregroundStyle(.secondary) }
             }
         }
         .formStyle(.grouped)

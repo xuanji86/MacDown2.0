@@ -49,5 +49,12 @@
 			</dict>
 		</dict>
 	</array>
+	<!-- Sparkle. Feed URL: UpdaterController.feedURL. SUPublicEDKey is a PLACEHOLDER until the maintainer runs
+	     Sparkle's `generate_keys` (private key goes into the login keychain; back it up offline, losing it strands
+	     every installed copy) and pastes the printed public key here. While it is a placeholder, update checks are off. -->
+	<key>SUPublicEDKey</key>
+	<string>REPLACE_WITH_PUBLIC_KEY_FROM_generate_keys</string>
+	<key>SUEnableAutomaticChecks</key>
+	<true/>
 </dict>
 </plist>
