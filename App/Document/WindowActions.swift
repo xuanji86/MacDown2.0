@@ -6,6 +6,9 @@ struct WindowActions {
     let layout: SplitLayout
     let setLayout: (SplitLayout) -> Void
     let copyHTML: () -> Void
+    let exportHTML: () -> Void
+    let exportPDF: () -> Void
+    let printDocument: () -> Void
     let outlineShown: Bool
     let toggleOutline: () -> Void
 

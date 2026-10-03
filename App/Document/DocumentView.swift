@@ -38,6 +38,9 @@ struct DocumentView: View {
         let actions = WindowActions(
             editor: editor, layout: layout, setLayout: setLayout,
             copyHTML: { [document] in Task { await CopyHTML.copy(document.text) } },
+            exportHTML: { [document, fileURL] in Task { await DocumentExport.html(of: document.text, fileURL: fileURL) } },
+            exportPDF: { [document, fileURL] in Task { await DocumentExport.pdf(of: document.text, fileURL: fileURL) } },
+            printDocument: { [document, fileURL] in Task { await DocumentExport.print(document.text, fileURL: fileURL) } },
             outlineShown: showsOutline, toggleOutline: { showsOutline.toggle() }
         )
         GeometryReader { geometry in

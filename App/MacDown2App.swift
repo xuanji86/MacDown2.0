@@ -12,6 +12,7 @@ struct MacDown2App: App {
         .commands {
             AppearanceCommands()
             FormatCommands()
+            ExportCommands()
         }
         Settings { SettingsView() }
     }

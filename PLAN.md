@@ -515,7 +515,7 @@ editorLine(y):上式反函数,再由 LineTable 求该行 fragment 的 y,NSTextVi
 ### 4.7 导出
 
 - **HTML**:`JSCRenderer.render(target: .export)` → 套固定模板:内联预览主题 CSS、hljs CSS、KaTeX CSS(字体按设置内联);图片按设置 内联 base64 / 保持相对路径 / 复制到 `<name>_files/`;Mermaid 用预览里已渲好的 SVG(从 WebView `callJavaScript("return MacDown2.exportSVGs()")` 取回替换)。
-- **PDF**:需分页(Letter/A4、页边距)。S2 实测:`WebPage.exported(as: .pdf(region:allowTransparentBackground:)) async throws -> Data` 产出的是**屏幕宽度、单页最高 14400 pt 的长条页**(1 MB 文档 61 页 883×14400 pt、1.5 s),不是 Letter/A4 分页;`WKWebView.pdf()` 结果相同,`.image(snapshotWidth:)` 在长页面上直接失败。**「导出 PDF」是接受长条页(实现最简单:一行 API、17 ms–1.5 s),还是改走分页打印路线,列为 `⚠未验证` 待拍板项(附录 A 第 16 条)**;方案默认仍按分页打印路线设计(`NSPrintOperation` 路线 S2 未测):App 内一个**离屏 `WKWebView`**(非 UI 组件,不进视图层级)加载导出 HTML,`printOperation(with: NSPrintInfo)`,`jobDisposition = .save`、`NSPrintSavePath` 指向目标文件,`runModal(for:)`。⌘P 同路径走系统打印面板。Quarto 真渲染模式下导出 = 调 `quarto render --to pdf/html`(需用户确认,因会执行代码)。
+- **PDF**:需分页(Letter/A4、页边距)。S2 实测:`WebPage.exported(as: .pdf(region:allowTransparentBackground:)) async throws -> Data` 产出的是**屏幕宽度、单页最高 14400 pt 的长条页**(1 MB 文档 61 页 883×14400 pt、1.5 s),不是 Letter/A4 分页;`WKWebView.pdf()` 结果相同,`.image(snapshotWidth:)` 在长页面上直接失败。**已定走分页打印路线(附录 A 第 16 条:M1 已查证 SDK 无 `WebPage` 打印 API,并实测分页)**:App 内一个**离屏 `WKWebView`**(非 UI 组件,不进视图层级)加载导出 HTML,`printOperation(with: NSPrintInfo)`,`jobDisposition = .save`、`NSPrintSavePath` 指向目标文件,`runModal(for:)`。⌘P 同路径走系统打印面板。Quarto 真渲染模式下导出 = 调 `quarto render --to pdf/html`(需用户确认,因会执行代码)。
 - **复制 HTML**(⌘⇧C):渲染片段进剪贴板(`public.html` + 纯文本)。
 
 ### 4.8 设置(Settings 场景)
@@ -1044,7 +1044,7 @@ CI:
 13. ~~`WebPage.exported(as: .pdf)` 的确切签名~~ — **已查证(S2)**,见「已查证」小节;其产出非分页的后续问题见新增第 16 条。
 14. fish/tcsh 下 `$SHELL -l -c 'env -0'` 的行为(zsh 已本机验证)。
 15. tree-sitter-markdown 的 injections 查询能否匹配 Quarto 的 ```` ```{python} ```` info string(花括号需剥离)。
-16. **(新增,S2 引出)「导出 PDF」是接受 `WebPage.exported(as: .pdf)` 的长条页,还是改走分页打印路线**(离屏 `WKWebView` + `NSPrintOperation`,Letter/A4 + 页边距)。长条页路线已实测(屏幕宽度、单页 ≤ 14400 pt),分页打印路线 S2 未测,需在 M1 导出实现前原型验证并拍板(§4.7)。
+16. **(已查证,M1 导出)「导出 PDF」走分页打印路线,不用 `WebPage.exported(as: .pdf)` 的长条页。** Xcode 27 SDK 的 WebKit swiftinterface 里 `WebPage` 没有打印/分页 API(只有 `exported(as:)` 的 `.pdf(region:)`/`.image` 与 `CSSMediaType.print`);`WKWebView` 才有 `printOperation(with: NSPrintInfo)`。实现:离屏 `WKWebView`(放进从不显示的无边框窗口)加载导出 HTML,`runModal(for:delegate:didRun:)` 跑 `NSPrintOperation`(导出 PDF = `jobDisposition .save` + `jobSavingURL`,⌘P = 系统打印面板)。实测 8 页样例:Letter 每页 612×792 pt、A4 每页 595.276×841.89 pt,页边距 ≥ 54 pt,`@media print` 生效,KaTeX/代码高亮/中文字体/内联图片正常。坑:① `op.run()` 同步版,或 web view 不在窗口里,分页会死循环(PDF 写到 500 MB+),必须用窗口 + `runModal(for:delegate:didRun:)`;② `loadHTMLString` 读不到文档旁 `file://` 图片,打印页一律把图片内联为 data URI;③ 暗色预览样式文字是浅色,打印规则只去背景会白底白字,导出模板对纸张固定用其浅色搭档样式。
 
 ### 已查证、不再标 ⚠ 的事实(便于复核)
 
