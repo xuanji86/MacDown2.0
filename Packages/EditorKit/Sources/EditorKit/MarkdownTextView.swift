@@ -125,6 +125,9 @@ public final class MarkdownTextView: NSTextView {
         return Double(lineIndex(atOffset: offset)) + progress
     }
 
+    /// 0-based source line holding the insertion point (selection start).
+    public var caretLine: Int { lineIndex(atOffset: selectedRange().location) }
+
     /// Scroll so that `line` is at the top of the visible area (no animation).
     public func scroll(toLine line: Double) {
         guard let layout = textLayoutManager, let content = layout.textContentManager,

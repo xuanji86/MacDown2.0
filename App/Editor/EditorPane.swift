@@ -7,14 +7,16 @@ import SwiftUI
 /// delegate; the model flows back only when something other than the editor changed it (see `ExternalTextSync`).
 struct EditorPane: NSViewRepresentable {
     let document: MarkdownDocument  // deliberately not @ObservedObject: no SwiftUI update per keystroke
+    let scrollSync: ScrollSyncController
 
-    func makeCoordinator() -> Coordinator { Coordinator(document: document) }
+    func makeCoordinator() -> Coordinator { Coordinator(document: document, scrollSync: scrollSync) }
 
     func makeNSView(context: Context) -> NSScrollView {
         let (scrollView, textView) = MarkdownTextView.makeScrollView()
         textView.delegate = context.coordinator
         textView.string = document.text
         context.coordinator.textView = textView
+        scrollSync.attach(editor: textView)
         context.coordinator.observeDocument()
         return scrollView
     }
@@ -34,8 +36,11 @@ struct EditorPane: NSViewRepresentable {
         private var sync: ExternalTextSync
         private var subscription: AnyCancellable?
 
-        init(document: MarkdownDocument) {
+        private let scrollSync: ScrollSyncController
+
+        init(document: MarkdownDocument, scrollSync: ScrollSyncController) {
             self.document = document
+            self.scrollSync = scrollSync
             sync = ExternalTextSync(document: document, text: document.text)
         }
 
@@ -66,6 +71,10 @@ struct EditorPane: NSViewRepresentable {
 
         /// Registering edits with the document's UndoManager is what makes SwiftUI mark it dirty and autosave.
         func undoManager(for view: NSTextView) -> UndoManager? { undoManager }
+
+        func textViewDidChangeSelection(_ notification: Notification) {
+            if let textView = notification.object as? MarkdownTextView { scrollSync.caretMoved(in: textView) }
+        }
 
         func textDidChange(_ notification: Notification) {
             guard let textView = notification.object as? NSTextView else { return }
