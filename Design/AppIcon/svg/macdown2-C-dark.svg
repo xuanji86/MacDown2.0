@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024"><defs>
+<clipPath id="sq"><path d="M924,512l0,114l-1,40l-1,30l-2,24l-2,21l-3,18l-3,17l-4,15l-4,13l-5,13l-5,11l-6,11l-7,10l-7,9l-8,8l-8,8l-9,7l-10,7l-11,6l-11,5l-13,5l-13,4l-15,4l-17,3l-18,3l-21,2l-24,2l-30,1l-40,1l-114,0l-114,0l-40,-1l-30,-1l-24,-2l-21,-2l-18,-3l-17,-3l-15,-4l-13,-4l-13,-5l-11,-5l-11,-6l-10,-7l-9,-7l-8,-8l-8,-8l-7,-9l-7,-10l-6,-11l-5,-11l-5,-13l-4,-13l-4,-15l-3,-17l-3,-18l-2,-21l-2,-24l-1,-30l-1,-40l0,-114l0,-114l1,-40l1,-30l2,-24l2,-21l3,-18l3,-17l4,-15l4,-13l5,-13l5,-11l6,-11l7,-10l7,-9l8,-8l8,-8l9,-7l10,-7l11,-6l11,-5l13,-5l13,-4l15,-4l17,-3l18,-3l21,-2l24,-2l30,-1l40,-1l114,0l114,0l40,1l30,1l24,2l21,2l18,3l17,3l15,4l13,4l13,5l11,5l11,6l10,7l9,7l8,8l8,8l7,9l7,10l6,11l5,11l5,13l4,13l4,15l3,17l3,18l2,21l2,24l1,30l1,40Z"/></clipPath>
+<linearGradient id="gw" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFFFFF"/><stop offset="1" stop-color="#E3F2FA"/></linearGradient>
+<radialGradient id="glow" cx="0.5" cy="0.47" r="0.5"><stop offset="0" stop-color="#FFFFFF" stop-opacity="0.36"/><stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/></radialGradient>
+<filter id="ds" x="-20%" y="-20%" width="140%" height="160%"><feDropShadow dx="0" dy="14" stdDeviation="16" flood-color="#04305F" flood-opacity="0.36"/></filter>
+<filter id="dsn" x="-20%" y="-20%" width="140%" height="160%"><feDropShadow dx="0" dy="10" stdDeviation="14" flood-color="#000000" flood-opacity="0.22"/></filter>
+<filter id="glowt" x="-30%" y="-30%" width="160%" height="160%"><feDropShadow dx="0" dy="0" stdDeviation="22" flood-color="#5EDAEE" flood-opacity="0.45"/></filter>
+<filter id="rim" x="-20%" y="-20%" width="140%" height="140%">
+  <feGaussianBlur in="SourceAlpha" stdDeviation="9" result="b"/>
+  <feOffset in="b" dx="7" dy="11" result="o"/>
+  <feComposite in="SourceAlpha" in2="o" operator="out" result="edge"/>
+  <feFlood flood-color="#FFFFFF" flood-opacity="0.75" result="f"/>
+  <feComposite in="f" in2="edge" operator="in" result="rimc"/>
+  <feMerge><feMergeNode in="SourceGraphic"/><feMergeNode in="rimc"/></feMerge>
+</filter>
+<filter id="blur60"><feGaussianBlur stdDeviation="60"/></filter>
+<linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#1F9FCC"/><stop offset="0.45" stop-color="#0D56A5"/><stop offset="1" stop-color="#061B54"/></linearGradient><linearGradient id="wp" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#1E222B"/><stop offset="1" stop-color="#0E1016"/></linearGradient></defs><g clip-path="url(#sq)"><rect width="1024" height="1024" fill="url(#bg)"/></g><g clip-path="url(#sq)"><g filter="url(#rim)"><svg x="496" y="384" width="548" height="548" viewBox="-14 -14 128 128" overflow="visible"><path d="M18 34A32 32 0 1 1 74 56L18 100H100" fill="none" stroke="#FFFFFF" stroke-opacity="0.26" stroke-width="24" stroke-linecap="round" stroke-linejoin="round"/></svg></g></g><g filter="url(#ds)"><g transform="translate(58,152) scale(3.9)" fill="url(#gw)" stroke="#FFFFFF" stroke-width="5" stroke-linejoin="round" paint-order="stroke"><path d="M30 98V30h20l20 25 20-25h20v68H90V59L70 84 50 59v39z"/><path d="M155 98l-30-33h20V30h20v35h20z"/></g></g></svg>
