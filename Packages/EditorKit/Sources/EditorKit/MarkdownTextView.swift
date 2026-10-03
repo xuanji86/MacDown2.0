@@ -11,7 +11,12 @@ public final class MarkdownTextView: NSTextView {
     /// Called when the visible region scrolls or resizes, with `topVisibleLine`. Only computed while set.
     public var onVisibleLineChange: ((Double) -> Void)?
 
+    /// Auto-pairing, list continuation, Tab behaviour and the settings the formatting commands follow.
+    public var behavior = EditorBehavior()
+
     private(set) var highlighter: MarkdownHighlighter?
+    /// Set while our own edits go through `insertText`, so the typing assistant does not re-interpret them.
+    private var isApplyingEdit = false
 
     /// A scroll view hosting a TextKit 2 `MarkdownTextView`, configured like `NSTextView.scrollableTextView()`.
     public static func makeScrollView(theme: EditorTheme = .default) -> (scrollView: NSScrollView, textView: MarkdownTextView) {
@@ -87,8 +92,72 @@ public final class MarkdownTextView: NSTextView {
     }
 
     public override func insertText(_ string: Any, replacementRange: NSRange) {
+        if !isApplyingEdit, replacementRange.location == NSNotFound, !hasMarkedText(), let typed = string as? String,
+           let storage = textStorage,
+           let edit = EditingAssistant.typed(typed, in: storage.mutableString, selection: selectedRange(), behavior: behavior) {
+            applyEdit(edit)
+            return
+        }
         super.insertText(string, replacementRange: replacementRange)
         highlighter?.compositionDidEnd()
+    }
+
+    // MARK: Editing assistance (PLAN 4.3.4). All of it steps aside while an input method has marked text.
+
+    public override func insertNewline(_ sender: Any?) {
+        if !hasMarkedText(), let storage = textStorage,
+           let edit = EditingAssistant.newline(in: storage.mutableString, selection: selectedRange(), behavior: behavior) {
+            applyEdit(edit)
+        } else {
+            super.insertNewline(sender)
+        }
+    }
+
+    public override func insertTab(_ sender: Any?) {
+        if !hasMarkedText(), let storage = textStorage,
+           let edit = EditingAssistant.tab(in: storage.mutableString, selection: selectedRange(), behavior: behavior) {
+            applyEdit(edit)
+        } else {
+            super.insertTab(sender)
+        }
+    }
+
+    public override func insertBacktab(_ sender: Any?) {
+        if !hasMarkedText(), let storage = textStorage,
+           let edit = EditingAssistant.backtab(in: storage.mutableString, selection: selectedRange(), behavior: behavior) {
+            applyEdit(edit)
+        } else {
+            super.insertBacktab(sender)
+        }
+    }
+
+    public override func deleteBackward(_ sender: Any?) {
+        if !hasMarkedText(), let storage = textStorage,
+           let edit = EditingAssistant.backspace(in: storage.mutableString, selection: selectedRange(), behavior: behavior) {
+            applyEdit(edit)
+        } else {
+            super.deleteBackward(sender)
+        }
+    }
+
+    /// Run a menu/toolbar formatting command on the current selection (undoable as one step). No-op while an input
+    /// method is composing or the view is read-only.
+    public func perform(_ command: MarkdownCommand, pasteboard: NSPasteboard = .general) {
+        guard isEditable, !hasMarkedText(), let storage = textStorage else { return }
+        let clipboard = pasteboard.string(forType: .string)
+        guard let edit = command.edit(in: storage.mutableString, selection: selectedRange(), clipboard: clipboard, behavior: behavior) else { return }
+        applyEdit(edit)
+    }
+
+    /// Every programmatic change goes through `insertText`, i.e. `shouldChangeText` / undo registration / the delegate's
+    /// `textDidChange`, exactly like typing. A pure caret move (stepping over a closer) touches no text.
+    func applyEdit(_ edit: TextEdit) {
+        isApplyingEdit = true
+        defer { isApplyingEdit = false }
+        if edit.range.length > 0 || !edit.replacement.isEmpty {
+            insertText(edit.replacement, replacementRange: edit.range)
+        }
+        setSelectedRange(edit.selection)
     }
 
     // MARK: Loading text from outside

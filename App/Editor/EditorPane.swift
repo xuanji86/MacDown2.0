@@ -17,6 +17,8 @@ struct EditorPane: NSViewRepresentable {
     private var theme: EditorTheme {
         ThemeLibrary.resolve(name: themeName, followSystem: followsSystem, systemIsDark: colorScheme == .dark)
     }
+    /// Lets the toolbar and menus reach the text view this pane creates.
+    var editor: EditorHandle?
 
     func makeCoordinator() -> Coordinator { Coordinator(document: document, scrollSync: scrollSync) }
 
@@ -26,6 +28,7 @@ struct EditorPane: NSViewRepresentable {
         textView.string = document.text
         context.coordinator.textView = textView
         scrollSync.attach(editor: textView)
+        editor?.textView = textView
         context.coordinator.observeDocument()
         return scrollView
     }
