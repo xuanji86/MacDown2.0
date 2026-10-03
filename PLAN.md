@@ -52,7 +52,7 @@
 | Homebrew 检测 / Terminal 偏好页的 brew 逻辑 | 只保留"安装命令行工具"一个按钮。 |
 | PDF 内部锚点注入(`MPPDFAnchorInjector`) | WebKit 打印输出的 PDF 内链靠 WebKit 自己;不再手工后处理。 |
 | 多语言本地化(首发) | M3 只做 zh-Hans + en;其余社区贡献。 |
-| 所见即所得模式 | 形态已定为分栏。 |
+| 完整所见即所得模式(Typora 式:预览里分段/改格式/编辑表格) | 形态仍是分栏。2026-10-03 用户定:只做**文字级预览编辑**(见 M2「预览编辑与双向选区」),结构性编辑留在源码区。 |
 
 ---
 
@@ -860,6 +860,12 @@ CI:
 验收:§4.1.4 性能目标中 50 KB 场景达标;macdown3000 29 个 fixture 快照通过人工审阅;10 个 Quarto 官方示例 `.qmd` 近似预览无报错;关闭 Quarto 扩展后 `.qmd` 按普通 Markdown 预览、顶部出现一次性提示、QL 同步按普通 Markdown 渲染,且 `render.bundle.js` ≤ 800 KB、预览页未请求 `quarto.chunk.js`;QL 在 Finder 空格预览 `.md`/`.qmd`;公证通过、全新 Mac 首启无 Gatekeeper 拦截;Sparkle 从 beta.1 → beta.2 自动更新成功。
 
 ### M2 · 功能完整(约 4–5 周)
+
+**新增(2026-10-03 用户定,排在 M1 beta 之后)· 预览编辑与双向选区(约 2–3 周)**:
+- 底座:行内源码映射。每个顶层块内,把渲染出的 DOM 文本节点与源码偏移逐字对齐(按序匹配 inline token 的 text/code_inline;转义、实体、typographer 替换走回退)。按需对单块计算,不随每次渲染全量生成。
+- 双向选区:任一侧选中,另一侧以高亮(非真实选区)显示对应位置;映射不到字时退化为整块高亮。
+- 文字级预览编辑:预览里改字、删字、中文 IME 组字,改动按映射写回源码对应区间并重渲染;撤销统一走编辑区的 UndoManager。回车分段、富文本粘贴、跨块编辑等结构性操作不在预览里做(给出提示,引导到源码区)。
+- 验收:随机编辑 fuzz(预览侧编辑 → 源码 → 重渲染)与直接改源码的结果逐字一致;中文 IME 组字不丢字;撤销/重做和编辑区一致。
 
 范围:**LoginShellEnvironment(§4.16)**;文件夹工作区侧栏(树/监听/标签打开/右键/Quarto 副产物隐藏);内置搜索(核心 `SearchProvider`);**`QmdSearchExtension`(默认关):检测、征得同意注册 + `--mask` + `exclude`、节流 `update`、空闲 `embed`、两档查询、常驻服务开关、运行中关闭的收尾**;**Quarto 真渲染(`QuartoExtension` 子开关:`AlternatePreviewMode` 实现、进程生命周期、确认 sheet、切换横幅、日志面板)**;Quarto Pandoc 方言模拟规则;代码单元 Python/R/YAML 注入高亮;Mermaid;CLI(`open`/`.`/stdin/`render`)+ 安装按钮;`macdown2://` 深链;预览缩放;手动渲染模式;粘贴图片;用户主题目录热加载;Liquid Glass 打磨;Icon Composer 图标。
 验收:**从 Finder 双击启动的 App**(非 Xcode/终端启动)能定位到 `/opt/homebrew/bin`/`~/.bun/bin` 下的 quarto 与 qmd,且 conda venv 的 Python 在真渲染中被 Quarto 使用;`macdown2 .` 开工作区并在同窗标签打开文件;qmd 扩展关闭时 `pgrep qmd` 与环境抓取计数均为 0 且面板无 "qmd" 字样;开启后 qmd 未装/已装两条路径的搜索均返回可点击结果,注册后 `qmd collection show` 显示 mask 含 `qmd` 且 `qmd search` 不带 `-c` 时不返回该 collection;真渲染:切换 → 确认 → 15 s 内显示 Quarto 输出,保存后 3 s 内刷新,切回近似模式、关窗、以及**运行中关闭 Quarto 扩展**后 `pgrep -f "quarto preview"` 均无残留;关闭「Quarto 真渲染」子开关后无按钮且不探测 quarto;`_files/` 生成不触发侧栏刷新;Mermaid 10 张图文档渲染 < 1 s;1 MB 文档单键 patch < 30 ms。
