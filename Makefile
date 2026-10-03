@@ -14,7 +14,9 @@ test:
 	cd Web && npm test
 	Scripts/check-web-drift.sh
 	Scripts/check-module-boundaries.sh
-	for p in Packages/*/; do if [ -d "$$p/Tests" ]; then (cd "$$p" && swift test $(SWIFT_TEST_FLAGS)) || exit 1; fi; done
+	# Each swift test run leaves a dead Dock tile on macOS 27; clean up even when a test fails.
+	status=0; for p in Packages/*/; do if [ -d "$$p/Tests" ]; then (cd "$$p" && swift test $(SWIFT_TEST_FLAGS)) || { status=1; break; }; fi; done; \
+	  Scripts/clean-dock-ghosts.sh; exit $$status
 
 app:
 	DEVELOPER_DIR=$(XCODE_DEV) xcodebuild -project MacDown2.xcodeproj -scheme MacDown2 -configuration Debug -derivedDataPath build/DerivedData build
