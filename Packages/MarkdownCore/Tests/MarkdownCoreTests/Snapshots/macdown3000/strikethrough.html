@@ -1,0 +1,27 @@
+<h1 data-line="0" data-line-end="1" id="strikethrough-tests">Strikethrough Tests</h1>
+<h2 data-line="2" data-line-end="3" id="basic-strikethrough">Basic Strikethrough</h2>
+<p data-line="4" data-line-end="5">This is <s>strikethrough text</s>.</p>
+<p data-line="6" data-line-end="7"><s>Entire line strikethrough</s></p>
+<h2 data-line="8" data-line-end="9" id="combined-with-other-formatting">Combined with Other Formatting</h2>
+<p data-line="10" data-line-end="11">This is <s>strikethrough with <strong>bold</strong></s>.</p>
+<p data-line="12" data-line-end="13">This is <s>strikethrough with <em>italic</em></s>.</p>
+<p data-line="14" data-line-end="15">This is <strong>bold with <s>strikethrough</s></strong>.</p>
+<p data-line="16" data-line-end="17">This is <em>italic with <s>strikethrough</s></em>.</p>
+<h2 data-line="18" data-line-end="19" id="multiple-strikethroughs">Multiple Strikethroughs</h2>
+<p data-line="20" data-line-end="21"><s>First</s> and <s>second</s> strikethrough.</p>
+<h2 data-line="22" data-line-end="23" id="edge-cases">Edge Cases</h2>
+<p data-line="24" data-line-end="25">Not~strikethrough (single tilde).</p>
+<pre data-line="26" data-line-end="40" data-lang="Too"><code class="language-Too">
+~~Strikethrough at start~~ of line.
+
+End of line ~~has strikethrough~~.
+
+## In Lists
+
+- ~~Strikethrough list item~~
+- Regular item
+- ~~Another strikethrough~~
+
+1. ~~Numbered strikethrough~~
+2. Regular numbered item
+</code></pre>

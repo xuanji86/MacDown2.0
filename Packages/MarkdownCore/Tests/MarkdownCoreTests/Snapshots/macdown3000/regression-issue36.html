@@ -1,0 +1,31 @@
+<h1 data-line="0" data-line-end="1" id="code-blocks-without-blank-lines-issue-36">Code Blocks Without Blank Lines (Issue #36)</h1>
+<h2 data-line="2" data-line-end="3" id="test-case-1-fenced-code-block-immediately-after-text">Test Case 1: Fenced code block immediately after text</h2>
+<p data-line="3" data-line-end="4">Here is some code:</p>
+<pre data-line="4" data-line-end="9"><code>function test() {
+  return true;
+}
+</code></pre>
+<h2 data-line="10" data-line-end="11" id="test-case-2-multiple-code-blocks-in-sequence">Test Case 2: Multiple code blocks in sequence</h2>
+<p data-line="11" data-line-end="12">First block:</p>
+<pre data-line="12" data-line-end="15" data-lang="javascript"><code class="hljs language-javascript"><span class="hljs-keyword">const</span> x = <span class="hljs-number">42</span>;
+</code></pre>
+<p data-line="15" data-line-end="16">Second block:</p>
+<pre data-line="16" data-line-end="19" data-lang="python"><code class="hljs language-python">y = <span class="hljs-number">100</span>
+</code></pre>
+<h2 data-line="20" data-line-end="21" id="test-case-3-code-block-with-proper-blank-line-works-correctly">Test Case 3: Code block with proper blank line (works correctly)</h2>
+<p data-line="22" data-line-end="23">This should work:</p>
+<pre data-line="24" data-line-end="29"><code>function working() {
+  return 'yes';
+}
+</code></pre>
+<h2 data-line="30" data-line-end="31" id="test-case-4-code-block-in-list-without-blank-line">Test Case 4: Code block in list without blank line</h2>
+<p data-line="31" data-line-end="32">Steps to follow:</p>
+<ul data-line="32" data-line-end="34">
+<li data-line="32" data-line-end="33">First step</li>
+<li data-line="33" data-line-end="34">Run this code:</li>
+</ul>
+<pre data-line="34" data-line-end="37"><code>npm install
+</code></pre>
+<ul data-line="37" data-line-end="38">
+<li data-line="37" data-line-end="38">Last step</li>
+</ul>
