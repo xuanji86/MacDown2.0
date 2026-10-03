@@ -8,18 +8,37 @@ public struct FlavorID: RawRepresentable, Hashable, Sendable, Codable, Expressib
     public static let markdown: FlavorID = "markdown"
 }
 
+/// Raw values are the names `Web/src/render/index.ts` looks for in `RenderOptions.extensions`.
 public enum MarkdownExtension: String, Codable, Sendable, CaseIterable {
     case tables, strikethrough, autolink, smartPunctuation
+    case mark, sup, sub, underline, footnotes, taskLists, math, toc, frontMatter, cjkEmphasis
+}
+
+/// Which math delimiters the renderer recognises: `$…$` / `$$…$$`, `\(…\)` / `\[…\]`, or both.
+public enum MathDelimiters: String, Codable, Sendable, CaseIterable {
+    case dollars, brackets, both
+}
+
+/// What the preview shows for a leading YAML front matter block (the raw text is always in `RenderResult.frontMatter`).
+public enum FrontMatterDisplay: String, Codable, Sendable, CaseIterable {
+    case hidden, table
 }
 
 /// Encoded as JSON and handed to `MacDown2.render` in `Web/src/render/index.ts`; keep the two in sync.
+/// Defaults follow PLAN §4.8 (Markdown / Rendering settings pages).
 public struct RenderOptions: Sendable, Codable, Hashable {
     public var flavor: FlavorID = .markdown
     public var renderChunks: [String] = []
-    public var extensions: Set<MarkdownExtension> = [.tables, .strikethrough, .autolink]
+    public var extensions: Set<MarkdownExtension> = [
+        .tables, .strikethrough, .autolink, .mark, .footnotes, .taskLists, .math, .toc, .frontMatter, .cjkEmphasis,
+    ]
     public var hardBreaks = false
     public var allowRawHTML = true
+    public var codeHighlighting = true
+    public var codeLineNumbers = false
     public var headingAnchors = true
+    public var mathDelimiters: MathDelimiters = .both
+    public var frontMatterDisplay: FrontMatterDisplay = .hidden
 
     public init() {}
 }
@@ -29,6 +48,8 @@ public struct RenderResult: Sendable, Codable, Hashable {
     public var blocks: [BlockMap]
     public var outline: [OutlineItem]
     public var stats: TextStats
+    /// Raw YAML between the `---` fences; nil when there is none or `.frontMatter` is off.
+    public var frontMatter: String?
 }
 
 /// A top-level block and the source lines it came from (`lineEnd` exclusive, zero-based).

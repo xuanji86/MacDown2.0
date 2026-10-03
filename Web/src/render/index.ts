@@ -1,23 +1,46 @@
 // Renderer entry point. Bundled as an IIFE exposing `globalThis.MacDown2`; the same bundle
 // runs in the preview WebView and in JavaScriptCore (Quick Look, CLI, export, tests).
 import markdownit, { type MarkdownIt, type StateCore, type Token } from 'markdown-it';
+import { footnote } from '@mdit/plugin-footnote';
+import { katex } from '@mdit/plugin-katex';
+import { mark } from '@mdit/plugin-mark';
+import { sub } from '@mdit/plugin-sub';
+import { sup } from '@mdit/plugin-sup';
+import { tasklist } from '@mdit/plugin-tasklist';
+import { cjkEmphasis } from './plugins/cjk-emphasis.ts';
+import { codeBlocks } from './plugins/code.ts';
+import { frontMatter, type FrontMatterDisplay } from './plugins/front-matter.ts';
+import { toc } from './plugins/toc.ts';
+import { underline } from './plugins/underline.ts';
 import { hash53, slugify, textStats, type TextStats } from './text.ts';
 
 export interface RenderOptions {
   flavor: string;
   renderChunks?: string[];
-  extensions: string[]; // 'tables' | 'strikethrough' | 'autolink' | 'smartPunctuation'
+  // 'tables' | 'strikethrough' | 'autolink' | 'smartPunctuation' | 'mark' | 'sup' | 'sub' | 'underline'
+  // | 'footnotes' | 'taskLists' | 'math' | 'toc' | 'frontMatter' | 'cjkEmphasis'
+  extensions: string[];
   hardBreaks: boolean;
   allowRawHTML: boolean;
   headingAnchors: boolean;
+  codeHighlighting: boolean;
+  codeLineNumbers: boolean;
+  mathDelimiters: 'dollars' | 'brackets' | 'both';
+  frontMatterDisplay: FrontMatterDisplay;
 }
 
 export interface BlockMap { lineStart: number; lineEnd: number; hash: number }
 export interface OutlineItem { level: number; text: string; slug: string; line: number }
-export interface RenderResult { html: string; blocks: BlockMap[]; outline: OutlineItem[]; stats: TextStats }
+export interface RenderResult {
+  html: string;
+  blocks: BlockMap[];
+  outline: OutlineItem[];
+  stats: TextStats;
+  frontMatter?: string; // raw YAML between the `---` fences; absent when there is none or the extension is off
+}
 
 type FlavorSetup = (md: MarkdownIt, options: RenderOptions) => void;
-interface Env { outline: OutlineItem[] }
+interface Env { outline: OutlineItem[]; hasToc?: boolean }
 
 const registry = new Map<string, FlavorSetup>([['markdown', () => {}]]);
 const instances = new Map<string, MarkdownIt>();
@@ -55,7 +78,8 @@ function annotate(state: StateCore, headingAnchors: boolean): void {
     if (t.type === 'heading_open') {
       const text = plainText(tokens[i + 1]);
       const slug = slugify(text, seen);
-      if (headingAnchors && slug) t.attrSet('id', slug);
+      // [TOC] links need the ids even when anchors are switched off
+      if ((headingAnchors || env.hasToc) && slug) t.attrSet('id', slug);
       env.outline.push({ level: Number(t.tag.slice(1)), text, slug, line: t.map?.[0] ?? 0 });
     }
   }
@@ -65,7 +89,16 @@ function instance(o: RenderOptions): MarkdownIt {
   const setup = registry.get(o.flavor);
   if (!setup) throw new Error(`Unknown flavor "${o.flavor}"`);
   const ext = new Set(o.extensions);
-  const key = `${o.flavor}|${JSON.stringify([[...ext].sort(), o.hardBreaks, o.allowRawHTML, o.headingAnchors])}`;
+  const key = `${o.flavor}|${JSON.stringify([
+    [...ext].sort(),
+    o.hardBreaks,
+    o.allowRawHTML,
+    o.headingAnchors,
+    o.codeHighlighting,
+    o.codeLineNumbers,
+    o.mathDelimiters,
+    o.frontMatterDisplay,
+  ])}`;
   const cached = instances.get(key);
   if (cached) return cached;
 
@@ -77,6 +110,27 @@ function instance(o: RenderOptions): MarkdownIt {
   });
   if (!ext.has('tables')) md.disable('table');
   if (!ext.has('strikethrough')) md.disable('strikethrough');
+  if (ext.has('cjkEmphasis')) md.use(cjkEmphasis);
+  // Math registers its inline rules before `escape`/`emphasis`, so `_` and `*` inside formulas are never emphasis.
+  if (ext.has('math')) {
+    md.use(katex, {
+      delimiters: o.mathDelimiters === 'both' ? 'all' : (o.mathDelimiters ?? 'dollars'),
+      logger: () => 'ignore', // KaTeX's default logger calls console.warn, which JavaScriptCore contexts may lack
+    });
+    // The plugin renders `<p class='katex-block'>` without the token's attrs; keep data-line on the block.
+    const mathBlock = md.renderer.rules.math_block!;
+    md.renderer.rules.math_block = (tokens, idx, opts, env, slf) =>
+      mathBlock(tokens, idx, opts, env, slf).replace(/^<p/, `<p${slf.renderAttrs(tokens[idx])}`);
+  }
+  if (ext.has('mark')) md.use(mark);
+  if (ext.has('sup')) md.use(sup);
+  if (ext.has('sub')) md.use(sub);
+  if (ext.has('footnotes')) md.use(footnote);
+  if (ext.has('taskLists')) md.use(tasklist);
+  if (ext.has('underline')) md.use(underline);
+  if (ext.has('toc')) md.use(toc);
+  if (ext.has('frontMatter')) md.use(frontMatter, o.frontMatterDisplay === 'table' ? 'table' : 'hidden');
+  md.use(codeBlocks, { highlight: o.codeHighlighting, lineNumbers: o.codeLineNumbers });
   setup(md, o);
   md.core.ruler.push('macdown2_annotate', (state) => annotate(state, o.headingAnchors));
   instances.set(key, md);
@@ -93,8 +147,16 @@ function collectText(tokens: Token[]): string {
 export function renderResult(source: string, options: RenderOptions): RenderResult {
   const md = instance(options);
   const env: Env = { outline: [] };
-  const tokens = md.parse(source, env);
-  const html = md.renderer.render(tokens, md.options, env);
+  let tokens: Token[];
+  let html: string;
+  try {
+    tokens = md.parse(source, env);
+    html = md.renderer.render(tokens, md.options, env);
+  } finally {
+    // The KaTeX plugin clears macros defined with \gdef when `md.render` finishes, but we call parse and
+    // renderer.render ourselves, so run an empty render to get the same reset.
+    if (options.extensions.includes('math')) md.render('', { outline: [] });
+  }
   const lines = source.split('\n');
   const blocks = tokens
     .filter((t) => t.level === 0 && t.map && t.nesting >= 0 && t.type !== 'inline')
@@ -102,7 +164,10 @@ export function renderResult(source: string, options: RenderOptions): RenderResu
       const [lineStart, lineEnd] = t.map!;
       return { lineStart, lineEnd, hash: hash53(lines.slice(lineStart, lineEnd).join('\n')) };
     });
-  return { html, blocks, outline: env.outline, stats: textStats(collectText(tokens)) };
+  const fm = tokens.find((t) => t.type === 'front_matter');
+  const result: RenderResult = { html, blocks, outline: env.outline, stats: textStats(collectText(tokens)) };
+  if (fm) result.frontMatter = fm.meta as string;
+  return result;
 }
 
 // String-in/string-out entry used across the JavaScriptCore and WebView bridges.

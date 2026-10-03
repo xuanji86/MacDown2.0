@@ -1,0 +1,54 @@
+<h1 data-line="0" data-line-end="1" id="common-programming-languages">Common Programming Languages</h1>
+<h2 data-line="2" data-line-end="3" id="javascript">JavaScript</h2>
+<pre data-line="4" data-line-end="10" data-lang="javascript"><code class="hljs language-javascript"><span class="hljs-keyword">function</span> <span class="hljs-title function_">fibonacci</span>(<span class="hljs-params">n</span>) {
+    <span class="hljs-keyword">if</span> (n &lt;= <span class="hljs-number">1</span>) <span class="hljs-keyword">return</span> n;
+    <span class="hljs-keyword">return</span> <span class="hljs-title function_">fibonacci</span>(n - <span class="hljs-number">1</span>) + <span class="hljs-title function_">fibonacci</span>(n - <span class="hljs-number">2</span>);
+}
+</code></pre>
+<h2 data-line="11" data-line-end="12" id="python">Python</h2>
+<pre data-line="13" data-line-end="19" data-lang="python"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">fibonacci</span>(<span class="hljs-params">n</span>):
+    <span class="hljs-keyword">if</span> n &lt;= <span class="hljs-number">1</span>:
+        <span class="hljs-keyword">return</span> n
+    <span class="hljs-keyword">return</span> fibonacci(n - <span class="hljs-number">1</span>) + fibonacci(n - <span class="hljs-number">2</span>)
+</code></pre>
+<h2 data-line="20" data-line-end="21" id="c">C</h2>
+<pre data-line="22" data-line-end="28" data-lang="c"><code class="hljs language-c"><span class="hljs-type">int</span> <span class="hljs-title function_">fibonacci</span><span class="hljs-params">(<span class="hljs-type">int</span> n)</span> {
+    <span class="hljs-keyword">if</span> (n &lt;= <span class="hljs-number">1</span>) <span class="hljs-keyword">return</span> n;
+    <span class="hljs-keyword">return</span> fibonacci(n - <span class="hljs-number">1</span>) + fibonacci(n - <span class="hljs-number">2</span>);
+}
+</code></pre>
+<h2 data-line="29" data-line-end="30" id="c-1">C++</h2>
+<pre data-line="31" data-line-end="37" data-lang="cpp"><code class="hljs language-cpp"><span class="hljs-function"><span class="hljs-type">int</span> <span class="hljs-title">fibonacci</span><span class="hljs-params">(<span class="hljs-type">int</span> n)</span> </span>{
+    <span class="hljs-keyword">if</span> (n &lt;= <span class="hljs-number">1</span>) <span class="hljs-keyword">return</span> n;
+    <span class="hljs-keyword">return</span> <span class="hljs-built_in">fibonacci</span>(n - <span class="hljs-number">1</span>) + <span class="hljs-built_in">fibonacci</span>(n - <span class="hljs-number">2</span>);
+}
+</code></pre>
+<h2 data-line="38" data-line-end="39" id="java">Java</h2>
+<pre data-line="40" data-line-end="46" data-lang="java"><code class="hljs language-java"><span class="hljs-keyword">public</span> <span class="hljs-type">int</span> <span class="hljs-title function_">fibonacci</span><span class="hljs-params">(<span class="hljs-type">int</span> n)</span> {
+    <span class="hljs-keyword">if</span> (n &lt;= <span class="hljs-number">1</span>) <span class="hljs-keyword">return</span> n;
+    <span class="hljs-keyword">return</span> fibonacci(n - <span class="hljs-number">1</span>) + fibonacci(n - <span class="hljs-number">2</span>);
+}
+</code></pre>
+<h2 data-line="47" data-line-end="48" id="go">Go</h2>
+<pre data-line="49" data-line-end="57" data-lang="go"><code class="hljs language-go"><span class="hljs-function"><span class="hljs-keyword">func</span> <span class="hljs-title">fibonacci</span><span class="hljs-params">(n <span class="hljs-type">int</span>)</span></span> <span class="hljs-type">int</span> {
+    <span class="hljs-keyword">if</span> n &lt;= <span class="hljs-number">1</span> {
+        <span class="hljs-keyword">return</span> n
+    }
+    <span class="hljs-keyword">return</span> fibonacci(n<span class="hljs-number">-1</span>) + fibonacci(n<span class="hljs-number">-2</span>)
+}
+</code></pre>
+<h2 data-line="58" data-line-end="59" id="rust">Rust</h2>
+<pre data-line="60" data-line-end="69" data-lang="rust"><code class="hljs language-rust"><span class="hljs-keyword">fn</span> <span class="hljs-title function_">fibonacci</span>(n: <span class="hljs-type">u32</span>) <span class="hljs-punctuation">-&gt;</span> <span class="hljs-type">u32</span> {
+    <span class="hljs-keyword">match</span> n {
+        <span class="hljs-number">0</span> =&gt; <span class="hljs-number">0</span>,
+        <span class="hljs-number">1</span> =&gt; <span class="hljs-number">1</span>,
+        _ =&gt; <span class="hljs-title function_ invoke__">fibonacci</span>(n - <span class="hljs-number">1</span>) + <span class="hljs-title function_ invoke__">fibonacci</span>(n - <span class="hljs-number">2</span>),
+    }
+}
+</code></pre>
+<h2 data-line="70" data-line-end="71" id="typescript">TypeScript</h2>
+<pre data-line="72" data-line-end="78" data-lang="typescript"><code class="hljs language-typescript"><span class="hljs-keyword">function</span> <span class="hljs-title function_">fibonacci</span>(<span class="hljs-params"><span class="hljs-attr">n</span>: <span class="hljs-built_in">number</span></span>): <span class="hljs-built_in">number</span> {
+    <span class="hljs-keyword">if</span> (n &lt;= <span class="hljs-number">1</span>) <span class="hljs-keyword">return</span> n;
+    <span class="hljs-keyword">return</span> <span class="hljs-title function_">fibonacci</span>(n - <span class="hljs-number">1</span>) + <span class="hljs-title function_">fibonacci</span>(n - <span class="hljs-number">2</span>);
+}
+</code></pre>

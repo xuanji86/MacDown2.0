@@ -1,0 +1,31 @@
+<h1 data-line="0" data-line-end="1" id="square-brackets-in-code-issue-37">Square Brackets in Code (Issue #37)</h1>
+<h2 data-line="2" data-line-end="3" id="test-case-1-typescript-index-signature">Test Case 1: TypeScript index signature</h2>
+<pre data-line="4" data-line-end="9" data-lang="typescript"><code class="hljs language-typescript"><span class="hljs-keyword">interface</span> <span class="hljs-title class_">MyType</span> {
+  [<span class="hljs-attr">key</span>: <span class="hljs-built_in">string</span>]: <span class="hljs-built_in">any</span>;
+}
+</code></pre>
+<h2 data-line="10" data-line-end="11" id="test-case-2-javascript-array-access">Test Case 2: JavaScript array access</h2>
+<pre data-line="12" data-line-end="18" data-lang="javascript"><code class="hljs language-javascript"><span class="hljs-keyword">const</span> value = array[index];
+<span class="hljs-keyword">const</span> obj = {
+  [computed]: <span class="hljs-string">&#x27;value&#x27;</span>
+};
+</code></pre>
+<h2 data-line="19" data-line-end="20" id="test-case-3-multiple-bracket-patterns">Test Case 3: Multiple bracket patterns</h2>
+<pre data-line="21" data-line-end="32" data-lang="typescript"><code class="hljs language-typescript"><span class="hljs-keyword">type</span> <span class="hljs-title class_">Dict</span> = {
+  [<span class="hljs-attr">id</span>: <span class="hljs-built_in">number</span>]: <span class="hljs-built_in">string</span>;
+}
+
+<span class="hljs-keyword">interface</span> <span class="hljs-title class_">Config</span> {
+  [<span class="hljs-attr">key</span>: <span class="hljs-built_in">string</span>]: {
+    [<span class="hljs-attr">nested</span>: <span class="hljs-built_in">string</span>]: <span class="hljs-built_in">boolean</span>;
+  };
+}
+</code></pre>
+<h2 data-line="33" data-line-end="34" id="test-case-4-inline-code-with-brackets">Test Case 4: Inline code with brackets</h2>
+<p data-line="35" data-line-end="36">Here's an example: <code>array[0]</code> and <code>obj[key]</code> should work.</p>
+<h2 data-line="37" data-line-end="38" id="test-case-5-python-dictionary-syntax">Test Case 5: Python dictionary syntax</h2>
+<pre data-line="39" data-line-end="45" data-lang="python"><code class="hljs language-python">my_dict = {
+    <span class="hljs-string">&quot;key&quot;</span>: <span class="hljs-string">&quot;value&quot;</span>
+}
+result = my_dict[<span class="hljs-string">&quot;key&quot;</span>]
+</code></pre>

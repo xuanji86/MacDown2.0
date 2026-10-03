@@ -8,6 +8,6 @@ let package = Package(
     dependencies: [.package(path: "../WebAssets")],
     targets: [
         .target(name: "MarkdownCore", dependencies: ["WebAssets"]),
-        .testTarget(name: "MarkdownCoreTests", dependencies: ["MarkdownCore"], resources: [.copy("Fixtures")]),
+        .testTarget(name: "MarkdownCoreTests", dependencies: ["MarkdownCore"], exclude: ["Snapshots"], resources: [.copy("Fixtures")]),
     ]
 )

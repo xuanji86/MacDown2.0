@@ -1,0 +1,190 @@
+<h1 data-line="0" data-line-end="1" id="table-tests">Table Tests</h1>
+<h2 data-line="2" data-line-end="3" id="basic-table">Basic Table</h2>
+<table data-line="4" data-line-end="8">
+<thead data-line="4" data-line-end="5">
+<tr data-line="4" data-line-end="5">
+<th>Header 1</th>
+<th>Header 2</th>
+<th>Header 3</th>
+</tr>
+</thead>
+<tbody data-line="6" data-line-end="8">
+<tr data-line="6" data-line-end="7">
+<td>Cell 1</td>
+<td>Cell 2</td>
+<td>Cell 3</td>
+</tr>
+<tr data-line="7" data-line-end="8">
+<td>Cell 4</td>
+<td>Cell 5</td>
+<td>Cell 6</td>
+</tr>
+</tbody>
+</table>
+<h2 data-line="9" data-line-end="10" id="table-with-alignment">Table with Alignment</h2>
+<table data-line="11" data-line-end="16">
+<thead data-line="11" data-line-end="12">
+<tr data-line="11" data-line-end="12">
+<th style="text-align:left">Left Aligned</th>
+<th style="text-align:center">Center Aligned</th>
+<th style="text-align:right">Right Aligned</th>
+</tr>
+</thead>
+<tbody data-line="13" data-line-end="16">
+<tr data-line="13" data-line-end="14">
+<td style="text-align:left">Left</td>
+<td style="text-align:center">Center</td>
+<td style="text-align:right">Right</td>
+</tr>
+<tr data-line="14" data-line-end="15">
+<td style="text-align:left">A</td>
+<td style="text-align:center">B</td>
+<td style="text-align:right">C</td>
+</tr>
+<tr data-line="15" data-line-end="16">
+<td style="text-align:left">Long content</td>
+<td style="text-align:center">Middle</td>
+<td style="text-align:right">123</td>
+</tr>
+</tbody>
+</table>
+<h2 data-line="17" data-line-end="18" id="minimal-table">Minimal Table</h2>
+<table data-line="19" data-line-end="23">
+<thead data-line="19" data-line-end="20">
+<tr data-line="19" data-line-end="20">
+<th>A</th>
+<th>B</th>
+</tr>
+</thead>
+<tbody data-line="21" data-line-end="23">
+<tr data-line="21" data-line-end="22">
+<td>1</td>
+<td>2</td>
+</tr>
+<tr data-line="22" data-line-end="23">
+<td>3</td>
+<td>4</td>
+</tr>
+</tbody>
+</table>
+<h2 data-line="24" data-line-end="25" id="table-with-inline-formatting">Table with Inline Formatting</h2>
+<table data-line="26" data-line-end="30">
+<thead data-line="26" data-line-end="27">
+<tr data-line="26" data-line-end="27">
+<th>Name</th>
+<th>Status</th>
+<th>Code</th>
+</tr>
+</thead>
+<tbody data-line="28" data-line-end="30">
+<tr data-line="28" data-line-end="29">
+<td><strong>Bold</strong></td>
+<td><em>Italic</em></td>
+<td><code>code</code></td>
+</tr>
+<tr data-line="29" data-line-end="30">
+<td><a href="https://example.com">Link</a></td>
+<td>Normal</td>
+<td>Text</td>
+</tr>
+</tbody>
+</table>
+<h2 data-line="31" data-line-end="32" id="table-with-different-column-widths">Table with Different Column Widths</h2>
+<table data-line="33" data-line-end="37">
+<thead data-line="33" data-line-end="34">
+<tr data-line="33" data-line-end="34">
+<th>Short</th>
+<th>Medium Length</th>
+<th>Very Long Header Name</th>
+</tr>
+</thead>
+<tbody data-line="35" data-line-end="37">
+<tr data-line="35" data-line-end="36">
+<td>A</td>
+<td>B</td>
+<td>C</td>
+</tr>
+<tr data-line="36" data-line-end="37">
+<td>1</td>
+<td>2</td>
+<td>3</td>
+</tr>
+</tbody>
+</table>
+<h2 data-line="38" data-line-end="39" id="empty-cells">Empty Cells</h2>
+<table data-line="40" data-line-end="44">
+<thead data-line="40" data-line-end="41">
+<tr data-line="40" data-line-end="41">
+<th>Header 1</th>
+<th>Header 2</th>
+<th>Header 3</th>
+</tr>
+</thead>
+<tbody data-line="42" data-line-end="44">
+<tr data-line="42" data-line-end="43">
+<td>Cell 1</td>
+<td></td>
+<td>Cell 3</td>
+</tr>
+<tr data-line="43" data-line-end="44">
+<td></td>
+<td>Cell 2</td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<h2 data-line="45" data-line-end="46" id="wide-table-many-columns-issue-432-regression">Wide Table (many columns, issue #432 regression)</h2>
+<table data-line="47" data-line-end="52">
+<thead data-line="47" data-line-end="48">
+<tr data-line="47" data-line-end="48">
+<th>Column One</th>
+<th>Column Two</th>
+<th>Column Three</th>
+<th>Column Four</th>
+<th>Column Five</th>
+<th>Column Six</th>
+<th>Column Seven</th>
+<th>Column Eight</th>
+<th>Column Nine</th>
+<th>Column Ten</th>
+</tr>
+</thead>
+<tbody data-line="49" data-line-end="52">
+<tr data-line="49" data-line-end="50">
+<td>Alpha</td>
+<td>Beta</td>
+<td>Gamma</td>
+<td>Delta</td>
+<td>Epsilon</td>
+<td>Zeta</td>
+<td>Eta</td>
+<td>Theta</td>
+<td>Iota</td>
+<td>Kappa</td>
+</tr>
+<tr data-line="50" data-line-end="51">
+<td>1</td>
+<td>2</td>
+<td>3</td>
+<td>4</td>
+<td>5</td>
+<td>6</td>
+<td>7</td>
+<td>8</td>
+<td>9</td>
+<td>10</td>
+</tr>
+<tr data-line="51" data-line-end="52">
+<td>Lorem</td>
+<td>Ipsum</td>
+<td>Dolor</td>
+<td>Sit</td>
+<td>Amet</td>
+<td>Consectetur</td>
+<td>Adipiscing</td>
+<td>Elit</td>
+<td>Sed</td>
+<td>Do</td>
+</tr>
+</tbody>
+</table>

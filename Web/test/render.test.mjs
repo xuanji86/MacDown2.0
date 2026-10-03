@@ -9,6 +9,10 @@ const defaults = {
   hardBreaks: false,
   allowRawHTML: true,
   headingAnchors: true,
+  codeHighlighting: true,
+  codeLineNumbers: false,
+  mathDelimiters: 'both',
+  frontMatterDisplay: 'hidden',
 };
 
 test('textStats counts CJK per character and latin per word', () => {

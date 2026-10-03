@@ -1,5 +1,5 @@
 // Builds the vendored web assets: render.bundle.js, preview.bundle.js (+ preview.html, preview-styles/),
-// flavors.json, THIRD_PARTY_LICENSES.txt.
+// katex/ (CSS + woff2 fonts), hljs-themes/, flavors.json, THIRD_PARTY_LICENSES.txt.
 // Usage: node build.mjs [outDir]   (default: the WebAssets package resources; drift check passes a temp dir)
 import { build } from 'esbuild';
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -38,6 +38,25 @@ await build({
 cpSync(join(here, 'src/preview/preview.html'), join(outDir, 'preview.html'));
 cpSync(join(here, 'src/preview/preview-styles'), join(outDir, 'preview-styles'), { recursive: true });
 
+// KaTeX stylesheet + fonts. Only woff2 is shipped (every WebKit this app runs on has it), so the woff/ttf
+// fallbacks are dropped from the CSS instead of left pointing at files that are not there.
+const katexDist = join(here, 'node_modules/katex/dist');
+mkdirSync(join(outDir, 'katex/fonts'), { recursive: true });
+writeFileSync(
+  join(outDir, 'katex/katex.min.css'),
+  readFileSync(join(katexDist, 'katex.min.css'), 'utf8').replace(/,url\([^)]+\.woff\) format\("woff"\),url\([^)]+\.ttf\) format\("truetype"\)/g, ''),
+);
+for (const f of readdirSync(join(katexDist, 'fonts')).filter((f) => f.endsWith('.woff2'))) {
+  cpSync(join(katexDist, 'fonts', f), join(outDir, 'katex/fonts', f));
+}
+
+// highlight.js themes (unminified, so each file keeps its author/licence header).
+const hljsThemes = ['github', 'github-dark', 'xcode', 'atom-one-light', 'atom-one-dark', 'monokai', 'a11y-light', 'a11y-dark'];
+mkdirSync(join(outDir, 'hljs-themes'), { recursive: true });
+for (const name of hljsThemes) {
+  cpSync(join(here, 'node_modules/highlight.js/styles', `${name}.css`), join(outDir, 'hljs-themes', `${name}.css`));
+}
+
 // flavors.json: merged from src/<flavor>/manifest.json (Quick Look / CLI read it without linking extensions).
 const flavors = {};
 for (const dir of readdirSync(join(here, 'src'))) {
@@ -59,4 +78,5 @@ const notices = [...packages].sort().map((name) => {
   if (!file) throw new Error(`${name}: no LICENSE file to bundle`);
   return `${name} ${version} (${license})\n\n${readFileSync(join(root, file), 'utf8').trim()}\n`;
 });
+notices.push(readFileSync(join(here, 'src/render/katex-fonts-license.txt'), 'utf8').trim() + '\n');
 writeFileSync(join(outDir, 'THIRD_PARTY_LICENSES.txt'), notices.join(`\n${'-'.repeat(72)}\n\n`));

@@ -1,0 +1,45 @@
+<h1 data-line="0" data-line-end="1" id="code-blocks-test-for-quick-look">Code Blocks Test for Quick Look</h1>
+<h2 data-line="2" data-line-end="3" id="fenced-code-block-no-language">Fenced Code Block (No Language)</h2>
+<pre data-line="4" data-line-end="8"><code>plain code block
+no syntax highlighting
+</code></pre>
+<h2 data-line="9" data-line-end="10" id="python">Python</h2>
+<pre data-line="11" data-line-end="18" data-lang="python"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">hello</span>():
+    <span class="hljs-built_in">print</span>(<span class="hljs-string">&quot;Hello, World!&quot;</span>)
+
+<span class="hljs-keyword">if</span> __name__ == <span class="hljs-string">&quot;__main__&quot;</span>:
+    hello()
+</code></pre>
+<h2 data-line="19" data-line-end="20" id="javascript">JavaScript</h2>
+<pre data-line="21" data-line-end="28" data-lang="javascript"><code class="hljs language-javascript"><span class="hljs-keyword">function</span> <span class="hljs-title function_">greet</span>(<span class="hljs-params">name</span>) {
+    <span class="hljs-variable language_">console</span>.<span class="hljs-title function_">log</span>(<span class="hljs-string">`Hello, <span class="hljs-subst">${name}</span>!`</span>);
+}
+
+<span class="hljs-title function_">greet</span>(<span class="hljs-string">&#x27;World&#x27;</span>);
+</code></pre>
+<h2 data-line="29" data-line-end="30" id="objective-c">Objective-C</h2>
+<pre data-line="31" data-line-end="43" data-lang="objc"><code class="hljs language-objc"><span class="hljs-class"><span class="hljs-keyword">@interface</span> <span class="hljs-title">MyClass</span> : <span class="hljs-title">NSObject</span></span>
+<span class="hljs-keyword">@property</span> (<span class="hljs-keyword">nonatomic</span>, <span class="hljs-keyword">copy</span>) <span class="hljs-built_in">NSString</span> *name;
+- (<span class="hljs-type">void</span>)sayHello;
+<span class="hljs-keyword">@end</span>
+
+<span class="hljs-class"><span class="hljs-keyword">@implementation</span> <span class="hljs-title">MyClass</span></span>
+- (<span class="hljs-type">void</span>)sayHello {
+    <span class="hljs-built_in">NSLog</span>(<span class="hljs-string">@&quot;Hello, %@!&quot;</span>, <span class="hljs-keyword">self</span>.name);
+}
+<span class="hljs-keyword">@end</span>
+</code></pre>
+<h2 data-line="44" data-line-end="45" id="shell">Shell</h2>
+<pre data-line="46" data-line-end="51" data-lang="bash"><code class="hljs language-bash"><span class="hljs-meta">#!/bin/bash</span>
+<span class="hljs-built_in">echo</span> <span class="hljs-string">&quot;Hello from shell&quot;</span>
+<span class="hljs-built_in">ls</span> -la
+</code></pre>
+<h2 data-line="52" data-line-end="53" id="json">JSON</h2>
+<pre data-line="54" data-line-end="61" data-lang="json"><code class="hljs language-json"><span class="hljs-punctuation">{</span>
+    <span class="hljs-attr">&quot;name&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;MacDown 3000&quot;</span><span class="hljs-punctuation">,</span>
+    <span class="hljs-attr">&quot;version&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;3000.0.4&quot;</span><span class="hljs-punctuation">,</span>
+    <span class="hljs-attr">&quot;features&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span><span class="hljs-string">&quot;markdown&quot;</span><span class="hljs-punctuation">,</span> <span class="hljs-string">&quot;preview&quot;</span><span class="hljs-punctuation">,</span> <span class="hljs-string">&quot;quicklook&quot;</span><span class="hljs-punctuation">]</span>
+<span class="hljs-punctuation">}</span>
+</code></pre>
+<h2 data-line="62" data-line-end="63" id="inline-code">Inline Code</h2>
+<p data-line="64" data-line-end="65">Use <code>NSString</code> for strings and <code>NSArray</code> for arrays.</p>
