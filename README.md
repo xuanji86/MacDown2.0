@@ -14,13 +14,13 @@ No code from those projects is used.
 ## Requirements
 
 - macOS 26 or later, Apple Silicon
-- To build: Xcode 27; Node.js 22+ only when changing the JavaScript renderer (`Web/`)
+- To build: Xcode 27; Node.js 23.6+ only when changing the JavaScript renderer (`Web/`)
 
 ## Development
 
 ```sh
-make test        # JS unit tests + Swift package tests
-make web         # rebuild the vendored JS bundle after editing Web/
+make test        # JS tests, drift + module-boundary checks, Swift package tests
+make web         # rebuild the committed web assets after editing Web/ (CI fails on drift)
 ```
 
 ## License
