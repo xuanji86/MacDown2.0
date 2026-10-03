@@ -20,6 +20,8 @@ struct DocumentView: View {
     @SceneStorage("split.mode") private var modeRaw = SplitLayout.Mode.both.rawValue
     @SceneStorage("split.editorFraction") private var editorFraction = 0.5
     @State private var editor = EditorHandle()
+    @State private var status = EditorStatus()
+    @SceneStorage("outline.shown") private var showsOutline = false
 
     private var layout: SplitLayout {
         SplitLayout(mode: SplitLayout.Mode(rawValue: modeRaw) ?? .both, editorFraction: editorFraction)
@@ -35,13 +37,14 @@ struct DocumentView: View {
         let layout = layout
         let actions = WindowActions(
             editor: editor, layout: layout, setLayout: setLayout,
-            copyHTML: { [document] in Task { await CopyHTML.copy(document.text) } }
+            copyHTML: { [document] in Task { await CopyHTML.copy(document.text) } },
+            outlineShown: showsOutline, toggleOutline: { showsOutline.toggle() }
         )
         GeometryReader { geometry in
             let total = geometry.size.width, height = geometry.size.height
             let editorWidth = layout.editorWidth(total: total)
             ZStack(alignment: .topLeading) {
-                EditorPane(document: document, scrollSync: scrollSync, editor: editor)
+                EditorPane(document: document, scrollSync: scrollSync, editor: editor, status: status)
                     .frame(width: layout.mode == .both ? editorWidth : total, height: height)
                     .visible(layout.showsEditor)
                 PreviewPane(document: document, documentURL: fileURL, model: preview)
@@ -54,12 +57,23 @@ struct DocumentView: View {
             }
             .coordinateSpace(.named("split"))
         }
+        .safeAreaInset(edge: .bottom, spacing: 0) { StatusBar(preview: preview, status: status) }
+        .inspector(isPresented: $showsOutline) {
+            OutlineInspector(preview: preview, status: status, jump: jump(toLine:))
+                .inspectorColumnWidth(min: 180, ideal: 240, max: 420)
+        }
         .frame(minWidth: 640, minHeight: 360)
         .toolbar { DocumentToolbar(actions: actions) }
         .focusedSceneValue(\.windowActions, actions)
         .onAppear { scrollSync.attach(preview: preview) }
         .onChange(of: syncScrolling, initial: true) { _, on in scrollSync.isEnabled = on }
         .onChange(of: previewFollowsCaret, initial: true) { _, on in scrollSync.followsCaret = on }
+    }
+
+    /// Outline click: the caret and both panes go to the heading's line, whatever the scroll sync settings.
+    private func jump(toLine line: Int) {
+        editor.goTo(line: line, focus: layout.showsEditor)
+        preview.scroll(toLine: Double(line))
     }
 
     /// One-point separator with a wider invisible grab area.

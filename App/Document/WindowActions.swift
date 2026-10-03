@@ -6,6 +6,8 @@ struct WindowActions {
     let layout: SplitLayout
     let setLayout: (SplitLayout) -> Void
     let copyHTML: () -> Void
+    let outlineShown: Bool
+    let toggleOutline: () -> Void
 
     var editorEnabled: Bool { layout.showsEditor }
     func cycleLayout() { setLayout(layout.cycled) }
