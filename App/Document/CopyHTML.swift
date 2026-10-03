@@ -10,11 +10,17 @@ private let log = Logger(subsystem: "io.github.xuanji86.MacDown2", category: "co
 enum CopyHTML {
     private static var renderer: JSCRenderer?
 
+    /// The document as rendered HTML (source-line attributes included), with the current Markdown / Rendering settings
+    /// unless `options` says otherwise. One renderer serves both copy and export.
+    static func render(_ markdown: String, options: RenderOptions = RenderSettings.current) async throws -> String {
+        let renderer = try renderer ?? JSCRenderer()
+        self.renderer = renderer
+        return try await renderer.render(markdown, options: options).html
+    }
+
     static func copy(_ markdown: String, to pasteboard: NSPasteboard = .general) async {
         do {
-            let renderer = try renderer ?? JSCRenderer()
-            self.renderer = renderer
-            let html = clean(try await renderer.render(markdown, options: RenderSettings.current).html)
+            let html = HTMLExporter.stripSourceLines(try await render(markdown))
             pasteboard.clearContents()
             pasteboard.setString(html, forType: .html)
             pasteboard.setString(html, forType: .string)
@@ -22,10 +28,5 @@ enum CopyHTML {
             log.error("copy html failed: \(String(describing: error), privacy: .public)")
             NSSound.beep()
         }
-    }
-
-    /// The renderer tags blocks with source lines for scroll sync; that is noise on a clipboard.
-    static func clean(_ html: String) -> String {
-        html.replacingOccurrences(of: #" data-line(?:-end)?="\d+""#, with: "", options: .regularExpression)
     }
 }

@@ -45,8 +45,7 @@ public struct QuickLookPage: Sendable {
             styleSheets = manifest.entries[flavor]?.stylesheets ?? []
         }
         let result = try await renderer.render(source, options: options)
-        var body = result.html
-        body = replacing(#" data-line(?:-end)?="\d+""#, in: body) { _ in "" }
+        var body = HTMLExporter.stripSourceLines(result.html)
         body = replacing(#"<img src="([^"]*)" alt="([^"]*)"[^>]*>"#, in: body) { m in
             let src = m[1], alt = m[2]
             if src.hasPrefix("//") || src.range(of: #"^[A-Za-z][A-Za-z0-9+.-]*:"#, options: .regularExpression) != nil { return m[0] }
