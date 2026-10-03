@@ -66,6 +66,15 @@ private func render(_ markdown: String) async throws -> String {
     #expect(inlined.contains("src='gone.png'"))  // unreadable: left as written
 }
 
+@Test func flavorStylesheetsAndIdGoIntoTheStandaloneFile() {
+    let plain = HTMLExporter.document(body: "<p>x</p>", title: "t")
+    #expect(plain.contains(#"<article id="doc" data-flavor="markdown">"#))
+    let quarto = HTMLExporter.document(body: "<p>x</p>", title: "t", flavor: "quarto", stylesheets: ["quarto-approx.css"])
+    #expect(quarto.contains(#"<article id="doc" data-flavor="quarto">"#))
+    #expect(quarto.contains(".callout"))  // quarto-approx.css, inlined
+    #expect(!plain.contains(".callout"))
+}
+
 private final class Locked<T>: @unchecked Sendable {
     private let lock = NSLock()
     private var stored: T

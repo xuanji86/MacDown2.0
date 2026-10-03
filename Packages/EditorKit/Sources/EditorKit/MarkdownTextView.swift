@@ -1,4 +1,8 @@
 import AppKit
+import ExtensionAPI
+
+/// `visibleLines` are whole consecutive lines, `firstLine` the 0-based index of the first (`DocumentFlavor.editorDecorations`).
+public typealias DecorationProvider = @MainActor (_ visibleLines: [Substring], _ firstLine: Int) -> [DecorationSpan]
 
 /// Plain-text Markdown editor view, TextKit 2. Never touch the TextKit 1 layout-manager accessor here or anywhere in
 /// this package: it silently downgrades the view (guarded by `Scripts/check-module-boundaries.sh`).
@@ -13,6 +17,11 @@ public final class MarkdownTextView: NSTextView {
 
     /// Auto-pairing, list continuation, Tab behaviour and the settings the formatting commands follow.
     public var behavior = EditorBehavior()
+
+    /// A document flavor's overlay on the highlighting (Quarto cells, `:::`, shortcodes); nil = Markdown only.
+    public var decorations: DecorationProvider? {
+        didSet { highlighter?.setDecorator(decorations) }
+    }
 
     private(set) var highlighter: MarkdownHighlighter?
     /// Set while our own edits go through `insertText`, so the typing assistant does not re-interpret them.

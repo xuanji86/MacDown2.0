@@ -1,4 +1,5 @@
 import AppKit
+import ExtensionAPI
 import Testing
 @testable import EditorKit
 
@@ -60,6 +61,53 @@ struct ViewTests {
         #expect(foreground(view, at: 13) == theme.text)  // "plain"
         // Only theme attributes are ever written: no size changes (PLAN 4.3.2).
         #expect(font.pointSize == theme.font.pointSize)
+    }
+
+    @Test func aFlavorOverlayIsPaintedOverTheHighlightingAndRemovedAgain() async throws {
+        let view = makeView("# Title\n\n::: {.note}\ntext {{< var x >}}\n:::\n")
+        let theme = view.theme
+        var seen: [(lines: [String], first: Int)] = []
+        view.decorations = { lines, first in
+            seen.append((lines.map(String.init), first))
+            return lines.enumerated().flatMap { i, line -> [DecorationSpan] in
+                var out: [DecorationSpan] = []
+                if line.hasPrefix(":::") { out.append(DecorationSpan(line: first + i, columns: 0..<line.utf16.count, token: "quartoDiv")) }
+                if let r = line.range(of: "{{< var x >}}") {
+                    let start = line.utf16.distance(from: line.startIndex, to: r.lowerBound)
+                    out.append(DecorationSpan(line: first + i, columns: start..<(start + 13), token: "quartoShortcode"))
+                }
+                out.append(DecorationSpan(line: first + i, columns: 0..<1, token: "notAKind"))  // unknown names are ignored
+                return out
+            }
+        }
+        let div = try #require(theme.tokens[.quartoDiv]?.color)
+        let shortcode = try #require(theme.tokens[.quartoShortcode]?.color)
+        #expect(await eventually { foreground(view, at: 11) == div })  // ":::" on line 2 (offset 9 = ":", 11 = third ":")
+        #expect(await eventually { foreground(view, at: 26) == shortcode })  // inside "{{< var x >}}" on line 3
+        #expect(foreground(view, at: 21) == theme.text)  // "text " before it is untouched
+        #expect(foreground(view, at: 2) == theme.tokens[.heading]?.color)  // tree-sitter styling is still there
+        // Whole lines, numbered from the document start, whatever chunk is being styled.
+        #expect(seen.contains { s in s.lines.firstIndex(of: "::: {.note}").map { $0 + s.first } == 2 })
+
+        view.decorations = nil
+        #expect(await eventually { foreground(view, at: 11) != div })
+        #expect(foreground(view, at: 26) != shortcode)
+    }
+
+    @Test func overlayLandsOnLinesThatStraddleAChunkBoundary() async throws {
+        // Chunks are 1024 UTF-16 units; 6-unit lines put a boundary inside line 170 (offsets 1020..1024, then "\n").
+        let view = makeView(String(repeating: "::: x\n", count: 300))
+        var lineNumbers = Set<Int>()
+        view.decorations = { lines, first in
+            lines.indices.map { i in
+                lineNumbers.insert(first + i)
+                return DecorationSpan(line: first + i, columns: 0..<5, token: "quartoDiv")
+            }
+        }
+        let div = try #require(view.theme.tokens[.quartoDiv]?.color)
+        #expect(await eventually { foreground(view, at: 1020) == div && foreground(view, at: 1023) == div && foreground(view, at: 1024) == div })
+        #expect(foreground(view, at: 1025) == view.theme.text)  // the newline after the line is not covered
+        #expect(lineNumbers.contains(170) && lineNumbers.max()! < 300)
     }
 
     @Test func typingRestylesTheWholeParagraph() async throws {

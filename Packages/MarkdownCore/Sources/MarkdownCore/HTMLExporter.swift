@@ -18,13 +18,15 @@ public enum HTMLExporter {
     ///   - style: `(light, dark)` as returned by `PreviewStyles.resolve`.
     ///   - inlineImages: nil keeps `<img src>` as written; otherwise every document-relative one it can read becomes a
     ///     `data:` URI, so the file does not depend on the folder it came from.
+    ///   - flavor: the document's flavor id; `stylesheets` are the extra WebAssets files it needs (e.g. `quarto-approx.css`).
     public static func document(
         body: String, title: String, style: (light: String, dark: String?) = PreviewStyles.resolve(id: PreviewStyles.defaultID, followSystem: false),
-        inlineImages: ImageSource? = nil
+        inlineImages: ImageSource? = nil, flavor: String = "markdown", stylesheets: [String] = []
     ) -> String {
         var body = stripSourceLines(body)
         if let inlineImages { body = inlineRelativeImages(in: body, source: inlineImages) }
         let math = body.contains(#"class="katex"#) ? "<style>\(katexCSS())</style>\n" : ""
+        let extra = stylesheets.map { "<style>\(asset($0))</style>\n" }.joined()
         return """
         <!doctype html>
         <html>
@@ -33,9 +35,9 @@ public enum HTMLExporter {
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <title>\(escape(title))</title>
         <style>\(styleCSS(style))</style>
-        \(math)</head>
+        \(math)\(extra)</head>
         <body>
-        <article id="doc" data-flavor="markdown">
+        <article id="doc" data-flavor="\(escape(flavor))">
         \(body)
         </article>
         </body>

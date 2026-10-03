@@ -16,7 +16,7 @@ struct DocumentSnapshot: Sendable {
 /// remembered at read time and restored on save.
 final class MarkdownDocument: ReferenceFileDocument, @unchecked Sendable {
     // @unchecked: `text` is only touched from the main actor (editor delegate, preview, snapshot).
-    static let readableContentTypes: [UTType] = [.markdown]
+    static let readableContentTypes: [UTType] = [.markdown, .quarto]
 
     @Published var text: String
     let lineEnding: LineEnding

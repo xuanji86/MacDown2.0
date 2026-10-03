@@ -1,10 +1,13 @@
 import ExtensionAPI
 import Foundation
+import Observation
 
 /// App-side backend for the extension registry: keeps what each extension registered, drops it on revoke.
-@MainActor
+/// Observable: windows that read `flavors` while building their views re-evaluate when an extension is switched on or off
+/// (PLAN 4.17: open documents re-decide their flavor and re-render).
+@MainActor @Observable
 final class ExtensionHostImpl: ExtensionHostProvider {
-    private let defaults: UserDefaults
+    @ObservationIgnored private let defaults: UserDefaults
     private var flavorRegistrations: [(owner: ExtensionID, flavor: any DocumentFlavor)] = []
 
     init(defaults: UserDefaults) { self.defaults = defaults }

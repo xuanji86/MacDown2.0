@@ -1,5 +1,6 @@
 import AppKit
 import EditorKit
+import ExtensionAPI
 import MarkdownCore
 import SwiftUI
 import WebAssets
@@ -13,7 +14,7 @@ struct SettingsView: View {
             Tab("Editor", systemImage: "square.and.pencil") { EditorPage() }
             Tab("Markdown", systemImage: "text.badge.checkmark") { MarkdownPage() }
             Tab("Rendering", systemImage: "eye") { RenderingPage() }
-            Tab("扩展", systemImage: "puzzlepiece.extension") { PlaceholderPage("Quarto 和 qmd 搜索扩展即将推出") }
+            Tab("扩展", systemImage: "puzzlepiece.extension") { ExtensionsPage() }
             Tab("Updates", systemImage: "arrow.triangle.2.circlepath") { UpdatesPage() }
         }
         .scenePadding()
@@ -27,6 +28,52 @@ private struct PlaceholderPage: View {
 
     var body: some View {
         Form { Text(text).foregroundStyle(.secondary) }.formStyle(.grouped)
+    }
+}
+
+// MARK: 扩展
+
+/// One row per built-in extension (PLAN 4.8 / 4.17): name, one line, a switch; an enabled extension's own settings fold out
+/// below. A switched-off extension shows no settings and none of its code runs (`settingsPane()` is not even called).
+private struct ExtensionsPage: View {
+    var body: some View {
+        Form {
+            ForEach(Array(AppExtensions.registry.extensions.enumerated()), id: \.offset) { _, ext in
+                ExtensionRow(ext: ext)
+            }
+        }
+        .formStyle(.grouped)
+    }
+}
+
+private struct ExtensionRow: View {
+    let ext: any MacDown2Extension
+    // The same key the registry and Quick Look read; `setEnabled` below does the activating.
+    @AppStorage private var enabled: Bool
+    @State private var showsSettings = false
+
+    init(ext: any MacDown2Extension) {
+        self.ext = ext
+        let kind = type(of: ext)
+        _enabled = AppStorage(wrappedValue: kind.enabledByDefault, ExtensionRegistry.enabledKey(kind.id), store: AppExtensions.preferences)
+    }
+
+    var body: some View {
+        let kind = type(of: ext)
+        Section {
+            Toggle(isOn: $enabled) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(kind.displayName).font(.headline)
+                    Text(kind.summary).font(.callout).foregroundStyle(.secondary)
+                }
+            }
+            .onChange(of: enabled) { _, on in
+                Task { await AppExtensions.registry.setEnabled(on, for: kind.id) }
+            }
+            if enabled, let pane = ext.settingsPane() {
+                DisclosureGroup("设置", isExpanded: $showsSettings) { pane }
+            }
+        }
     }
 }
 

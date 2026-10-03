@@ -179,6 +179,51 @@ export function update(md: string, optionsJSON: string): string {
   }
 }
 
+// Flavor chunks and stylesheets (PLAN 4.4.3): the app names the ones the document's flavor needs before every update. A
+// chunk (a script that registers the flavor with render.bundle.js) is loaded once per page, with the page's CSP nonce;
+// a flavor stylesheet is linked while its flavor is in use and dropped otherwise. With no flavor, nothing is loaded.
+const loadedChunks = new Map<string, Promise<void>>();
+
+function loadChunk(src: string): Promise<void> {
+  let loading = loadedChunks.get(src);
+  if (!loading) {
+    loading = new Promise<void>((resolve, reject) => {
+      const el = document.createElement('script');
+      el.nonce = (document.querySelector('script[nonce]') as HTMLScriptElement | null)?.nonce ?? '';
+      el.src = src;
+      el.onload = () => resolve();
+      el.onerror = () => {
+        loadedChunks.delete(src); // let the next update try again
+        reject(new Error(`could not load ${src}`));
+      };
+      document.head.append(el);
+    });
+    loadedChunks.set(src, loading);
+  }
+  return loading;
+}
+
+export async function useFlavor(flavor: { chunks: string[]; stylesheets: string[] }): Promise<void> {
+  await Promise.all(flavor.chunks.map(loadChunk));
+  const wanted = new Set(flavor.stylesheets);
+  const links = Array.from(document.head.querySelectorAll<HTMLLinkElement>('link[data-md2-flavor]'));
+  for (const l of links) if (!wanted.has(l.getAttribute('href') ?? '')) l.remove();
+  const have = new Set(links.map((l) => l.getAttribute('href')));
+  await Promise.all(
+    [...wanted].filter((href) => !have.has(href)).map(
+      (href) =>
+        new Promise<void>((resolve) => {
+          const el = document.createElement('link');
+          el.rel = 'stylesheet';
+          el.href = href;
+          el.dataset.md2Flavor = '';
+          el.onload = el.onerror = () => resolve(); // an unstyled flavor beats a blocked preview
+          document.head.append(el);
+        }),
+    ),
+  );
+}
+
 // Forget the block table: the next update rebuilds the whole page (document directory changed, theme swap, ...).
 export function invalidate(): void {
   state = null;

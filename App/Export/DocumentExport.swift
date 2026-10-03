@@ -57,7 +57,8 @@ enum DocumentExport {
     // MARK: Pieces
 
     private static func page(_ markdown: String, fileURL: URL?, options: RenderOptions, embedImages: Bool) async throws -> String {
-        let body = try await CopyHTML.render(markdown, options: options)
+        let body = try await CopyHTML.render(markdown, options: options, fileURL: fileURL)
+        let flavor = AppExtensions.flavor(for: fileURL)
         let defaults = UserDefaults.standard
         let style = PreviewStyles.resolve(
             id: defaults.string(forKey: AppearanceKey.previewStyle) ?? AppearanceDefault.previewStyle,
@@ -65,7 +66,8 @@ enum DocumentExport {
         )
         return HTMLExporter.document(
             body: body, title: fileURL?.deletingPathExtension().lastPathComponent ?? "Untitled", style: style,
-            inlineImages: embedImages ? imageSource(directory: fileURL?.deletingLastPathComponent()) : nil
+            inlineImages: embedImages ? imageSource(directory: fileURL?.deletingLastPathComponent()) : nil,
+            flavor: flavor?.id.rawValue ?? "markdown", stylesheets: flavor?.previewStylesheets ?? []
         )
     }
 

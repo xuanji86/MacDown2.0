@@ -35,6 +35,9 @@ public struct RenderOptions: Sendable, Codable, Hashable {
     /// Inline `$…$`. Off by default (as in MacDown 1) so prices like "$5 to $10" stay text; `$$…$$`, `\(…\)` and `\[…\]` are always on with `.math`.
     public var inlineDollarMath = false
     public var frontMatterDisplay: FrontMatterDisplay = .hidden
+    /// Text of the files a flavor may read while rendering (Quarto `{{< include >}}`), by path relative to the document
+    /// folder. The renderer cannot read files; the caller collects them (`DocumentFlavor.auxiliaryFiles`).
+    public var files: [String: String] = [:]
 
     public init() {}
 }

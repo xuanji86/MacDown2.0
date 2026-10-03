@@ -1,4 +1,5 @@
 import AppKit
+import ExtensionAPI
 import Neon
 import SwiftTreeSitter
 
@@ -15,6 +16,9 @@ final class MarkdownHighlighter {
     private var observer: NSObjectProtocol?
 
     private(set) var theme: EditorTheme
+
+    /// A document flavor's regex overlay (PLAN 4.3.3), painted over the tree-sitter tokens of every chunk styled.
+    private(set) var decorator: DecorationProvider?
 
     /// Text as the tree-sitter tree last saw it: the "old" side of the next edit's start/end points.
     private var lastText: NSString = ""
@@ -75,6 +79,11 @@ final class MarkdownHighlighter {
 
     func setTheme(_ theme: EditorTheme) {
         self.theme = theme
+        scheduler.invalidate(.all)
+    }
+
+    func setDecorator(_ decorator: DecorationProvider?) {
+        self.decorator = decorator
         scheduler.invalidate(.all)
     }
 
@@ -182,18 +191,52 @@ final class MarkdownHighlighter {
         storage.setAttributes(theme.baseAttributes, range: range)
         for token in tokens {
             guard let style = theme.tokens[token.kind] else { continue }
-            if let color = style.color { storage.addAttribute(.foregroundColor, value: color, range: token.range) }
-            if style.underline { storage.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: token.range) }
-            if style.strikethrough { storage.addAttribute(.strikethroughStyle, value: NSUnderlineStyle.single.rawValue, range: token.range) }
-            if style.bold || style.italic {
-                // Traits accumulate over nested tokens (emphasis inside strong), so derive from the current font per run.
-                storage.enumerateAttribute(.font, in: token.range) { value, run, _ in
-                    let font = (value as? NSFont) ?? theme.font
-                    storage.addAttribute(.font, value: font.adding(bold: style.bold, italic: style.italic), range: run)
-                }
+            paint(style, in: token.range)
+        }
+        if let decorator { applyDecorations(decorator, in: range) }
+        storage.endEditing()
+    }
+
+    private func paint(_ style: TokenStyle, in range: NSRange) {
+        if let color = style.color { storage.addAttribute(.foregroundColor, value: color, range: range) }
+        if style.underline { storage.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: range) }
+        if style.strikethrough { storage.addAttribute(.strikethroughStyle, value: NSUnderlineStyle.single.rawValue, range: range) }
+        if style.bold || style.italic {
+            // Traits accumulate over nested tokens (emphasis inside strong), so derive from the current font per run.
+            storage.enumerateAttribute(.font, in: range) { value, run, _ in
+                let font = (value as? NSFont) ?? theme.font
+                storage.addAttribute(.font, value: font.adding(bold: style.bold, italic: style.italic), range: run)
             }
         }
-        storage.endEditing()
+    }
+
+    /// The flavor sees whole lines (a chunk may start mid-line); what it returns is clipped back to the chunk, whose
+    /// attributes were just reset, so the overlay is rebuilt with every restyle and never goes stale.
+    // lazy: lines longer than 16K UTF-16 units get no overlay (a chunk would hand the flavor the whole line again and again)
+    private func applyDecorations(_ decorate: DecorationProvider, in range: NSRange) {
+        let text = storage.mutableString
+        let lineRange = text.lineRange(for: range)
+        guard lineRange.length <= 16_384 else { return }
+        let block = text.substring(with: lineRange)
+        var lines = block.split(separator: "\n", omittingEmptySubsequences: false)
+        if block.hasSuffix("\n") { lines.removeLast() }  // the empty piece after the final newline
+        guard !lines.isEmpty else { return }
+        let firstLine = Point.at(utf16Offset: lineRange.location, in: text).map { Int($0.row) } ?? 0
+        var starts: [Int] = []
+        var offset = lineRange.location
+        for line in lines {
+            starts.append(offset)
+            offset += line.utf16.count + 1
+        }
+        for span in decorate(lines, firstLine) {
+            let i = span.line - firstLine
+            guard starts.indices.contains(i), span.columns.lowerBound >= 0, !span.columns.isEmpty,
+                  let kind = TokenKind(rawValue: span.token), let style = theme.tokens[kind] else { continue }
+            let absolute = NSRange(location: starts[i] + span.columns.lowerBound, length: span.columns.count)
+            if let clipped = MarkdownHighlightEngine.clip(absolute, to: range), NSMaxRange(clipped) <= storage.length {
+                paint(style, in: clipped)
+            }
+        }
     }
 
     // MARK: tree-sitter points

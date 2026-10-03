@@ -119,8 +119,8 @@ private func page(_ markdown: String, utType: String = "net.daringfireball.markd
     func render() async throws -> QuickLookPage {
         try await QuickLookPage.make(data: Data("# x\n".utf8), utType: "org.quarto.qmd", renderer: JSCRenderer(), manifest: manifest, defaults: defaults)
     }
-    // unset = on: the manifest's chunk is requested (the fixture names a chunk that is not bundled)
-    await #expect(throws: RenderError.missingAsset("quarto.chunk.js")) { _ = try await render() }
+    // unset = on: the manifest's chunk is loaded (it is bundled now)
+    #expect(try await render().html.contains(#"data-flavor="quarto""#))
     defaults.set(false, forKey: "extension.quarto.enabled")
     #expect(try await render().html.contains(#"data-flavor="markdown""#))
 }
@@ -153,9 +153,15 @@ private func page(_ markdown: String, utType: String = "net.daringfireball.markd
     #expect(off.html.contains(#"data-flavor="markdown""#))
     let other = try await page("# x", utType: "net.daringfireball.markdown", manifest: manifest)
     #expect(other.html.contains(#"data-flavor="markdown""#))
-    // enabled: the manifest's chunk is requested (the fixture manifest names a chunk that is not bundled yet)
-    await #expect(throws: RenderError.missingAsset("quarto.chunk.js")) {
-        _ = try await page("# x", utType: "org.quarto.qmd", manifest: manifest)
+    // enabled: the manifest's chunk is loaded (it is bundled now) and its stylesheet joins the page
+    let on = try await page("::: {.callout-note}\nhi\n:::\n", utType: "org.quarto.qmd", manifest: manifest)
+    #expect(on.html.contains(#"data-flavor="quarto""#))
+    #expect(on.html.contains(#"class="callout callout-note"#))
+    #expect(on.html.contains("quarto-approx") == false && on.html.contains(".callout-icon"))  // the CSS, inlined
+    // a manifest that names a chunk that is not there fails loudly instead of rendering something else
+    let broken = try FlavorManifest(data: Data(#"{"x": {"utTypes": ["x.y"], "chunks": ["nope.chunk.js"], "stylesheets": [], "settingKey": "k"}}"#.utf8))
+    await #expect(throws: RenderError.missingAsset("nope.chunk.js")) {
+        _ = try await page("# x", utType: "x.y", manifest: broken)
     }
 }
 

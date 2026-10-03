@@ -1,4 +1,5 @@
 import AppKit
+import ExtensionAPI
 import MarkdownCore
 import Observation
 import OSLog
@@ -72,8 +73,9 @@ final class PreviewModel {
 
     private let documentRoot = DocumentRoot()
     private let messages = PreviewMessageHandler()
+    /// The Markdown / Rendering settings; the document's flavor is added per render (`resolvedOptions`).
     private var options: RenderOptions
-    private var optionsJSON: String
+    private var flavor: (any DocumentFlavor)?
     private var loading: Task<Bool, Never>?
     private var debounce: Task<Void, Never>?
     // Updates arriving while a JS call is in flight collapse into `pending`; the latest text always wins, in order.
@@ -90,7 +92,6 @@ final class PreviewModel {
 
     init(options: RenderOptions = RenderSettings.current) {
         self.options = options
-        optionsJSON = Self.json(options)
         var configuration = WebPage.Configuration()
         configuration.urlSchemeHandlers[URLScheme(PreviewAssetHandler.scheme)!] = PreviewAssetHandler(documentRoot: documentRoot)
         configuration.userContentController.add(messages, name: "macdown2")
@@ -110,8 +111,23 @@ final class PreviewModel {
     func setOptions(_ new: RenderOptions) {
         guard new != options else { return }
         options = new
-        optionsJSON = Self.json(new)
         if let lastMarkdown { schedule(lastMarkdown) }
+    }
+
+    /// The flavor an enabled extension gives this document (nil = plain Markdown), e.g. Quarto for a .qmd. Changing it
+    /// re-renders; the options string then differs (flavor id), so the page rebuilds, and the flavor's chunk and
+    /// stylesheets are loaded (or its stylesheets dropped) before the render.
+    func setFlavor(_ new: (any DocumentFlavor)?) {
+        guard new?.id != flavor?.id else { return }
+        flavor = new
+        if let lastMarkdown { schedule(lastMarkdown) }
+    }
+
+    /// Options for rendering `markdown` now (settings + flavor + the files the flavor reads), as the page's JSON, and
+    /// the chunks and stylesheets to have loaded first.
+    private func resolvedOptions(for markdown: String) -> (json: String, flavor: [String: [String]]) {
+        let resolved = options.rendering(as: flavor, markdown: markdown, readFile: AppExtensions.fileReader(directory: documentDirectory))
+        return (Self.json(resolved), ["chunks": resolved.renderChunks, "stylesheets": flavor?.previewStylesheets ?? []])
     }
 
     /// Debounced (~150 ms) so typing bursts render once.
@@ -207,10 +223,12 @@ final class PreviewModel {
             let rebuild = needsRebuild
             needsRebuild = false
             let started = ContinuousClock.now
+            let (optionsJSON, flavorFiles) = resolvedOptions(for: next)
             do {
+                // A chunk that fails to load is reported by `update` itself (the flavor is then unknown).
                 let result = try await page.callJavaScript(
-                    "if (rebuild) MacDown2Preview.invalidate(); return MacDown2Preview.update(md, options)",
-                    arguments: ["md": next, "options": optionsJSON, "rebuild": rebuild]
+                    "await MacDown2Preview.useFlavor(flavor).catch(() => {}); if (rebuild) MacDown2Preview.invalidate(); return MacDown2Preview.update(md, options)",
+                    arguments: ["md": next, "options": optionsJSON, "rebuild": rebuild, "flavor": flavorFiles]
                 )
                 let elapsed = ContinuousClock.now - started
                 // Render failures are reported over the bridge (`handle`); success carries blocks/outline/stats/perf.
@@ -242,6 +260,8 @@ struct PreviewPane: View {
     var documentURL: URL?
     /// Owned by `DocumentView` so scroll sync can drive it.
     let model: PreviewModel
+    /// What an enabled extension makes of this document (Quarto for a .qmd); nil = plain Markdown.
+    var flavor: (any DocumentFlavor)?
     @AppStorage(AppearanceKey.previewStyle) private var style = AppearanceDefault.previewStyle
     @AppStorage(AppearanceKey.previewStyleFollowsSystem) private var followsSystem = false
     private let renderSettings = RenderSettings.shared
@@ -249,8 +269,10 @@ struct PreviewPane: View {
     var body: some View {
         WebView(model.page)
             .webViewContentBackground(.hidden)
+            .overlay(alignment: .top) { PreviewNotices(badge: flavor?.badge, hint: AppExtensions.disabledHint(for: documentURL)) }
             .onChange(of: renderSettings.options) { _, options in model.setOptions(options) }
             .onChange(of: "\(style)|\(followsSystem)", initial: true) { model.setStyle(id: style, followSystem: followsSystem) }
+            .onChange(of: flavor?.id, initial: true) { model.setFlavor(flavor) }
             .onReceive(document.$text) { model.schedule($0) }
             .onChange(of: documentURL, initial: true) { _, url in model.documentDirectory = url?.deletingLastPathComponent() }
     }

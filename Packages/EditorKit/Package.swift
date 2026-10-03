@@ -11,6 +11,7 @@ let package = Package(
         .package(url: "https://github.com/ChimeHQ/SwiftTreeSitter", exact: "0.8.0"),
         .package(url: "https://github.com/ChimeHQ/Neon", exact: "0.6.0"),
         .package(url: "https://github.com/tree-sitter-grammars/tree-sitter-markdown", exact: "0.4.1"),
+        .package(path: "../ExtensionAPI"),  // DecorationSpan: the overlay a document flavor (Quarto) adds to the highlighting
     ],
     targets: [
         .target(
@@ -19,6 +20,7 @@ let package = Package(
                 .product(name: "SwiftTreeSitter", package: "SwiftTreeSitter"),
                 .product(name: "Neon", package: "Neon"),
                 .product(name: "TreeSitterMarkdown", package: "tree-sitter-markdown"),
+                .product(name: "ExtensionAPI", package: "ExtensionAPI"),
             ],
             resources: [.copy("Resources")]
         ),

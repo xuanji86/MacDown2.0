@@ -35,9 +35,10 @@ struct DocumentView: View {
 
     var body: some View {
         let layout = layout
+        let flavor = AppExtensions.flavor(for: fileURL)  // observable: re-evaluated when an extension is switched
         let actions = WindowActions(
             editor: editor, layout: layout, setLayout: setLayout,
-            copyHTML: { [document] in Task { await CopyHTML.copy(document.text) } },
+            copyHTML: { [document, fileURL] in Task { await CopyHTML.copy(document.text, fileURL: fileURL) } },
             exportHTML: { [document, fileURL] in Task { await DocumentExport.html(of: document.text, fileURL: fileURL) } },
             exportPDF: { [document, fileURL] in Task { await DocumentExport.pdf(of: document.text, fileURL: fileURL) } },
             printDocument: { [document, fileURL] in Task { await DocumentExport.print(document.text, fileURL: fileURL) } },
@@ -47,10 +48,10 @@ struct DocumentView: View {
             let total = geometry.size.width, height = geometry.size.height
             let editorWidth = layout.editorWidth(total: total)
             ZStack(alignment: .topLeading) {
-                EditorPane(document: document, scrollSync: scrollSync, editor: editor, status: status)
+                EditorPane(document: document, scrollSync: scrollSync, editor: editor, status: status, flavor: flavor)
                     .frame(width: layout.mode == .both ? editorWidth : total, height: height)
                     .visible(layout.showsEditor)
-                PreviewPane(document: document, documentURL: fileURL, model: preview)
+                PreviewPane(document: document, documentURL: fileURL, model: preview, flavor: flavor)
                     .frame(width: layout.mode == .both ? total - editorWidth : total, height: height)
                     .offset(x: layout.mode == .both ? editorWidth : 0)
                     .visible(layout.showsPreview)
@@ -60,7 +61,7 @@ struct DocumentView: View {
             }
             .coordinateSpace(.named("split"))
         }
-        .safeAreaInset(edge: .bottom, spacing: 0) { StatusBar(preview: preview, status: status) }
+        .safeAreaInset(edge: .bottom, spacing: 0) { StatusBar(preview: preview, status: status, renderMode: flavor?.badge?.title ?? "Markdown", renderModeHelp: flavor?.badge?.help) }
         .inspector(isPresented: $showsOutline) {
             OutlineInspector(preview: preview, status: status, jump: jump(toLine:))
                 .inspectorColumnWidth(min: 180, ideal: 240, max: 420)

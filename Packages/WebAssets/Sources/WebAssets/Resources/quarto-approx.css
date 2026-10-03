@@ -1,0 +1,114 @@
+/* Approximate Quarto preview (PLAN 4.6.1): callouts, figures, code-cell headers, title block, cross-references.
+   Loaded next to the preview style only for .qmd documents while the Quarto extension is on; every rule is scoped to the
+   quarto flavor and takes its colours from the style's custom properties (--fg, --bg, --border, ...), so it follows
+   light/dark styles. Quarto's own five callout colours are fixed hues mixed into the page background. */
+article[data-flavor="quarto"] {
+  --q-note: #4582ec;
+  --q-tip: #02b875;
+  --q-important: #d9534f;
+  --q-warning: #f0ad4e;
+  --q-caution: #fd7e14;
+
+  /* Title block (YAML title / author / date / abstract) */
+  .quarto-title-block { margin-bottom: 1.5em; }
+  .quarto-title-block > h1 { margin-top: 0; }
+  .quarto-subtitle { margin: -0.4em 0 1em; font-size: 1.15em; color: var(--fg-muted); }
+  .quarto-meta-block { display: grid; grid-template-columns: repeat(auto-fit, minmax(10em, 1fr)); gap: 0 1.5em; margin-bottom: 1em; }
+  .quarto-meta p { margin: 0; }
+  .quarto-meta p.quarto-meta-title { font-size: 0.75em; letter-spacing: 0.04em; text-transform: uppercase; color: var(--fg-muted); }
+  .quarto-meta-padded { padding-top: 0.4em; }
+  .quarto-abstract { padding: 0.5em 1em; border-left: 0.25em solid var(--border); color: var(--fg-muted); }
+  .quarto-attribute-decorator { display: flex; justify-content: flex-end; margin: 0.5em 0 0.25em; }
+  .quarto-attribute-decorator-content {
+    padding: 0 0.6em; border: 1px solid var(--border); border-radius: 1em;
+    font: 0.7em/1.6 var(--font-mono); color: var(--fg-muted);
+  }
+  pre.quarto-frontmatter-container { margin-top: 0; font-size: 0.85em; }
+
+  /* Callouts */
+  .callout {
+    --c: var(--q-note);
+    margin: 1em 0;
+    border: 1px solid var(--border);
+    border-left: 0.3rem solid var(--c);
+    border-radius: 0.25rem;
+    overflow: hidden;
+  }
+  .callout-note { --c: var(--q-note); }
+  .callout-tip { --c: var(--q-tip); }
+  .callout-important { --c: var(--q-important); }
+  .callout-warning { --c: var(--q-warning); }
+  .callout-caution { --c: var(--q-caution); }
+  .callout .callout-header {
+    display: flex; align-items: center; gap: 0.5em;
+    padding: 0.35em 0.75em;
+    background: color-mix(in srgb, var(--c) 16%, var(--bg));
+    font-size: 0.9em; font-weight: 600;
+  }
+  .callout .callout-header .callout-header { padding: 0; background: none; } /* the title element nests one more header */
+  .callout .callout-icon-container { display: flex; }
+  .callout-icon::before {
+    display: inline-block; width: 1.35em; height: 1.35em; border-radius: 50%;
+    background: var(--c); color: #fff; font: 700 0.8em/1.35em var(--font-body); text-align: center;
+    content: "i";
+  }
+  .callout-tip .callout-icon::before { content: "\2713"; }
+  .callout-important .callout-icon::before,
+  .callout-warning .callout-icon::before,
+  .callout-caution .callout-icon::before { content: "!"; }
+  .callout-title-container { flex: 1; }
+  .callout .callout-body { padding: 0.6em 0.9em; font-size: 0.95em; }
+  .callout .callout-body > :last-child { margin-bottom: 0; }
+  .callout .callout-body > :first-child { margin-top: 0; }
+  .callout-style-simple { border-left-width: 0.3rem; }
+  .callout-style-simple .callout-header,
+  .callout-style-minimal .callout-header { background: none; }
+  .callout-style-minimal { border-width: 0 0 0 0.3rem; border-radius: 0; }
+
+  /* Divs, figures, tables */
+  .quarto-div { margin: 1em 0; }
+  figure { margin: 1.2em 0; text-align: center; }
+  figure img { max-width: 100%; height: auto; }
+  figure > figure { margin: 0.5em 0; }
+  figcaption { margin-top: 0.5em; font-size: 0.875em; color: var(--fg-muted); text-align: center; }
+  table { margin-inline: auto; }
+  caption { padding: 0.4em 0; caption-side: top; font-size: 0.875em; color: var(--fg-muted); text-align: left; }
+  .quarto-xref, code.cite { color: var(--link); }
+  code.cite { padding: 0; background: none; font-family: inherit; font-size: inherit; }
+  code.cite::before { content: ""; }
+  span.shortcode {
+    padding: 0 0.35em; border: 1px dashed var(--border); border-radius: 4px;
+    background: var(--bg-subtle); font: 0.85em var(--font-mono); color: var(--fg-muted); white-space: pre-wrap;
+  }
+
+  /* Code cells: shown, never executed */
+  .quarto-cell { margin: 1em 0; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+  .quarto-cell-header {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 0.4em 0.9em;
+    padding: 0.3em 0.75em; background: var(--bg-subtle); font-size: 0.8em;
+  }
+  .quarto-cell-lang {
+    padding: 0 0.5em; border-radius: 0.8em; background: var(--link); color: var(--bg);
+    font: 600 0.9em/1.6 var(--font-mono); text-transform: lowercase;
+  }
+  .quarto-cell-note { margin-left: auto; color: var(--fg-muted); font-style: italic; }
+  .quarto-cell-options { margin: 0; width: 100%; border-collapse: collapse; font: 0.95em/1.5 var(--font-mono); }
+  .quarto-cell-options th, .quarto-cell-options td { padding: 0 0.6em 0 0; border: 0; background: none; text-align: left; font-weight: 400; }
+  .quarto-cell-options th { width: 1%; white-space: nowrap; color: var(--fg-muted); }
+  .quarto-cell-options th::after { content: ":"; }
+  .quarto-cell > pre { margin: 0; border: 0; border-top: 1px solid var(--border); border-radius: 0; }
+  code.inline-cell { border: 1px dashed var(--border); }
+  code.inline-cell::before {
+    content: attr(data-lang); margin-right: 0.4em; padding: 0 0.35em; border-radius: 0.8em;
+    background: var(--link); color: var(--bg); font-size: 0.8em; font-weight: 600;
+  }
+
+  /* {{< include >}} */
+  .quarto-include { margin: 1em 0; padding-left: 0.9em; border-left: 2px dotted var(--border); }
+  .quarto-include > :first-child { margin-top: 0; }
+  .quarto-include > :last-child { margin-bottom: 0; }
+  .quarto-include-error {
+    padding: 0.4em 0.8em; border: 1px solid var(--err-fg); border-radius: 4px;
+    background: var(--err-bg); color: var(--err-fg); font-size: 0.9em;
+  }
+}

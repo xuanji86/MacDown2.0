@@ -1,0 +1,61 @@
+<h1 data-line="0" data-line-end="1" id="testing-equals-signs-in-attribute-values">Testing equals signs in attribute values</h1>
+<p data-line="2" data-line-end="3">This test document validates that equals signs in attribute values are handled correctly.</p>
+<p data-line="4" data-line-end="5">This prose contains some equals signs, just in case. A=B=C. D=E=F. =</p>
+<h2 data-line="6" data-line-end="7" id="basic-examples">Basic examples</h2>
+<ul data-line="8" data-line-end="16">
+<li data-line="8" data-line-end="10">
+<p data-line="8" data-line-end="9">Basic link with equals in value: <a href="https://example.com" key="value=with=equals">Link text</a></p>
+</li>
+<li data-line="10" data-line-end="12">
+<p data-line="10" data-line-end="11">Link with URL parameter: <a href="https://example.com?param=value" class="class" key="query=param">Query link</a></p>
+</li>
+<li data-line="12" data-line-end="14">
+<p data-line="12" data-line-end="13">Span with complex value: <span id="id" class="class" key="complex=value">Span text</span></p>
+</li>
+<li data-line="14" data-line-end="16">
+<p data-line="14" data-line-end="15">Other weird examples: <a href="key=">Span text</a> <a href="===">Span</a></p>
+</li>
+</ul>
+<h2 data-line="16" data-line-end="17" id="more-complex-examples">More complex examples</h2>
+<ul data-line="18" data-line-end="24">
+<li data-line="18" data-line-end="20">
+<p data-line="18" data-line-end="19">CSS style with equals: <span style="color:red;font-size=12px">Styled text</span></p>
+</li>
+<li data-line="20" data-line-end="22">
+<p data-line="20" data-line-end="21">Math expression value: <span formula="E=mc^2">Math formula</span></p>
+</li>
+<li data-line="22" data-line-end="24">
+<p data-line="22" data-line-end="23">Code with equals: <code lang="c++" key="value=val">code sample</code></p>
+</li>
+</ul>
+<h2 data-line="24" data-line-end="25" id="code-blocks">Code blocks</h2>
+<div class="quarto-cell" data-line="26" data-line-end="29" data-lang="python"><div class="quarto-cell-header"><span class="quarto-cell-lang">python</span><span class="quarto-cell-note">code cell · not executed</span></div><pre data-lang="python" class="line-numbers"><code class="hljs language-python"><span class="line"><span class="hljs-built_in">print</span>(<span class="hljs-string">&quot;Testing equals in attribute values&quot;</span>)</span>
+</code></pre>
+</div>
+<div class="quarto-cell" data-line="30" data-line-end="33" data-lang="r"><div class="quarto-cell-header"><span class="quarto-cell-lang">r</span><span class="quarto-cell-note">code cell · not executed</span></div><pre data-lang="r" class="line-numbers"><code class="hljs language-r"><span class="line">print<span class="hljs-punctuation">(</span><span class="hljs-string">&quot;R code with equals in attributes&quot;</span><span class="hljs-punctuation">)</span></span>
+</code></pre>
+</div>
+<h2 data-line="34" data-line-end="35" id="div-with-attributes">Div with attributes</h2>
+<div  id="div-id" key="value=with=multiple=equals" data-line="36" data-line-end="39" class="quarto-div"><p data-line="37" data-line-end="38">This is a div with multiple equals signs in attribute values.</p>
+</div><h2 data-line="40" data-line-end="41" id="image-with-equals-signs">Image with equals signs</h2>
+<figure data-line="42" data-line-end="43"><img src="image.png" alt="" width="50%" height="30%" key="value=equals"><figcaption>Image caption</figcaption></figure>
+<h2 data-line="44" data-line-end="45" id="table-with-equals-signs">Table with equals signs</h2>
+<table id="tbl-id" tbl-colwidths="[50,50]" key="value=with=equals" data-line="46" data-line-end="52">
+<caption>Table caption</caption>
+<thead data-line="46" data-line-end="47">
+<tr data-line="46" data-line-end="47">
+<th>Col1</th>
+<th>Col2</th>
+</tr>
+</thead>
+<tbody data-line="48" data-line-end="50">
+<tr data-line="48" data-line-end="49">
+<td>A</td>
+<td>B</td>
+</tr>
+<tr data-line="49" data-line-end="50">
+<td>C</td>
+<td>D</td>
+</tr>
+</tbody>
+</table>

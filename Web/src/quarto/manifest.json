@@ -1,0 +1,6 @@
+{
+  "utTypes": ["org.quarto.qmd"],
+  "chunks": ["quarto.chunk.js"],
+  "stylesheets": ["quarto-approx.css"],
+  "settingKey": "extension.quarto.enabled"
+}
