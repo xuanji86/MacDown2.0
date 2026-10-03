@@ -1,0 +1,43 @@
+# frozen_string_literal: true
+
+# Cask for the xuanji86/homebrew-tap tap (NOT homebrew/cask: the official tap only takes Developer-ID-signed,
+# notarized apps). Scripts/release.sh substitutes the two @...@ placeholders below (version, dmg sha256) and writes
+# build/release/<version>/macdown2.rb; copy that to Casks/macdown2.rb in the tap.
+cask "macdown2" do
+  version "@VERSION@"
+  sha256 "@SHA256@"
+
+  url "https://github.com/xuanji86/MacDown2.0/releases/download/v#{version}/MacDown2-#{version}.dmg"
+  name "MacDown2.0"
+  desc "Native Markdown editor with live preview"
+  homepage "https://github.com/xuanji86/MacDown2.0"
+
+  livecheck do
+    url :url
+    strategy :github_latest
+  end
+
+  # The app updates itself through Sparkle ("Check for Updates..." in the app menu).
+  auto_updates true
+  depends_on arch: :arm64
+  depends_on macos: :tahoe
+
+  app "MacDown2.app"
+
+  # The app is ad-hoc signed and not notarized, so Gatekeeper would block the quarantined copy. Homebrew removed
+  # `--no-quarantine` (2026-07) with no replacement; clearing the attribute here is the tap's own, visible decision.
+  # (`postflight_steps`, not the legacy `postflight` block: Homebrew 7 keeps the latter only for third-party taps.)
+  postflight_steps do
+    run "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "{{appdir}}/MacDown2.app"]
+  end
+
+  zap trash: [
+    "~/Library/Application Support/io.github.xuanji86.MacDown2",
+    "~/Library/Caches/io.github.xuanji86.MacDown2",
+    "~/Library/Containers/io.github.xuanji86.MacDown2.QuickLook",
+    "~/Library/HTTPStorages/io.github.xuanji86.MacDown2",
+    "~/Library/Preferences/io.github.xuanji86.MacDown2.plist",
+    "~/Library/Saved Application State/io.github.xuanji86.MacDown2.savedState",
+    "~/Library/WebKit/io.github.xuanji86.MacDown2",
+  ]
+end

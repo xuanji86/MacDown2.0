@@ -10,6 +10,7 @@ struct MacDown2App: App {
         }
         .defaultSize(width: 1100, height: 700)  // wide enough for the whole toolbar
         .commands {
+            UpdateCommands()
             AppearanceCommands()
             FormatCommands()
             ExportCommands()
