@@ -7,6 +7,9 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A10000000000000000000081 /* MarkdownCore in Frameworks */ = {isa = PBXBuildFile; productRef = A10000000000000000000091 /* MarkdownCore */; };
+		A10000000000000000000082 /* WebAssets in Frameworks */ = {isa = PBXBuildFile; productRef = A10000000000000000000092 /* WebAssets */; };
+		A10000000000000000000083 /* MacDown2QuickLook.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = A10000000000000000000084 /* MacDown2QuickLook.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		A10000000000000000000001 /* MarkdownCore in Frameworks */ = {isa = PBXBuildFile; productRef = A10000000000000000000021 /* MarkdownCore */; };
 		A10000000000000000000002 /* WebAssets in Frameworks */ = {isa = PBXBuildFile; productRef = A10000000000000000000022 /* WebAssets */; };
 		A10000000000000000000003 /* ExtensionAPI in Frameworks */ = {isa = PBXBuildFile; productRef = A10000000000000000000023 /* ExtensionAPI */; };
@@ -14,10 +17,19 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		A10000000000000000000084 /* MacDown2QuickLook.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = MacDown2QuickLook.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		A10000000000000000000010 /* MacDown2.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MacDown2.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		A10000000000000000000086 /* Exceptions for "QuickLook" folder in "MacDown2QuickLook" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+				MacDown2QuickLook.entitlements,
+			);
+			target = A10000000000000000000041 /* MacDown2QuickLook */;
+		};
 		A10000000000000000000031 /* Exceptions for "App" folder in "MacDown2" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
@@ -28,6 +40,14 @@
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
+		A10000000000000000000085 /* QuickLook */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				A10000000000000000000086 /* Exceptions for "QuickLook" folder in "MacDown2QuickLook" target */,
+			);
+			path = QuickLook;
+			sourceTree = "<group>";
+		};
 		A10000000000000000000011 /* App */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
@@ -38,7 +58,40 @@
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
+/* Begin PBXContainerItemProxy section */
+		A1000000000000000000008C /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A10000000000000000000060 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A10000000000000000000041;
+			remoteInfo = MacDown2QuickLook;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		A1000000000000000000008A /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				A10000000000000000000083 /* MacDown2QuickLook.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFrameworksBuildPhase section */
+		A10000000000000000000087 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A10000000000000000000081 /* MarkdownCore in Frameworks */,
+				A10000000000000000000082 /* WebAssets in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		A10000000000000000000050 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -57,6 +110,7 @@
 			isa = PBXGroup;
 			children = (
 				A10000000000000000000011 /* App */,
+				A10000000000000000000085 /* QuickLook */,
 				A10000000000000000000013 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -65,6 +119,7 @@
 			isa = PBXGroup;
 			children = (
 				A10000000000000000000010 /* MacDown2.app */,
+				A10000000000000000000084 /* MacDown2QuickLook.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -72,6 +127,29 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		A10000000000000000000041 /* MacDown2QuickLook */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A10000000000000000000063 /* Build configuration list for PBXNativeTarget "MacDown2QuickLook" */;
+			buildPhases = (
+				A10000000000000000000088 /* Sources */,
+				A10000000000000000000087 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				A10000000000000000000085 /* QuickLook */,
+			);
+			name = MacDown2QuickLook;
+			packageProductDependencies = (
+				A10000000000000000000091 /* MarkdownCore */,
+				A10000000000000000000092 /* WebAssets */,
+			);
+			productName = MacDown2QuickLook;
+			productReference = A10000000000000000000084 /* MacDown2QuickLook.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 		A10000000000000000000040 /* MacDown2 */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = A10000000000000000000062 /* Build configuration list for PBXNativeTarget "MacDown2" */;
@@ -79,10 +157,12 @@
 				A10000000000000000000051 /* Sources */,
 				A10000000000000000000050 /* Frameworks */,
 				A10000000000000000000052 /* Resources */,
+				A1000000000000000000008A /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				A1000000000000000000008B /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				A10000000000000000000011 /* App */,
@@ -111,6 +191,9 @@
 					A10000000000000000000040 = {
 						CreatedOnToolsVersion = 27.0;
 					};
+					A10000000000000000000041 = {
+						CreatedOnToolsVersion = 27.0;
+					};
 				};
 			};
 			buildConfigurationList = A10000000000000000000061 /* Build configuration list for PBXProject "MacDown2" */;
@@ -133,6 +216,7 @@
 			projectRoot = "";
 			targets = (
 				A10000000000000000000040 /* MacDown2 */,
+				A10000000000000000000041 /* MacDown2QuickLook */,
 			);
 		};
 /* End PBXProject section */
@@ -148,6 +232,13 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		A10000000000000000000088 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		A10000000000000000000051 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -157,7 +248,65 @@
 		};
 /* End PBXSourcesBuildPhase section */
 
+/* Begin PBXTargetDependency section */
+		A1000000000000000000008B /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = A10000000000000000000041 /* MacDown2QuickLook */;
+			targetProxy = A1000000000000000000008C /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
 /* Begin XCBuildConfiguration section */
+		A10000000000000000000074 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = QuickLook/MacDown2QuickLook.entitlements;
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Manual;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = NO;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = QuickLook/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "MacDown2 Quick Look";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				MARKETING_VERSION = 0.0.1;
+				PRODUCT_BUNDLE_IDENTIFIER = io.github.xuanji86.MacDown2.QuickLook;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		A10000000000000000000075 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = QuickLook/MacDown2QuickLook.entitlements;
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Manual;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = NO;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = QuickLook/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "MacDown2 Quick Look";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				MARKETING_VERSION = 0.0.1;
+				PRODUCT_BUNDLE_IDENTIFIER = io.github.xuanji86.MacDown2.QuickLook;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
 		A10000000000000000000070 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -249,6 +398,15 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		A10000000000000000000063 /* Build configuration list for PBXNativeTarget "MacDown2QuickLook" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A10000000000000000000074 /* Debug */,
+				A10000000000000000000075 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		A10000000000000000000061 /* Build configuration list for PBXProject "MacDown2" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
@@ -289,6 +447,14 @@
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		A10000000000000000000091 /* MarkdownCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = MarkdownCore;
+		};
+		A10000000000000000000092 /* WebAssets */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = WebAssets;
+		};
 		A10000000000000000000021 /* MarkdownCore */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = MarkdownCore;
