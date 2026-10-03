@@ -197,6 +197,22 @@ public final class MarkdownTextView: NSTextView {
     /// 0-based source line holding the insertion point (selection start).
     public var caretLine: Int { lineIndex(atOffset: selectedRange().location) }
 
+    /// 0-based column of the insertion point in characters (grapheme clusters, so CJK and emoji count as one).
+    public var caretColumn: Int {
+        let text = (textStorage?.string ?? "") as NSString
+        let location = min(selectedRange().location, text.length)
+        // Lines end at "\n" only, like `lineIndex(atOffset:)`.
+        let newline = text.range(of: "\n", options: .backwards, range: NSRange(location: 0, length: location))
+        let lineStart = newline.location == NSNotFound ? 0 : NSMaxRange(newline)
+        return text.substring(with: NSRange(location: lineStart, length: location - lineStart)).count
+    }
+
+    /// Puts the caret at the start of `line` (0-based) and scrolls it to the top of the visible area.
+    public func goTo(line: Int) {
+        setSelectedRange(NSRange(location: offsetOfLine(line), length: 0))
+        scroll(toLine: Double(line))
+    }
+
     /// Scroll so that `line` is at the top of the visible area (no animation).
     public func scroll(toLine line: Double) {
         guard let layout = textLayoutManager, let content = layout.textContentManager,

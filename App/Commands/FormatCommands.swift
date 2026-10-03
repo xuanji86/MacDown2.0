@@ -45,6 +45,9 @@ struct FormatCommands: Commands {
         CommandGroup(after: .toolbar) {
             Divider()
             SplitLayoutItems(actions: actions)
+            Button(actions?.outlineShown == true ? "隐藏大纲" : "显示大纲") { actions?.toggleOutline() }
+                .keyboardShortcut("o", modifiers: [.command, .control])
+                .disabled(actions == nil)
             Button("Cycle Editor and Preview") { actions?.cycleLayout() }
                 .keyboardShortcut("l", modifiers: [.command, .control])
                 .disabled(actions == nil)

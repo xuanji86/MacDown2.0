@@ -1,5 +1,6 @@
 import AppKit
 import MarkdownCore
+import Observation
 import OSLog
 import SwiftUI
 import WebAssets
@@ -37,10 +38,20 @@ private final class PreviewMessageHandler: NSObject, WKScriptMessageHandler {
     }
 }
 
+/// What the page reports after each render (`MacDown2Preview.update`) that the rest of the window shows: the outline
+/// (with `line`s, 0-based) and the whole-document counts.
+struct PreviewMetadata: Decodable, Equatable {
+    var outline: [OutlineItem]
+    var stats: TextStats
+}
+
 /// Owns the `WebPage` that shows `preview.html` and pushes Markdown into it.
-@MainActor
+@MainActor @Observable
 final class PreviewModel {
     let page: WebPage
+
+    /// Metadata of the last successful render; nil until the first one finishes.
+    private(set) var metadata: PreviewMetadata?
 
     /// Top visible source line after the user scrolled the preview (0-based, fractional). Throttled to one per frame
     /// inside the page. Not called for scrolls caused by `scroll(toLine:)`.
@@ -205,6 +216,9 @@ final class PreviewModel {
                 // Render failures are reported over the bridge (`handle`); success carries blocks/outline/stats/perf.
                 let meta = (result as? String).flatMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any] }
                 if meta?["error"] == nil {
+                    if let decoded = try? JSONDecoder().decode(PreviewMetadata.self, from: Data((result as? String ?? "").utf8)), decoded != metadata {
+                        metadata = decoded
+                    }
                     let perf = meta?["perf"] as? [String: Any]
                     let ms = Double(elapsed.components.attoseconds) / 1e15 + Double(elapsed.components.seconds) * 1000
                     let mode = perf?["mode"] as? String ?? "?"

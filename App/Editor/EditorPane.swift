@@ -20,6 +20,8 @@ struct EditorPane: NSViewRepresentable {
     }
     /// Lets the toolbar and menus reach the text view this pane creates.
     var editor: EditorHandle?
+    /// Receives caret and selection changes for the status bar and outline.
+    var status: EditorStatus?
 
     func makeCoordinator() -> Coordinator { Coordinator(document: document, scrollSync: scrollSync) }
 
@@ -31,6 +33,8 @@ struct EditorPane: NSViewRepresentable {
         context.coordinator.textView = textView
         scrollSync.attach(editor: textView)
         editor?.textView = textView
+        context.coordinator.status = status
+        status?.selectionChanged(in: textView)  // the caret is not necessarily at 1:1 after loading the text
         context.coordinator.observeDocument()
         return scrollView
     }
@@ -51,6 +55,7 @@ struct EditorPane: NSViewRepresentable {
         private(set) var document: MarkdownDocument
         weak var textView: MarkdownTextView?
         var undoManager: UndoManager?
+        var status: EditorStatus?
         private var sync: ExternalTextSync
         private var subscription: AnyCancellable?
 
@@ -91,7 +96,9 @@ struct EditorPane: NSViewRepresentable {
         func undoManager(for view: NSTextView) -> UndoManager? { undoManager }
 
         func textViewDidChangeSelection(_ notification: Notification) {
-            if let textView = notification.object as? MarkdownTextView { scrollSync.caretMoved(in: textView) }
+            guard let textView = notification.object as? MarkdownTextView else { return }
+            scrollSync.caretMoved(in: textView)
+            status?.selectionChanged(in: textView)
         }
 
         func textDidChange(_ notification: Notification) {
