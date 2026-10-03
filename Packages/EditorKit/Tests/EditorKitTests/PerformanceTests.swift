@@ -6,7 +6,9 @@ import Testing
 /// S4: 1 MB document, viewport-sized highlight on the main thread. PLAN budget: < 8 ms. The budget applies to
 /// optimised builds (`swift test -c release -Xswiftc -enable-testing`); a debug build runs unoptimised C and Swift, so
 /// it only gets a looser sanity bound. Numbers are printed (`PERF ...`) for the PR description.
+/// Opt-in (`MD2_PERF=1`; `make perf` runs them in release): they build 1 MB documents, which `make test` skips.
 @MainActor
+@Suite(.enabled(if: ProcessInfo.processInfo.environment["MD2_PERF"] == "1", "set MD2_PERF=1 (make perf)"))
 struct PerformanceTests {
     #if DEBUG
     static let budgetMs = 200.0

@@ -14,7 +14,7 @@ const options = {
   headingAnchors: true,
   codeHighlighting: true,
   codeLineNumbers: false,
-  mathDelimiters: 'both',
+  inlineDollarMath: false,
   frontMatterDisplay: 'table',
 };
 const render = (md) => renderResult(md, options);

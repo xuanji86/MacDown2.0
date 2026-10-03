@@ -14,17 +14,17 @@ private func render(_ source: String, _ configure: (inout RenderOptions) -> Void
     let options = RenderOptions()
     #expect(options.extensions == [.tables, .strikethrough, .autolink, .mark, .footnotes, .taskLists, .math, .toc, .frontMatter, .cjkEmphasis])
     #expect(options.codeHighlighting && !options.codeLineNumbers)
-    #expect(options.mathDelimiters == .both && options.frontMatterDisplay == .hidden)
+    #expect(!options.inlineDollarMath && options.frontMatterDisplay == .hidden)
 }
 
 @Test func optionsEncodeWithTheNamesTheBundleReads() throws {
     var options = RenderOptions()
     options.extensions = [.cjkEmphasis, .taskLists, .frontMatter]
-    options.mathDelimiters = .brackets
+    options.inlineDollarMath = true
     options.frontMatterDisplay = .table
     let json = try #require(try JSONSerialization.jsonObject(with: JSONEncoder().encode(options)) as? [String: Any])
     #expect((json["extensions"] as? [String])?.sorted() == ["cjkEmphasis", "frontMatter", "taskLists"])
-    #expect(json["mathDelimiters"] as? String == "brackets")
+    #expect(json["inlineDollarMath"] as? Bool == true)
     #expect(json["frontMatterDisplay"] as? String == "table")
     #expect(json["codeHighlighting"] as? Bool == true && json["codeLineNumbers"] as? Bool == false)
 }
@@ -40,7 +40,7 @@ private let probes: [(MarkdownExtension, source: String, marker: String)] = [
     (.underline, "_x_", "<u>x</u>"),
     (.footnotes, "a[^1]\n\n[^1]: n", "footnote-ref"),
     (.taskLists, "- [x] a", "task-list-item-checkbox"),
-    (.math, "$x$", "class=\"katex\""),
+    (.math, "$$x$$", "class=\"katex\""),
     (.toc, "[TOC]\n\n# A", "<nav class=\"toc\""),
     (.frontMatter, "---\na: 1\n---\n", "class=\"front-matter\""),
     (.cjkEmphasis, "**「重点」**的", "<strong>"),
@@ -62,20 +62,24 @@ private let probes: [(MarkdownExtension, source: String, marker: String)] = [
 }
 
 @Test func mathIsParsedBeforeEmphasis() async throws {
-    let html = try await render("$a*b$ and $c*d$").html
+    let html = try await render("$a*b$ and $c*d$") { $0.inlineDollarMath = true }.html
     #expect(!html.contains("<em>"))
     #expect(html.contains("class=\"katex\""))
 }
 
-@Test func mathDelimiterModes() async throws {
-    let source = "$a$ \\(b\\)"
-    func katexCount(_ delimiters: MathDelimiters) async throws -> Int {
-        let html = try await render(source) { $0.mathDelimiters = delimiters }.html
+@Test func inlineDollarMathIsOffByDefault() async throws {
+    func katexCount(_ source: String, inlineDollar: Bool) async throws -> Int {
+        let html = try await render(source) { $0.inlineDollarMath = inlineDollar }.html
         return html.components(separatedBy: "class=\"katex\"").count - 1
     }
-    #expect(try await katexCount(.dollars) == 1)
-    #expect(try await katexCount(.brackets) == 1)
-    #expect(try await katexCount(.both) == 2)
+    // Prices are not formulas, with or without the switch.
+    #expect(try await katexCount("$5 and $10", inlineDollar: false) == 0)
+    #expect(try await katexCount("$5 and $10", inlineDollar: true) == 0)
+    // `$…$` needs the switch; `$$…$$`, `\(…\)` and `\[…\]` do not.
+    #expect(try await katexCount("$x$", inlineDollar: false) == 0)
+    #expect(try await katexCount("$x$", inlineDollar: true) == 1)
+    #expect(try await katexCount("$$\nx\n$$", inlineDollar: false) == 1)
+    #expect(try await katexCount("\\(b\\)\n\n\\[\nc\n\\]", inlineDollar: false) == 2)
 }
 
 @Test func frontMatterIsReportedAndDisplayed() async throws {

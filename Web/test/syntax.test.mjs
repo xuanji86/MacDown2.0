@@ -14,9 +14,10 @@ const base = {
   headingAnchors: true,
   codeHighlighting: true,
   codeLineNumbers: false,
-  mathDelimiters: 'both',
+  inlineDollarMath: false,
   frontMatterDisplay: 'hidden',
 };
+const dollars = { ...base, inlineDollarMath: true };
 const without = (...names) => ({ ...base, extensions: ALL.filter((e) => !names.includes(e)) });
 const html = (src, o = base) => renderResult(src, o).html.replace(/ data-line(?:-end)?="\d+"/g, '').trim();
 
@@ -80,17 +81,18 @@ test('tocList nests and closes level jumps', () => {
 });
 
 test('math: delimiters, modes and errors', () => {
-  assert.match(html('inline $a_b$ end'), /<span class="katex">/);
+  assert.match(html('inline $a_b$ end', dollars), /<span class="katex">/);
+  assert.doesNotMatch(html('inline $a_b$ end'), /katex/); // inline `$…$` is off by default
   assert.match(html('$$\nx^2\n$$'), /<p class='katex-block'><span class="katex-display">/);
   assert.match(html('\\(x\\) and \\[y\\]'), /katex/);
-  assert.doesNotMatch(html('$x$', { ...base, mathDelimiters: 'brackets' }), /katex/);
-  assert.doesNotMatch(html('\\(x\\)', { ...base, mathDelimiters: 'dollars' }), /katex/);
-  assert.match(html('\\(x\\)', { ...base, mathDelimiters: 'brackets' }), /katex/);
+  assert.match(html('\\(x\\)', dollars), /katex/);
   assert.doesNotMatch(html('$x$', without('math')), /katex/);
   assert.equal(html('costs $5 and $10'), '<p>costs $5 and $10</p>'); // currency is not math
-  assert.equal(html('`$x$`'), '<p><code>$x$</code></p>');
-  assert.doesNotThrow(() => html('$\\badcommand{x}$ and $$\\frac{$$')); // KaTeX errors render in place, never throw
-  assert.match(html('$\\badcommand{x}$'), /color:#cc0000/); // KaTeX's own red error rendering
+  assert.equal(html('costs $5 and $10', dollars), '<p>costs $5 and $10</p>');
+  assert.match(html('$x$', dollars), /katex/);
+  assert.equal(html('`$x$`', dollars), '<p><code>$x$</code></p>');
+  assert.doesNotThrow(() => html('$\\badcommand{x}$ and $$\\frac{$$', dollars)); // KaTeX errors render in place, never throw
+  assert.match(html('$\\badcommand{x}$', dollars), /color:#cc0000/); // KaTeX's own red error rendering
 });
 
 test('math blocks keep data-line (one DOM node per block)', () => {
@@ -100,17 +102,17 @@ test('math blocks keep data-line (one DOM node per block)', () => {
 });
 
 test('math: \\gdef macros do not leak into the next render', () => {
-  assert.doesNotMatch(html('$\\gdef\\foo{ZZ}\\foo$'), /color:#cc0000/);
-  assert.match(html('$\\foo$'), /color:#cc0000/); // undefined again
+  assert.doesNotMatch(html('$\\gdef\\foo{ZZ}\\foo$', dollars), /color:#cc0000/);
+  assert.match(html('$\\foo$', dollars), /color:#cc0000/); // undefined again
 });
 
 test('math is parsed before emphasis', () => {
   const src = '$a*b$ and $c*d$ with _u_ $e_f$';
-  const on = html(src);
+  const on = html(src, dollars);
   assert.doesNotMatch(on, /<em>/);
-  assert.match(html('$a*b$ and $c*d$', without('math')), /<em>b\$ and \$c<\/em>/); // proves the formula text would otherwise pair up
-  assert.doesNotMatch(html('$$\na_1 * b_2\n$$'), /<em>|<u>/);
-  assert.match(html('$x_1$ and _u_'), /<u>u<\/u>/);
+  assert.match(html('$a*b$ and $c*d$', { ...dollars, extensions: ALL.filter((e) => e !== 'math') }), /<em>b\$ and \$c<\/em>/); // proves the formula text would otherwise pair up
+  assert.doesNotMatch(html('$$\na_1 * b_2\n$$', dollars), /<em>|<u>/);
+  assert.match(html('$x_1$ and _u_', dollars), /<u>u<\/u>/);
 });
 
 test('front matter: hidden, table, raw, and not-at-top', () => {

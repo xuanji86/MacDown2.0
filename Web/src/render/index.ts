@@ -25,7 +25,7 @@ export interface RenderOptions {
   headingAnchors: boolean;
   codeHighlighting: boolean;
   codeLineNumbers: boolean;
-  mathDelimiters: 'dollars' | 'brackets' | 'both';
+  inlineDollarMath: boolean; // `$…$`; `$$…$$`, `\(…\)` and `\[…\]` are always on with `math`
   frontMatterDisplay: FrontMatterDisplay;
 }
 
@@ -40,7 +40,7 @@ export interface RenderResult {
 }
 
 type FlavorSetup = (md: MarkdownIt, options: RenderOptions) => void;
-interface Env { outline: OutlineItem[]; hasToc?: boolean }
+type Env = { outline: OutlineItem[]; hasToc?: boolean }; // a type alias (not interface) so it is assignable to markdown-it's Env
 
 const registry = new Map<string, FlavorSetup>([['markdown', () => {}]]);
 const instances = new Map<string, MarkdownIt>();
@@ -96,7 +96,7 @@ function instance(o: RenderOptions): MarkdownIt {
     o.headingAnchors,
     o.codeHighlighting,
     o.codeLineNumbers,
-    o.mathDelimiters,
+    o.inlineDollarMath,
     o.frontMatterDisplay,
   ])}`;
   const cached = instances.get(key);
@@ -114,9 +114,11 @@ function instance(o: RenderOptions): MarkdownIt {
   // Math registers its inline rules before `escape`/`emphasis`, so `_` and `*` inside formulas are never emphasis.
   if (ext.has('math')) {
     md.use(katex, {
-      delimiters: o.mathDelimiters === 'both' ? 'all' : (o.mathDelimiters ?? 'dollars'),
-      logger: () => 'ignore', // KaTeX's default logger calls console.warn, which JavaScriptCore contexts may lack
+      delimiters: 'all',
+      logger: () => 'ignore' as const, // KaTeX's default logger calls console.warn, which JavaScriptCore contexts may lack
     });
+    // The plugin has no `$$`-only mode, so drop its inline `$…$` rule ("$5 and $10" is not a formula).
+    if (!o.inlineDollarMath) md.inline.ruler.disable('math_inline_dollar');
     // The plugin renders `<p class='katex-block'>` without the token's attrs; keep data-line on the block.
     const mathBlock = md.renderer.rules.math_block!;
     md.renderer.rules.math_block = (tokens, idx, opts, env, slf) =>
@@ -166,7 +168,7 @@ export function renderResult(source: string, options: RenderOptions): RenderResu
     });
   const fm = tokens.find((t) => t.type === 'front_matter');
   const result: RenderResult = { html, blocks, outline: env.outline, stats: textStats(collectText(tokens)) };
-  if (fm) result.frontMatter = fm.meta as string;
+  if (fm) result.frontMatter = fm.meta as unknown as string;
   return result;
 }
 
