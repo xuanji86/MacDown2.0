@@ -8,6 +8,7 @@ struct MacDown2App: App {
         DocumentGroup(newDocument: { MarkdownDocument() }) { file in
             DocumentView(document: file.document, fileURL: file.fileURL)
         }
+        .commands { AppearanceCommands() }
         Settings { EmptyView() }
     }
 }

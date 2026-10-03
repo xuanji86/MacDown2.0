@@ -1,0 +1,27 @@
+/* Paper: a warm serif sheet on a darker desk. */
+:root {
+  color-scheme: light;
+  --fg: #2b2620;
+  --fg-muted: #5e5546;
+  --bg: #fcfaf4;
+  --bg-window: #e4dccb;
+  --bg-subtle: #f1ebdc;
+  --border: #d8cfba;
+  --link: #8a3a12;
+  --accent: #b9a98a;
+  --mark-bg: #f6e39a;
+  --err-bg: #fbe3df;
+  --err-fg: #7d1d12;
+  --font-body: Charter, "Iowan Old Style", Palatino, Georgia, "Songti SC", "STSong", serif;
+  --font-size: 17px;
+  --line-height: 1.7;
+  --measure: 780px;
+  --heading-weight: 700;
+  --page-margin: 28px auto;
+  --page-padding: 44px 56px 64px;
+  --page-shadow: 0 1px 2px rgba(60, 45, 20, 0.18), 0 6px 24px rgba(60, 45, 20, 0.12);
+}
+@media (max-width: 760px) {
+  :root { --page-margin: 0 auto; --page-padding: 28px 24px 56px; --page-shadow: none; }
+}
+blockquote { font-style: italic; }

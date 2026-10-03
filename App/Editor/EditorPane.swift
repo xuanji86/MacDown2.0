@@ -8,11 +8,20 @@ import SwiftUI
 struct EditorPane: NSViewRepresentable {
     let document: MarkdownDocument  // deliberately not @ObservedObject: no SwiftUI update per keystroke
     let scrollSync: ScrollSyncController
+    // Only these keys re-evaluate the view (never typing). The system scheme is the window's: only the text view's own
+    // chrome is forced to the theme's appearance, so it does not feed back.
+    @AppStorage(AppearanceKey.editorTheme) private var themeName = AppearanceDefault.editorTheme
+    @AppStorage(AppearanceKey.editorThemeFollowsSystem) private var followsSystem = false
+    @Environment(\.colorScheme) private var colorScheme
+
+    private var theme: EditorTheme {
+        ThemeLibrary.resolve(name: themeName, followSystem: followsSystem, systemIsDark: colorScheme == .dark)
+    }
 
     func makeCoordinator() -> Coordinator { Coordinator(document: document, scrollSync: scrollSync) }
 
     func makeNSView(context: Context) -> NSScrollView {
-        let (scrollView, textView) = MarkdownTextView.makeScrollView()
+        let (scrollView, textView) = MarkdownTextView.makeScrollView(theme: theme)
         textView.delegate = context.coordinator
         textView.string = document.text
         context.coordinator.textView = textView
@@ -26,6 +35,7 @@ struct EditorPane: NSViewRepresentable {
         // when it hands the view a different document instance (Revert To / Browse All Versions).
         context.coordinator.undoManager = context.environment.undoManager
         context.coordinator.bind(to: document)
+        if let textView = context.coordinator.textView, textView.theme.name != theme.name { textView.theme = theme }
     }
 
     @MainActor

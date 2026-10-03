@@ -1,0 +1,95 @@
+{
+  "name": "Default Dark",
+  "appearance": "dark",
+  "counterpart": "Default Light",
+  "colors": {
+    "background": "#1E1F22",
+    "text": "#DCDFE4",
+    "caret": "#DCDFE4",
+    "selection": "#2F4F7F",
+    "lineNumber": "#8B949E",
+    "currentLine": "#FFFFFF10"
+  },
+  "tokens": {
+    "heading": {
+      "fg": "#8AB4F8",
+      "bold": true
+    },
+    "headingMarker": {
+      "fg": "#8B949E",
+      "bold": true
+    },
+    "emphasis": {
+      "italic": true
+    },
+    "strong": {
+      "bold": true
+    },
+    "strikethrough": {
+      "fg": "#8B949E",
+      "strikethrough": true
+    },
+    "code": {
+      "fg": "#FFB86B"
+    },
+    "codeBlock": {
+      "fg": "#FFB86B"
+    },
+    "codeFence": {
+      "fg": "#8B949E"
+    },
+    "link": {
+      "fg": "#8AB4F8"
+    },
+    "linkURL": {
+      "fg": "#8B949E",
+      "underline": true
+    },
+    "linkLabel": {
+      "fg": "#D2A8FF"
+    },
+    "image": {
+      "fg": "#D2A8FF"
+    },
+    "quote": {
+      "fg": "#81C995"
+    },
+    "quoteMarker": {
+      "fg": "#81C995",
+      "bold": true
+    },
+    "listMarker": {
+      "fg": "#FF8A80",
+      "bold": true
+    },
+    "taskMarker": {
+      "fg": "#FF8A80",
+      "bold": true
+    },
+    "hr": {
+      "fg": "#8B949E",
+      "bold": true
+    },
+    "html": {
+      "fg": "#81C995"
+    },
+    "frontMatter": {
+      "fg": "#8B949E"
+    },
+    "math": {
+      "fg": "#D2A8FF"
+    },
+    "escape": {
+      "fg": "#8B949E"
+    },
+    "delimiter": {
+      "fg": "#8B949E"
+    },
+    "tableHeader": {
+      "bold": true
+    },
+    "tableDelimiter": {
+      "fg": "#8B949E"
+    }
+  }
+}

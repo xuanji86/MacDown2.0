@@ -1,0 +1,16 @@
+/* Solarized Light (palette by Ethan Schoonover, MIT); text tones darkened one step so body text clears WCAG AA. */
+:root {
+  color-scheme: light;
+  --fg: #3f565e;
+  --fg-muted: #506871;
+  --bg: #fdf6e3;
+  --bg-subtle: #eee8d5;
+  --border: #d3cbb4;
+  --link: #1a6aa6;
+  --accent: #93a1a1;
+  --mark-bg: #f3dd8a;
+  --err-bg: #fbdcd6;
+  --err-fg: #a5201a;
+  --code-fg: #8a3b0d;
+}
+h1, h2, h3, h4, h5 { color: #073642; }

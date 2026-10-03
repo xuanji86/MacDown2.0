@@ -1,4 +1,4 @@
-// Builds the vendored web assets: render.bundle.js, preview.bundle.js (+ preview.html, preview-styles/),
+// Builds the vendored web assets: render.bundle.js, preview.bundle.js (+ preview.html, preview-styles/*.css + styles.json),
 // katex/ (CSS + woff2 fonts), hljs-themes/, flavors.json, THIRD_PARTY_LICENSES.txt.
 // Usage: node build.mjs [outDir]   (default: the WebAssets package resources; drift check passes a temp dir)
 import { build } from 'esbuild';
@@ -38,7 +38,17 @@ await build({
   logLevel: 'warning',
 });
 cpSync(join(here, 'src/preview/preview.html'), join(outDir, 'preview.html'));
-cpSync(join(here, 'src/preview/preview-styles'), join(outDir, 'preview-styles'), { recursive: true });
+
+// Preview styles: _base.css is prepended to every <style>.css; styles.json (the registry, also bundled into the page and
+// read by the app) says which hljs theme and light/dark partner each one has.
+const stylesDir = join(here, 'src/preview/preview-styles');
+const base = readFileSync(join(stylesDir, '_base.css'), 'utf8');
+const registry = JSON.parse(readFileSync(join(stylesDir, 'styles.json'), 'utf8'));
+mkdirSync(join(outDir, 'preview-styles'), { recursive: true });
+cpSync(join(stylesDir, 'styles.json'), join(outDir, 'preview-styles/styles.json'));
+for (const { id } of registry.styles) {
+  writeFileSync(join(outDir, 'preview-styles', `${id}.css`), `${base}\n${readFileSync(join(stylesDir, `${id}.css`), 'utf8')}`);
+}
 
 // KaTeX stylesheet + fonts. Only woff2 is shipped (every WebKit this app runs on has it), so the woff/ttf
 // fallbacks are dropped from the CSS instead of left pointing at files that are not there.
@@ -53,11 +63,13 @@ for (const f of readdirSync(join(katexDist, 'fonts')).filter((f) => f.endsWith('
 }
 
 // highlight.js themes (unminified, so each file keeps its author/licence header).
-const hljsThemes = ['github', 'github-dark', 'xcode', 'atom-one-light', 'atom-one-dark', 'monokai', 'a11y-light', 'a11y-dark'];
+const hljsThemes = ['github', 'github-dark', 'xcode', 'atom-one-light', 'atom-one-dark', 'monokai', 'a11y-light', 'a11y-dark', 'stackoverflow-light'];
 mkdirSync(join(outDir, 'hljs-themes'), { recursive: true });
 for (const name of hljsThemes) {
   cpSync(join(here, 'node_modules/highlight.js/styles', `${name}.css`), join(outDir, 'hljs-themes', `${name}.css`));
 }
+// Our own themes (stock Solarized is too faint to read, see the files): same folder, same naming.
+cpSync(join(here, 'src/preview/hljs-themes'), join(outDir, 'hljs-themes'), { recursive: true });
 
 // flavors.json: merged from src/<flavor>/manifest.json (Quick Look / CLI read it without linking extensions).
 const flavors = {};

@@ -19,7 +19,8 @@ let package = Package(
                 .product(name: "SwiftTreeSitter", package: "SwiftTreeSitter"),
                 .product(name: "Neon", package: "Neon"),
                 .product(name: "TreeSitterMarkdown", package: "tree-sitter-markdown"),
-            ]
+            ],
+            resources: [.copy("Resources")]
         ),
         .testTarget(name: "EditorKitTests", dependencies: ["EditorKit"]),
     ]

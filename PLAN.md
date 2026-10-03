@@ -456,11 +456,17 @@ editorLine(y):上式反函数,再由 LineTable 求该行 fragment 的 y,NSTextVi
 
 #### 4.4.6 预览主题(CSS)
 
-内置重写:`GitHub`(默认)、`GitHub Dark`(随系统)、`Clearness`、`Paper`、`Solarized Light/Dark`、`Academic`(衬线、适合导出 PDF)。全部用 CSS 自定义属性 + `@media (prefers-color-scheme)`,`@media print` 去掉背景与阴影。用户自定义:`~/Library/Application Support/MacDown2/Styles/*.css`、`.../HighlightThemes/*.css`、`.../EditorThemes/*.json`,文件夹变更即时刷新。
+内置重写:`GitHub`(默认,白底)、`GitHub Dark`、`Clearness`、`Clearness Dark`、`Paper`、`Solarized Light/Dark`、`Academic`(衬线、适合导出 PDF);注册表 `Web/src/preview/preview-styles/styles.json`(id、名称、明暗、配套 hljs 主题、明暗配对),App 的菜单与页面共用它。每个样式只写 CSS 自定义属性(+个别覆盖),`build.mjs` 把 `_base.css` 拼在前面,运行时一个样式 = 一个 CSS 文件。`@media print` 去掉背景与阴影。
+
+**默认外观(2026-10-03 用户已定)**:和原版 MacDown 一样,**预览固定 GitHub 白底,不跟随系统深浅色**。「跟随系统」是显式开关:开启后页面按 `prefers-color-scheme` 在所选样式与它的明暗配对之间切换(`GitHub`↔`GitHub Dark`、`Clearness`↔`Clearness Dark`、`Solarized Light`↔`Solarized Dark`),无配对的样式(Paper、Academic)保持不变。切换样式 = `MacDown2Preview.setStyle(light, dark)` 增删 `<link>`(hljs 主题随样式走),不刷新整页。用户自定义:`~/Library/Application Support/MacDown2/Styles/*.css`、`.../HighlightThemes/*.css`、`.../EditorThemes/*.json`,文件夹变更即时刷新(M2)。
 
 ### 4.5 主题系统(编辑器)
 
-`EditorTheme`(JSON):`{ "name", "appearance": "light|dark|auto", "font": {"name","size"}, "colors": {"background","text","caret","selection","lineNumber","currentLine"}, "tokens": { "heading": {"fg","bold"}, "emphasis": {"italic"}, "strong": {"bold"}, "code": {...}, "link": {...}, "image", "blockquote", "listMarker", "hr", "html", "footnote", "strikethrough", "table", "frontMatter", "math", "quartoCell", "quartoDiv", "quartoShortcode" } }`。capture 名(tree-sitter `highlights.scm`)→ token 名映射表在 `Grammar/CaptureMap.swift`。内置:`Default Light/Dark`、`Solarized`、`Tomorrow`、`Mono`。
+`EditorTheme`(JSON,`ThemeLibrary` 加载):`{ "name", "appearance": "light|dark|auto", "counterpart": "<另一明暗下的配对主题名>", "font": {"name","size"}(可省), "colors": {"background","text","caret","selection","lineNumber","currentLine"}("#RRGGBB"/"#RRGGBBAA";background、text 必填,其余有派生默认), "tokens": { "<TokenKind>": {"fg","bold","italic","underline","strikethrough"} } }`。token 键就是 `TokenKind` 的 rawValue(`heading`、`headingMarker`、`emphasis`、`strong`、`strikethrough`、`code`、`codeBlock`、`codeFence`、`link`、`linkURL`、`linkLabel`、`image`、`quote`、`quoteMarker`、`listMarker`、`taskMarker`、`hr`、`html`、`frontMatter`、`math`、`escape`、`delimiter`、`tableHeader`、`tableDelimiter`;未知键忽略,`quartoCell` 等随 Quarto 扩展再加)。tree-sitter capture 名直接就是 token 名,不另做映射表。`appearance`:`light`/`dark` = 调色板是亮/暗色,AppKit chrome(滚动条、查找栏)随之强制;`auto` = 调色板中性,chrome 跟系统。
+
+内置(全部重写,JSON 在 `EditorKit/Resources/Themes/`):`Default Dark`(**默认**)、`Default Light`、`Solarized Dark/Light`、`GitHub Dark/Light`;每个都有 `counterpart`,正文与全部 token 色对背景 ≥ 4.5:1(单测里算)。用户主题目录 `~/Library/Application Support/MacDown2/Themes/` 留到 M2,解码已就绪。
+
+**默认外观(2026-10-03 用户已定)**:和原版 MacDown 一样,**编辑区深色(Default Dark)+ 预览区白色(GitHub),都不跟随系统**。编辑器主题与预览样式**各自独立**选择、`@AppStorage` 持久化(`editorTheme`/`editorThemeFollowsSystem`、`previewStyle`/`previewStyleFollowsSystem`),入口 View ▸ 编辑器主题 / 预览样式,各带「跟随系统」开关(Settings 页后做)。编辑器「跟随系统」= 系统为另一明暗时换成所选主题的 `counterpart`(`ThemeLibrary.resolve`),没有配对的主题保持不变。
 
 ### 4.6 Quarto `.qmd` 支持(内置扩展 `QuartoExtension`,默认开)
 
@@ -519,9 +525,9 @@ editorLine(y):上式反函数,再由 LineTable 求该行 fragment 的 y,NSTextVi
 | 页 | 项(默认值) |
 |---|---|
 | General | 启动时不建空白文档(off)、更新含预发布(off)、默认打开为预览模式(off)、命令行工具安装按钮、工作区搜索忽略规则(`.git`, `node_modules`, `_site`, `_freeze`, `*_files`)、外部工具环境(抓取来源 shell/耗时/PATH 条目数、"重新抓取";仅当某个已启用扩展触发过抓取时显示,否则显示"尚未需要") |
-| Editor | 字体(SF Mono 13)、行距、水平/垂直内边距、限宽(off,760px)、编辑器在右(off)、自动配对(on)、列表自增(on)、Tab 转空格(on, 4)、智能 Home(on)、块内续前缀(on)、滚动越过末尾(off)、文件尾保证换行(on)、显示不可见字符(off)、无序列表标记(`-`)、编辑器主题、显示行号(on)、显示字数(on)+ 计数类型、滚动同步(on)、跟随光标(on) |
+| Editor | 字体(SF Mono 13)、行距、水平/垂直内边距、限宽(off,760px)、编辑器在右(off)、自动配对(on)、列表自增(on)、Tab 转空格(on, 4)、智能 Home(on)、块内续前缀(on)、滚动越过末尾(off)、文件尾保证换行(on)、显示不可见字符(off)、无序列表标记(`-`)、编辑器主题(Default Dark,不跟随系统;可选「跟随系统」)、显示行号(on)、显示字数(on)+ 计数类型、滚动同步(on)、跟随光标(on) |
 | Markdown | 表格(on)、自动链接(on)、删除线(on)、高亮 `==`(on)、上标 `^`(off)、下标 `~`(off)、下划线 `_`(off)、脚注(on)、任务列表(on)、智能标点(off)、`[TOC]`(on)、front matter(检测 on,显示:隐藏/表格)、原生 HTML(on)、硬换行(off)、CJK 友好强调(on,已定默认开;markdown-it 侧自写 inline 规则,M1) |
-| Rendering | 预览主题、代码高亮(on)+ 主题、行号(off)、代码块语言标签(on)、数学(on)+ 分隔符模式、Mermaid(on)、预览缩放、默认导出目录 |
+| Rendering | 预览样式(GitHub 白底,不跟随系统;可选「跟随系统」)、代码高亮(on)+ 主题、行号(off)、代码块语言标签(on)、数学(on)+ 分隔符模式、Mermaid(on)、预览缩放、默认导出目录 |
 | 扩展 | 每个内置扩展一行:名称、一句说明、开关(存 App Group `extension.<id>.enabled`,QL 也读);展开显示该扩展的 `settingsPane()`,关闭时子设置折叠隐藏且不做任何探测。**Quarto(on)**:子开关「Quarto 真渲染」(on;关则不探测 quarto、无按钮/菜单)、检测到的路径/版本(含来源:手动/登录 shell PATH/兜底目录;首次展开才探测)、手动指定 quarto 路径、`QUARTO_PYTHON`/`QUARTO_R` 当前值(只读显示 + 可覆盖)、"渲染前每次询问"(on)、真渲染 `--render` 格式(html)、侧栏显示 Quarto 输出(off)。**qmd 搜索(off)**:检测到的 `qmd` 路径/版本、手动指定 qmd 路径、语义搜索(off;开启时说明 ~2 GB 模型下载)、CJK 嵌入模型(off → 设 `QMD_EMBED_MODEL` 为 Qwen3-Embedding,提示需 `qmd embed -f`)、自动 `qmd embed`(空闲时,on)、重排(off)、常驻 qmd 服务(off,带安全说明) |
 | Updates | Sparkle 自动检查(on)、自动下载(off)、立即检查 |
 

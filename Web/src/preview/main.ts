@@ -10,6 +10,7 @@ import { planPatch } from './dom-patch.ts';
 import { rewriteImages } from './images.ts';
 import { pageYToLine, scrollToLine as scrollBlocksToLine, startScrollReporting, type BlockHandle } from './scroll.ts';
 import { alignSegments, splitBlocks, type Segment } from './split-html.ts';
+import { DEFAULT_STYLE, styleLinks } from './styles.ts';
 
 interface RenderBlock { lineStart: number; lineEnd: number; hash: number }
 type Lines = Pick<RenderBlock, 'lineStart' | 'lineEnd'>
@@ -190,6 +191,31 @@ export function scrollToLine(line: number): void {
 // 0-based, fractional source line at the top of the viewport; also what the scroll reports carry.
 export function visibleTopLine(): number {
   return pageYToLine(state?.blocks ?? [], scrollY);
+}
+
+// Swap the preview style (and its highlight.js theme) without reloading the page: the new <link>s go in after the old
+// ones, which are dropped once every new one has loaded (or failed), so there is never an unstyled frame. `dark` null
+// = fixed style; otherwise `light` applies under prefers-color-scheme: light and `dark` under dark.
+let appliedStyle = JSON.stringify(styleLinks(DEFAULT_STYLE, null)); // what preview.html ships with
+export function setStyle(light: string, dark: string | null): void {
+  const links = styleLinks(light, dark);
+  const key = JSON.stringify(links);
+  if (key === appliedStyle) return;
+  appliedStyle = key;
+  const old = Array.from(document.head.querySelectorAll('link[data-md2-style]'));
+  let pending = links.length;
+  const loaded = (): void => {
+    if (--pending === 0) old.forEach((l) => l.remove());
+  };
+  for (const l of links) {
+    const el = document.createElement('link');
+    el.rel = 'stylesheet';
+    el.href = l.href;
+    if (l.media) el.media = l.media;
+    el.dataset.md2Style = l.kind;
+    el.onload = el.onerror = loaded;
+    document.head.append(el);
+  }
 }
 
 startScrollReporting(() => state?.blocks ?? []);

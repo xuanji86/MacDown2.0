@@ -2,6 +2,7 @@ import AppKit
 import MarkdownCore
 import OSLog
 import SwiftUI
+import WebAssets
 import WebKit
 
 private let log = Logger(subsystem: "io.github.xuanji86.MacDown2", category: "preview")
@@ -71,6 +72,9 @@ final class PreviewModel {
     // Same latest-wins collapsing for scroll requests.
     private var pendingScrollLine: Double?
     private var scrolling = false
+    // Preview style as last chosen; (re)applied once the page has loaded and on every change.
+    private var style: (light: String, dark: String?) = PreviewStyles.resolve(id: PreviewStyles.defaultID, followSystem: false)
+    private var pageLoaded = false
 
     init() {
         var configuration = WebPage.Configuration()
@@ -115,6 +119,23 @@ final class PreviewModel {
         }
     }
 
+    /// Switches the preview style (and its highlight.js theme) in place; the page is not reloaded. With `followSystem` the
+    /// page itself switches between the style and its light/dark partner via `prefers-color-scheme`.
+    func setStyle(id: String, followSystem: Bool) {
+        style = PreviewStyles.resolve(id: id, followSystem: followSystem)
+        if pageLoaded { Task { await applyStyle() } }
+    }
+
+    // Always sends the latest choice, so overlapping calls end on the last one (WebKit runs them in the order sent).
+    private func applyStyle() async {
+        let (light, dark) = style
+        do {
+            _ = try await page.callJavaScript("MacDown2Preview.setStyle(light, dark)", arguments: ["light": light, "dark": dark.map { $0 as Any } ?? NSNull()])
+        } catch {
+            log.error("preview style failed: \(String(describing: error), privacy: .public)")
+        }
+    }
+
     private func handle(_ message: PreviewMessage) {
         switch message {
         case .scroll(let line):
@@ -129,7 +150,10 @@ final class PreviewModel {
         if let loading { return await loading.value }
         let task = Task { [page] () -> Bool in
             do {
-                for try await event in page.load(PreviewAssetHandler.previewURL) where event == .finished { return true }
+                for try await event in page.load(PreviewAssetHandler.previewURL) where event == .finished {
+                    await self.styleAfterLoad()
+                    return true
+                }
                 return false
             } catch {
                 log.error("preview load failed: \(String(describing: error), privacy: .public)")
@@ -138,6 +162,12 @@ final class PreviewModel {
         }
         loading = task
         return await task.value
+    }
+
+    /// Before the first render, so a non-default style never shows a white frame first.
+    private func styleAfterLoad() async {
+        pageLoaded = true
+        await applyStyle()
     }
 
     private func push(_ markdown: String) async {
@@ -183,10 +213,13 @@ struct PreviewPane: View {
     var documentURL: URL?
     /// Owned by `DocumentView` so scroll sync can drive it.
     let model: PreviewModel
+    @AppStorage(AppearanceKey.previewStyle) private var style = AppearanceDefault.previewStyle
+    @AppStorage(AppearanceKey.previewStyleFollowsSystem) private var followsSystem = false
 
     var body: some View {
         WebView(model.page)
             .webViewContentBackground(.hidden)
+            .onChange(of: "\(style)|\(followsSystem)", initial: true) { model.setStyle(id: style, followSystem: followsSystem) }
             .onReceive(document.$text) { model.schedule($0) }
             .onChange(of: documentURL, initial: true) { _, url in model.documentDirectory = url?.deletingLastPathComponent() }
     }
