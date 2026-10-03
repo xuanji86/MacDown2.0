@@ -1,0 +1,16 @@
+/* Solarized Dark (palette by Ethan Schoonover, MIT) */
+:root {
+  color-scheme: dark;
+  --fg: #a3b0b0;
+  --fg-muted: #93a1a1;
+  --bg: #002b36;
+  --bg-subtle: #073642;
+  --border: #1c4b58;
+  --link: #4aa3df;
+  --accent: #586e75;
+  --mark-bg: #6b5a00;
+  --err-bg: #4a1a1a;
+  --err-fg: #ff9d8f;
+  --code-fg: #e0a24a;
+}
+h1, h2, h3, h4, h5 { color: #eee8d5; }

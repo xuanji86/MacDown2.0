@@ -1,0 +1,14 @@
+/* GitHub Dark */
+:root {
+  color-scheme: dark;
+  --fg: #e6edf3;
+  --fg-muted: #9198a1;
+  --bg: #0d1117;
+  --bg-subtle: #151b23;
+  --border: #3d444d;
+  --link: #4493f8;
+  --accent: #3d444d;
+  --mark-bg: #5a4a00;
+  --err-bg: #3c1618;
+  --err-fg: #ffa198;
+}

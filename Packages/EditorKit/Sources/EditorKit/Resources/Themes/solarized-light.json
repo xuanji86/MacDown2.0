@@ -1,0 +1,95 @@
+{
+  "name": "Solarized Light",
+  "appearance": "light",
+  "counterpart": "Solarized Dark",
+  "colors": {
+    "background": "#FDF6E3",
+    "text": "#4A6068",
+    "caret": "#4A6068",
+    "selection": "#E6DCB6",
+    "lineNumber": "#5B6F73",
+    "currentLine": "#00000008"
+  },
+  "tokens": {
+    "heading": {
+      "fg": "#1D6BA2",
+      "bold": true
+    },
+    "headingMarker": {
+      "fg": "#5B6F73",
+      "bold": true
+    },
+    "emphasis": {
+      "italic": true
+    },
+    "strong": {
+      "bold": true
+    },
+    "strikethrough": {
+      "fg": "#5B6F73",
+      "strikethrough": true
+    },
+    "code": {
+      "fg": "#B34213"
+    },
+    "codeBlock": {
+      "fg": "#B34213"
+    },
+    "codeFence": {
+      "fg": "#5B6F73"
+    },
+    "link": {
+      "fg": "#1D6BA2"
+    },
+    "linkURL": {
+      "fg": "#5B6F73",
+      "underline": true
+    },
+    "linkLabel": {
+      "fg": "#5C60A7"
+    },
+    "image": {
+      "fg": "#5C60A7"
+    },
+    "quote": {
+      "fg": "#5E6D00"
+    },
+    "quoteMarker": {
+      "fg": "#5E6D00",
+      "bold": true
+    },
+    "listMarker": {
+      "fg": "#C22C29",
+      "bold": true
+    },
+    "taskMarker": {
+      "fg": "#C22C29",
+      "bold": true
+    },
+    "hr": {
+      "fg": "#5B6F73",
+      "bold": true
+    },
+    "html": {
+      "fg": "#5E6D00"
+    },
+    "frontMatter": {
+      "fg": "#5B6F73"
+    },
+    "math": {
+      "fg": "#5C60A7"
+    },
+    "escape": {
+      "fg": "#5B6F73"
+    },
+    "delimiter": {
+      "fg": "#5B6F73"
+    },
+    "tableHeader": {
+      "bold": true
+    },
+    "tableDelimiter": {
+      "fg": "#5B6F73"
+    }
+  }
+}

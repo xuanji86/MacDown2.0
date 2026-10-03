@@ -1,0 +1,32 @@
+/* Academic: serif, justified, booktabs tables; reads like a paper and prints well. */
+:root {
+  color-scheme: light;
+  --fg: #111111;
+  --fg-muted: #4a4a4a;
+  --bg: #ffffff;
+  --bg-subtle: #f3f3f3;
+  --border: #bdbdbd;
+  --link: #1a3f8f;
+  --accent: #8c8c8c;
+  --mark-bg: #ffef9a;
+  --font-body: "Times New Roman", Times, "Songti SC", "STSong", serif;
+  --font-size: 18px;
+  --line-height: 1.55;
+  --measure: 720px;
+  --heading-weight: 700;
+  --heading-rule: none;
+  --page-padding: 40px 32px 72px;
+}
+p, li { text-align: justify; hyphens: auto; }
+h1 { font-size: 1.9em; text-align: center; }
+h2 { font-size: 1.4em; }
+h3 { font-size: 1.15em; font-style: italic; }
+h4, h5, h6 { font-size: 1em; font-style: italic; font-weight: 400; }
+blockquote { margin-left: 1.5em; border-left: 0; }
+code, pre { border: 0; font-size: 0.82em; }
+pre { border-radius: 2px; }
+table { margin-inline: auto; border-top: 2px solid var(--fg); border-bottom: 2px solid var(--fg); }
+th, td { border: 0; padding: 5px 12px; }
+th { background: none; border-bottom: 1px solid var(--fg); }
+tr:nth-child(2n) td { background: none; }
+hr { height: 1px; background: var(--accent); }

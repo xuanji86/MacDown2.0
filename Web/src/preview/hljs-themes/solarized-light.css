@@ -1,0 +1,14 @@
+/* highlight.js theme: Solarized Light accents (palette by Ethan Schoonover, MIT), each darkened until it reaches WCAG AA
+   (4.5:1) on the code background #eee8d5. The stock base16 solarized themes sit at about 2.5:1. */
+.hljs { color: #3f565e; background: #fdf6e3; }
+.hljs-comment, .hljs-quote { color: #5d696a; }
+.hljs-subst, .hljs-punctuation, .hljs-operator, .hljs-tag { color: #3f565e; }
+.hljs-bullet, .hljs-variable, .hljs-template-variable, .hljs-selector-tag, .hljs-name, .hljs-deletion { color: #c22c29; }
+.hljs-symbol, .hljs-number, .hljs-link, .hljs-attr, .hljs-literal { color: #b34213; }
+.hljs-title, .hljs-title.class_, .hljs-strong { color: #826300; }
+.hljs-title.function_, .hljs-section, .hljs-selector-id { color: #1d6ba2; }
+.hljs-code, .hljs-addition, .hljs-string { color: #5e6d00; }
+.hljs-built_in, .hljs-doctag, .hljs-regexp, .hljs-meta { color: #1e726c; }
+.hljs-keyword, .hljs-selector-class, .hljs-selector-attr, .hljs-selector-pseudo, .hljs-type { color: #5c60a7; }
+.hljs-emphasis { font-style: italic; }
+.hljs-strong { font-weight: bold; }

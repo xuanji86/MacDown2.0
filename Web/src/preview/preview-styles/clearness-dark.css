@@ -1,0 +1,31 @@
+/* Clearness Dark */
+:root {
+  color-scheme: dark;
+  --fg: #dedfe2;
+  --fg-muted: #a0a5ad;
+  --bg: #1b1c1e;
+  --bg-subtle: #26282b;
+  --border: #383b40;
+  --link: #6cb3f5;
+  --accent: #5c6470;
+  --mark-bg: #5a4a00;
+  --err-bg: #3c1618;
+  --err-fg: #ffa198;
+  --font-body: "Helvetica Neue", -apple-system, "PingFang SC", "Hiragino Sans GB", sans-serif;
+  --line-height: 1.75;
+  --measure: 760px;
+  --heading-weight: 300;
+  --heading-rule: none;
+  --page-padding: 32px 36px 72px;
+}
+h1 { font-size: 2.3em; letter-spacing: -0.01em; }
+h2 { font-size: 1.7em; }
+h3, h4 { font-weight: 500; }
+strong { font-weight: 600; }
+blockquote { font-style: italic; border-left-width: 3px; }
+code, pre { border: 0; }
+code { border-radius: 4px; }
+th, td { border-width: 0 0 1px; }
+th { background: none; border-bottom-color: var(--accent); }
+tr:nth-child(2n) td { background: none; }
+hr { height: 1px; border-radius: 0; }

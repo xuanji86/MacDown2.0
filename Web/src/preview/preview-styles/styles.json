@@ -1,0 +1,13 @@
+{
+  "default": "github",
+  "styles": [
+    { "id": "github", "name": "GitHub", "appearance": "light", "hljs": "github", "pair": "github-dark" },
+    { "id": "github-dark", "name": "GitHub Dark", "appearance": "dark", "hljs": "github-dark", "pair": "github" },
+    { "id": "clearness", "name": "Clearness", "appearance": "light", "hljs": "stackoverflow-light", "pair": "clearness-dark" },
+    { "id": "clearness-dark", "name": "Clearness Dark", "appearance": "dark", "hljs": "a11y-dark", "pair": "clearness" },
+    { "id": "paper", "name": "Paper", "appearance": "light", "hljs": "stackoverflow-light" },
+    { "id": "solarized-light", "name": "Solarized Light", "appearance": "light", "hljs": "solarized-light", "pair": "solarized-dark" },
+    { "id": "solarized-dark", "name": "Solarized Dark", "appearance": "dark", "hljs": "solarized-dark", "pair": "solarized-light" },
+    { "id": "academic", "name": "Academic", "appearance": "light", "hljs": "github" }
+  ]
+}

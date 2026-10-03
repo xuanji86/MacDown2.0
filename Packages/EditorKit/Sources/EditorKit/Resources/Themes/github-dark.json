@@ -1,0 +1,95 @@
+{
+  "name": "GitHub Dark",
+  "appearance": "dark",
+  "counterpart": "GitHub Light",
+  "colors": {
+    "background": "#0D1117",
+    "text": "#E6EDF3",
+    "caret": "#E6EDF3",
+    "selection": "#264F78",
+    "lineNumber": "#8B949E",
+    "currentLine": "#FFFFFF0C"
+  },
+  "tokens": {
+    "heading": {
+      "fg": "#79C0FF",
+      "bold": true
+    },
+    "headingMarker": {
+      "fg": "#8B949E",
+      "bold": true
+    },
+    "emphasis": {
+      "italic": true
+    },
+    "strong": {
+      "bold": true
+    },
+    "strikethrough": {
+      "fg": "#8B949E",
+      "strikethrough": true
+    },
+    "code": {
+      "fg": "#FFA657"
+    },
+    "codeBlock": {
+      "fg": "#FFA657"
+    },
+    "codeFence": {
+      "fg": "#8B949E"
+    },
+    "link": {
+      "fg": "#79C0FF"
+    },
+    "linkURL": {
+      "fg": "#8B949E",
+      "underline": true
+    },
+    "linkLabel": {
+      "fg": "#D2A8FF"
+    },
+    "image": {
+      "fg": "#D2A8FF"
+    },
+    "quote": {
+      "fg": "#7EE787"
+    },
+    "quoteMarker": {
+      "fg": "#7EE787",
+      "bold": true
+    },
+    "listMarker": {
+      "fg": "#FF7B72",
+      "bold": true
+    },
+    "taskMarker": {
+      "fg": "#FF7B72",
+      "bold": true
+    },
+    "hr": {
+      "fg": "#8B949E",
+      "bold": true
+    },
+    "html": {
+      "fg": "#7EE787"
+    },
+    "frontMatter": {
+      "fg": "#8B949E"
+    },
+    "math": {
+      "fg": "#D2A8FF"
+    },
+    "escape": {
+      "fg": "#8B949E"
+    },
+    "delimiter": {
+      "fg": "#8B949E"
+    },
+    "tableHeader": {
+      "bold": true
+    },
+    "tableDelimiter": {
+      "fg": "#8B949E"
+    }
+  }
+}

@@ -67,7 +67,7 @@ public final class MarkdownTextView: NSTextView {
         typingAttributes = theme.baseAttributes
         enclosingScrollView?.backgroundColor = theme.background
         // Chrome (scroll bars, find bar) follows the theme, not the system.
-        appearance = NSAppearance(named: theme.appearance)
+        appearance = theme.chromeAppearance
         enclosingScrollView?.appearance = appearance
         highlighter?.setTheme(theme)
     }
