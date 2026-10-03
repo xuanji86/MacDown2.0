@@ -90,6 +90,25 @@
     },
     "tableDelimiter": {
       "fg": "#8B949E"
+    },
+    "quartoCell": {
+      "fg": "#FF8A80",
+      "bold": true
+    },
+    "quartoOption": {
+      "fg": "#8B949E",
+      "italic": true
+    },
+    "quartoDiv": {
+      "fg": "#81C995",
+      "bold": true
+    },
+    "quartoShortcode": {
+      "fg": "#81C995",
+      "italic": true
+    },
+    "quartoRef": {
+      "fg": "#8AB4F8"
     }
   }
 }

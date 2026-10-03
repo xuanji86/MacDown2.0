@@ -13,6 +13,9 @@ public enum TokenKind: String, CaseIterable, Sendable {
     case listMarker, taskMarker
     case hr, html, frontMatter, math, escape, delimiter
     case tableHeader, tableDelimiter
+    /// Only a document flavor's overlay produces these (PLAN 4.3.3, Quarto): executable cells, `#|` options, `:::` div
+    /// fences, `{{< shortcodes >}}`, `@fig-x` / `[@cite]`.
+    case quartoCell, quartoOption, quartoDiv, quartoShortcode, quartoRef
 }
 
 /// Compiled once. Our own capture names (instead of the grammar's nvim-style highlights.scm) because the shipped

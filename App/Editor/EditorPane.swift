@@ -1,6 +1,8 @@
 import AppKit
 import Combine
 import EditorKit
+import ExtensionAPI
+import MarkdownCore
 import SwiftUI
 
 /// `EditorKit.MarkdownTextView` (TextKit 2, tree-sitter highlighting) in SwiftUI. Typing flows model-ward through the
@@ -22,6 +24,8 @@ struct EditorPane: NSViewRepresentable {
     var editor: EditorHandle?
     /// Receives caret and selection changes for the status bar and outline.
     var status: EditorStatus?
+    /// The document's flavor (Quarto for a .qmd while the extension is on): its regex overlay styles the text.
+    var flavor: (any DocumentFlavor)?
 
     func makeCoordinator() -> Coordinator { Coordinator(document: document, scrollSync: scrollSync) }
 
@@ -46,6 +50,14 @@ struct EditorPane: NSViewRepresentable {
         context.coordinator.bind(to: document)
         guard let textView = context.coordinator.textView else { return }
         textView.behavior = settings.behavior
+        if context.coordinator.decoratedFlavor != flavor?.id {
+            context.coordinator.decoratedFlavor = flavor?.id
+            if let flavor {
+                textView.decorations = { lines, first in flavor.editorDecorations(visibleLines: lines, firstLine: first) }
+            } else {
+                textView.decorations = nil
+            }
+        }
         let theme = theme
         if textView.theme.name != theme.name || textView.theme.font != theme.font { textView.theme = theme }
     }
@@ -56,6 +68,7 @@ struct EditorPane: NSViewRepresentable {
         weak var textView: MarkdownTextView?
         var undoManager: UndoManager?
         var status: EditorStatus?
+        var decoratedFlavor: FlavorID?
         private var sync: ExternalTextSync
         private var subscription: AnyCancellable?
 

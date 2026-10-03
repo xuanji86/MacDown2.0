@@ -27,6 +27,9 @@ export interface RenderOptions {
   codeLineNumbers: boolean;
   inlineDollarMath: boolean; // `$…$`; `$$…$$`, `\(…\)` and `\[…\]` are always on with `math`
   frontMatterDisplay: FrontMatterDisplay;
+  // Text of files a flavor may read while rendering, by path relative to the document folder (the app reads them
+  // beforehand; a flavor chunk finds them in `env.files`). Not part of the instance cache key.
+  files?: Record<string, string>;
 }
 
 export interface BlockMap { lineStart: number; lineEnd: number; hash: number }
@@ -40,7 +43,7 @@ export interface RenderResult {
 }
 
 type FlavorSetup = (md: MarkdownIt, options: RenderOptions) => void;
-type Env = { outline: OutlineItem[]; hasToc?: boolean }; // a type alias (not interface) so it is assignable to markdown-it's Env
+type Env = { outline: OutlineItem[]; hasToc?: boolean; files?: Record<string, string> }; // a type alias (not interface) so it is assignable to markdown-it's Env
 
 const registry = new Map<string, FlavorSetup>([['markdown', () => {}]]);
 const instances = new Map<string, MarkdownIt>();
@@ -77,7 +80,9 @@ function annotate(state: StateCore, headingAnchors: boolean): void {
     }
     if (t.type === 'heading_open') {
       const text = plainText(tokens[i + 1]);
-      const slug = slugify(text, seen);
+      // an explicit `{#id}` (flavors that load markdown-it-attrs) wins over the generated slug
+      const explicit = t.attrGet('id');
+      const slug = explicit === null ? slugify(text, seen) : String(explicit);
       // [TOC] links need the ids even when anchors are switched off
       if ((headingAnchors || env.hasToc) && slug) t.attrSet('id', slug);
       env.outline.push({ level: Number(t.tag.slice(1)), text, slug, line: t.map?.[0] ?? 0 });
@@ -148,7 +153,7 @@ function collectText(tokens: Token[]): string {
 
 export function renderResult(source: string, options: RenderOptions): RenderResult {
   const md = instance(options);
-  const env: Env = { outline: [] };
+  const env: Env = { outline: [], files: options.files };
   let tokens: Token[];
   let html: string;
   try {

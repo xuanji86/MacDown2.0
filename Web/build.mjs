@@ -1,8 +1,8 @@
 // Builds the vendored web assets: render.bundle.js, preview.bundle.js (+ preview.html, preview-styles/*.css + styles.json),
-// katex/ (CSS + woff2 fonts), hljs-themes/, flavors.json, THIRD_PARTY_LICENSES.txt.
+// katex/ (CSS + woff2 fonts), hljs-themes/, flavors.json, quarto.chunk.js + quarto-approx.css, THIRD_PARTY_LICENSES.txt.
 // Usage: node build.mjs [outDir]   (default: the WebAssets package resources; drift check passes a temp dir)
 import { build } from 'esbuild';
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -38,6 +38,25 @@ await build({
   logLevel: 'warning',
 });
 cpSync(join(here, 'src/preview/preview.html'), join(outDir, 'preview.html'));
+
+// Quarto flavor chunk (PLAN 4.1.2): loaded after render.bundle.js, only for .qmd while the extension is on. markdown-it
+// itself is not bundled (the chunk only imports its types), the main bundle never contains any of this.
+const quarto = await build({
+  entryPoints: [join(here, 'src/quarto/index.ts')],
+  outfile: join(outDir, 'quarto.chunk.js'),
+  bundle: true,
+  format: 'iife',
+  target: 'es2022',
+  minify: true,
+  legalComments: 'none',
+  metafile: true,
+  tsconfigRaw: '{}',
+  logLevel: 'warning',
+});
+cpSync(join(here, 'src/quarto/quarto-approx.css'), join(outDir, 'quarto-approx.css'));
+const CHUNK_BUDGET = 120 * 1024; // PLAN 4.1.2
+const chunkSize = statSync(join(outDir, 'quarto.chunk.js')).size;
+if (chunkSize > CHUNK_BUDGET) throw new Error(`quarto.chunk.js is ${chunkSize} bytes, over the ${CHUNK_BUDGET} budget`);
 
 // Preview styles: _base.css is prepended to every <style>.css; styles.json (the registry, also bundled into the page and
 // read by the app) says which hljs theme and light/dark partner each one has.
@@ -81,7 +100,7 @@ writeFileSync(join(outDir, 'flavors.json'), `${JSON.stringify(flavors, null, 2)}
 
 // License texts of every npm package that ended up in a bundle.
 const packages = new Set();
-for (const input of Object.keys(metafile.inputs)) {
+for (const input of [...Object.keys(metafile.inputs), ...Object.keys(quarto.metafile.inputs)]) {
   const m = input.match(/node_modules\/((?:@[^/]+\/)?[^/]+)\//);
   if (m) packages.add(m[1]);
 }
@@ -93,4 +112,5 @@ const notices = [...packages].sort().map((name) => {
   return `${name} ${version} (${license})\n\n${readFileSync(join(root, file), 'utf8').trim()}\n`;
 });
 notices.push(readFileSync(join(here, 'src/render/katex-fonts-license.txt'), 'utf8').trim() + '\n');
+notices.push(readFileSync(join(here, 'src/quarto/vendored/LICENSE.txt'), 'utf8').trim() + '\n');
 writeFileSync(join(outDir, 'THIRD_PARTY_LICENSES.txt'), notices.join(`\n${'-'.repeat(72)}\n\n`));

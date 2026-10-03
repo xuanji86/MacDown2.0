@@ -6,8 +6,9 @@ import SwiftUI
 struct StatusBar: View {
     let preview: PreviewModel
     let status: EditorStatus
-    /// "Markdown" for now; a Quarto document will show its own flavor here.
+    /// "Markdown", or the flavor's badge title ("Quarto · 近似预览") with its tooltip.
     var renderMode = "Markdown"
+    var renderModeHelp: String?
     @AppStorage("statusBar.countMode") private var mode = CountMode.words
 
     var body: some View {
@@ -20,7 +21,7 @@ struct StatusBar: View {
             }
             .buttonStyle(.plain)
             .help("点击切换计数方式")
-            Text(renderMode)
+            Text(renderMode).help(renderModeHelp ?? "")
         }
         .font(.caption.monospacedDigit())
         .foregroundStyle(.secondary)

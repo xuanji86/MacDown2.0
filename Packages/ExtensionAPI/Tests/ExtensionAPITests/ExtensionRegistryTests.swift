@@ -107,6 +107,41 @@ private func freshDefaults() -> UserDefaults { UserDefaults(suiteName: "test.\(U
     #expect(reloaded.active == ["off"])
 }
 
+private struct FileFlavor: DocumentFlavor {
+    var id: FlavorID = "files"
+    func matches(contentType: UTType) -> Bool { false }
+    var renderChunks = ["files.chunk.js"]
+    var previewStylesheets: [String] = []
+    func auxiliaryFiles(for markdown: String, readFile: (String) -> String?) -> [String: String] {
+        readFile(markdown).map { [markdown: $0] } ?? [:]
+    }
+}
+
+@Test func optionsFollowTheFlavorAndPlainMarkdownLeavesThemAlone() {
+    let base = RenderOptions()
+    #expect(base.rendering(as: nil, markdown: "a.qmd") { _ in "x" } == base)
+    let options = base.rendering(as: FileFlavor(), markdown: "a.qmd") { $0 == "a.qmd" ? "text" : nil }
+    #expect(options.flavor == "files" && options.renderChunks == ["files.chunk.js"] && options.files == ["a.qmd": "text"])
+    // everything else is the caller's settings
+    var changed = options
+    changed.flavor = .markdown; changed.renderChunks = []; changed.files = [:]
+    #expect(changed == base)
+}
+
+@Test @MainActor func flavorMembersHaveInertDefaults() {
+    let flavor = StubFlavor()
+    #expect(flavor.editorDecorations(visibleLines: ["# x"], firstLine: 0).isEmpty)
+    #expect(flavor.auxiliaryFiles(for: "x", readFile: { _ in "y" }).isEmpty)
+    #expect(flavor.badge == nil)
+    #expect(NoopExtension.disabledHint == nil)
+}
+
+@Test @MainActor func extensionIsFoundByItsSettingKey() {
+    let (registry, _) = makeRegistry(freshDefaults())
+    #expect(registry.ext(forSettingKey: "extension.off.enabled").map { type(of: $0).id } == "off")
+    #expect(registry.ext(forSettingKey: "extension.nope.enabled") == nil)
+}
+
 @Test @MainActor func settingsAreNamespacedPerExtension() {
     let defaults = freshDefaults()
     let store = ExtensionSettingsStore(defaults: defaults, extension: "quarto")

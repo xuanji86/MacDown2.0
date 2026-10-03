@@ -57,3 +57,13 @@ private func fixture(_ name: String) -> URL? {
     #expect(manifest.resolve(utType: "net.daringfireball.markdown") { _ in true }.flavor == .markdown)
     _ = try FlavorManifest.bundled()
 }
+
+@Test func filesOptionReachesTheRendererAndPlainMarkdownIgnoresIt() async throws {
+    var options = RenderOptions()
+    options.files = ["a.qmd": "text"]
+    let json = String(decoding: try JSONEncoder().encode(options), as: UTF8.self)
+    #expect(json.contains(#""files":{"a.qmd":"text"}"#))
+    let html = try await JSCRenderer().render("{{< include a.qmd >}}", options: options).html
+    #expect(html.contains("quarto-include") == false)  // core Markdown: literal text, no include handling
+    #expect(html.contains("include a.qmd"))
+}

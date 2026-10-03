@@ -29,6 +29,11 @@ public final class ExtensionRegistry {
         return extensions.first { type(of: $0).id == id }.map { type(of: $0).enabledByDefault } ?? false
     }
 
+    /// The extension whose switch is `key` (a `FlavorManifest` entry's `settingKey`).
+    public func ext(forSettingKey key: String) -> (any MacDown2Extension)? {
+        extensions.first { Self.enabledKey(type(of: $0).id) == key }
+    }
+
     /// Writes the default switch for never-toggled extensions (Quick Look reads it), then activates enabled ones.
     public func start() async {
         for ext in extensions {
