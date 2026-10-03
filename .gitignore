@@ -7,3 +7,4 @@ build/
 xcuserdata/
 Web/node_modules/
 Web/dist/
+.claude/
