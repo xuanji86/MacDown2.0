@@ -2,7 +2,7 @@
 # Core packages, QuickLook and CLI must not import extension modules; TextKit 2 / ObjectiveC guards repo-wide.
 cd "$(dirname "$0")/.." || exit 1
 fail=0
-g() { grep -rnE --include='*.swift' --exclude-dir=.build --exclude-dir=node_modules --exclude-dir=.claude "$@"; }
+g() { grep -rnE --include='*.swift' --exclude-dir=.build --exclude-dir=build --exclude-dir=node_modules --exclude-dir=.claude "$@"; }
 
 dirs=
 for d in Packages/MarkdownCore Packages/EditorKit Packages/PreviewKit Packages/WebAssets Packages/ExtensionAPI QuickLook CLI; do

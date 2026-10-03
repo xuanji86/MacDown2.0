@@ -1,0 +1,138 @@
+import AppKit
+import Foundation
+import Testing
+@testable import EditorKit
+
+/// S4: 1 MB document, viewport-sized highlight on the main thread. PLAN budget: < 8 ms. The budget applies to
+/// optimised builds (`swift test -c release -Xswiftc -enable-testing`); a debug build runs unoptimised C and Swift, so
+/// it only gets a looser sanity bound. Numbers are printed (`PERF ...`) for the PR description.
+@MainActor
+struct PerformanceTests {
+    #if DEBUG
+    static let budgetMs = 200.0
+    #else
+    static let budgetMs = 8.0
+    #endif
+
+    /// A viewport is ~60 lines of ~80 columns, i.e. about 5 KB; Neon's highlighter asks for it chunk by chunk.
+    static let viewportChunks = 5
+
+    /// ~1 MiB (UTF-16 units) of realistic Markdown: headings, wrapped paragraphs with inline markup, lists,
+    /// quotes, fenced code, tables, some CJK.
+    static func megabyteDocument() -> String {
+        var out = ""
+        var length = 0
+        var i = 0
+        while length < 1_048_576 {
+            i += 1
+            let section = """
+            ## Section \(i)
+
+            Lorem ipsum **dolor** sit amet, _consectetur_ adipiscing `elit`, sed do [eiusmod](https://example.com/\(i)) tempor
+            incididunt ut labore et ~~dolore~~ magna aliqua. 中文段落 **加粗** 与 `代码` 混排 \(i).
+
+            - item one with *emphasis*
+            - [x] done item `code`
+            - item three [link](http://a.b/c)
+
+            > quoted text with **strong** words
+            > and a second line
+
+            ```swift
+            let value\(i) = compute(\(i))
+            ```
+
+            | a | b | c |
+            |---|---|---|
+            | 1 | 2 | \(i) |
+
+
+            """
+            out += section
+            length += (section as NSString).length
+        }
+        return out
+    }
+
+    static func median(_ xs: [Double]) -> Double { xs.sorted()[xs.count / 2] }
+    func ms(_ d: Duration) -> Double { Double(d.components.seconds) * 1000 + Double(d.components.attoseconds) / 1e15 }
+    func f(_ x: Double) -> String { String(format: "%.2f", x) }
+
+    /// Start offsets of viewports spread over the document, all inside Neon's synchronous zone (< 1,000,000).
+    func viewportStarts(in text: String) -> [Int] {
+        [0.0, 0.25, 0.5, 0.75].map { (text as NSString).lineRange(for: NSRange(location: Int(950_000 * $0), length: 0)).location }
+    }
+
+    @Test func tokensForAViewportOfAOneMegabyteDocument() async throws {
+        let text = Self.megabyteDocument()
+        let h = try await EngineHarness(text)
+        let chunk = MarkdownHighlightEngine.synchronousLimit
+        var samples: [Double] = []
+        var tokenCount = 0
+        for start in viewportStarts(in: text) {
+            for _ in 0..<15 {
+                let t = ContinuousClock.now
+                tokenCount = 0
+                for c in 0..<Self.viewportChunks {
+                    h.engine.tokens(in: NSRange(location: start + c * chunk, length: chunk), mode: .synchronous) {
+                        if case .success(let tokens) = $0 { tokenCount += tokens.count }
+                    }
+                }
+                samples.append(ms(ContinuousClock.now - t))
+            }
+        }
+        #expect(tokenCount > 0)
+        print("PERF 1MB doc, tree-sitter only, one viewport (\(Self.viewportChunks) x \(chunk) units): median \(f(Self.median(samples))) ms, max \(f(samples.max()!)) ms, ~\(tokenCount) tokens")
+        #expect(Self.median(samples) < Self.budgetMs)
+    }
+
+    @Test func paintAViewportInAWindowlessTextView() async throws {
+        let text = Self.megabyteDocument()
+        let view = ViewTests.makeSizedView(text)
+        let highlighter = try #require(view.highlighter)
+        // The first request completes only after the 1 MB parse (a background job) is done.
+        let parseStart = ContinuousClock.now
+        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+            highlighter.provideTokens(for: NSRange(location: 0, length: 100)) { _ in done.resume() }
+        }
+        let parseMs = ms(ContinuousClock.now - parseStart)
+
+        let chunk = MarkdownHighlightEngine.synchronousLimit
+        var samples: [Double] = []
+        for start in viewportStarts(in: text) {
+            for _ in 0..<10 {
+                let t = ContinuousClock.now
+                var finished = 0
+                for c in 0..<Self.viewportChunks {
+                    highlighter.provideTokens(for: NSRange(location: start + c * chunk, length: chunk)) { result in
+                        if case .success = result { finished += 1 }
+                    }
+                }
+                samples.append(ms(ContinuousClock.now - t))
+                #expect(finished == Self.viewportChunks, "viewport chunks must complete synchronously once the parse is idle")
+            }
+        }
+        print("PERF 1MB doc, view: parse after open \(f(parseMs)) ms (background); query + attribute writes for one viewport: median \(f(Self.median(samples))) ms, max \(f(samples.max()!)) ms")
+        // Dominated by TextKit 2's per-edit bookkeeping on the text storage (one editing pass per chunk), not by
+        // tree-sitter (see the test above), and PLAN sets no budget for it: only a sanity bound against regressions.
+        #expect(Self.median(samples) < Self.budgetMs * 6)
+    }
+
+    @Test func keystrokeHandlingInAOneMegabyteDocument() async throws {
+        let view = ViewTests.makeSizedView(Self.megabyteDocument())
+        let highlighter = try #require(view.highlighter)
+        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+            highlighter.provideTokens(for: NSRange(location: 0, length: 100)) { _ in done.resume() }
+        }
+        let storage = try #require(view.textStorage)
+        var samples: [Double] = []
+        for k in 0..<10 {
+            storage.replaceCharacters(in: NSRange(location: 500_000 + k, length: 0), with: "x")
+            samples.append(ms(highlighter.lastEditHandling))
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+        // The system's own cost of the edit (TextKit 2 shifting its element cache) is not ours and not measured here.
+        print("PERF 1MB doc, our main-thread work per keystroke (snapshot + points + tree-sitter hand-off): median \(f(Self.median(samples))) ms, max \(f(samples.max()!)) ms")
+        #expect(Self.median(samples) < Self.budgetMs)
+    }
+}

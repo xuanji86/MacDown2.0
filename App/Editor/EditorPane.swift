@@ -1,45 +1,68 @@
 import AppKit
+import Combine
+import EditorKit
 import SwiftUI
 
-/// Plain-text TextKit 2 editor. Typing flows model-ward through the delegate only; the view never re-reads
-/// `document.text` after `makeNSView`, so a keystroke does not copy the whole text back and forth.
-/// Never use the TextKit 1 layout-manager accessor here: touching it silently downgrades the view to TextKit 1 (guarded by `make test`).
+/// `EditorKit.MarkdownTextView` (TextKit 2, tree-sitter highlighting) in SwiftUI. Typing flows model-ward through the
+/// delegate; the model flows back only when something other than the editor changed it (see `ExternalTextSync`).
 struct EditorPane: NSViewRepresentable {
     let document: MarkdownDocument  // deliberately not @ObservedObject: no SwiftUI update per keystroke
 
     func makeCoordinator() -> Coordinator { Coordinator(document: document) }
 
     func makeNSView(context: Context) -> NSScrollView {
-        let scrollView = NSTextView.scrollableTextView()
-        let textView = scrollView.documentView as! NSTextView
-        assert(textView.textLayoutManager != nil, "editor must be backed by TextKit 2")
+        let (scrollView, textView) = MarkdownTextView.makeScrollView()
         textView.delegate = context.coordinator
-        textView.isRichText = false
-        textView.allowsUndo = true
-        textView.usesFindBar = true
-        textView.isIncrementalSearchingEnabled = true
-        textView.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
-        textView.textContainerInset = NSSize(width: 8, height: 8)
-        // Source text: no typographic rewriting.
-        textView.isAutomaticQuoteSubstitutionEnabled = false
-        textView.isAutomaticDashSubstitutionEnabled = false
-        textView.isAutomaticTextReplacementEnabled = false
-        textView.isAutomaticSpellingCorrectionEnabled = false
         textView.string = document.text
+        context.coordinator.textView = textView
+        context.coordinator.observeDocument()
         return scrollView
     }
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
-        // Called by SwiftUI after make and on environment changes; this is where the document's UndoManager arrives.
+        // Called by SwiftUI after make, on environment changes (this is where the document's UndoManager arrives) and
+        // when it hands the view a different document instance (Revert To / Browse All Versions).
         context.coordinator.undoManager = context.environment.undoManager
+        context.coordinator.bind(to: document)
     }
 
     @MainActor
     final class Coordinator: NSObject, NSTextViewDelegate {
-        let document: MarkdownDocument
+        private(set) var document: MarkdownDocument
+        weak var textView: MarkdownTextView?
         var undoManager: UndoManager?
+        private var sync: ExternalTextSync
+        private var subscription: AnyCancellable?
 
-        init(document: MarkdownDocument) { self.document = document }
+        init(document: MarkdownDocument) {
+            self.document = document
+            sync = ExternalTextSync(document: document, text: document.text)
+        }
+
+        /// Point at `document` (it may be a new instance) and load its text if the editor does not already show it.
+        func bind(to document: MarkdownDocument) {
+            if !sync.isSameDocument(document) {
+                self.document = document
+                observeDocument()
+            }
+            reloadIfModelChanged(document.text)
+        }
+
+        /// `updateNSView` only runs when SwiftUI re-evaluates the view, which typing deliberately does not trigger, so
+        /// changes of `text` on the same instance are watched here. `$text` publishes before the value is stored,
+        /// hence the new value comes from the sink, not from `document.text`.
+        func observeDocument() {
+            subscription = document.$text.sink { [weak self] newText in
+                MainActor.assumeIsolated { self?.reloadIfModelChanged(newText) }
+            }
+        }
+
+        private func reloadIfModelChanged(_ modelText: String) {
+            guard let text = sync.reloadText(document: document, modelText: modelText), let textView else { return }
+            // Same as NSDocument revert: edits registered against the old text must not be replayed on the new one.
+            undoManager?.removeAllActions()
+            textView.reloadText(text)
+        }
 
         /// Registering edits with the document's UndoManager is what makes SwiftUI mark it dirty and autosave.
         func undoManager(for view: NSTextView) -> UndoManager? { undoManager }
@@ -48,7 +71,9 @@ struct EditorPane: NSViewRepresentable {
             guard let textView = notification.object as? NSTextView else { return }
             // IME composition: the model gets the text once the marked range is committed (textDidChange fires again).
             guard !textView.hasMarkedText() else { return }
-            document.text = textView.string
+            let text = textView.string
+            sync.editorDidWrite(text)  // before the write: the `$text` sink fires synchronously and must see it as ours
+            document.text = text
         }
     }
 }

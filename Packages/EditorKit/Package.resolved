@@ -1,0 +1,42 @@
+{
+  "originHash" : "6658f0ab21a44d608b61c4568768dd8b2a12fd79161c01813457134aee7847a0",
+  "pins" : [
+    {
+      "identity" : "neon",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/ChimeHQ/Neon",
+      "state" : {
+        "revision" : "7df7d080a271cfa4dc87f94cccc024665a75047e",
+        "version" : "0.6.0"
+      }
+    },
+    {
+      "identity" : "rearrange",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/ChimeHQ/Rearrange",
+      "state" : {
+        "revision" : "5ff7f3363f7a08f77e0d761e38e6add31c2136e1",
+        "version" : "1.8.1"
+      }
+    },
+    {
+      "identity" : "swifttreesitter",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/ChimeHQ/SwiftTreeSitter",
+      "state" : {
+        "revision" : "2599e95310b3159641469d8a21baf2d3d200e61f",
+        "version" : "0.8.0"
+      }
+    },
+    {
+      "identity" : "tree-sitter-markdown",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/tree-sitter-grammars/tree-sitter-markdown",
+      "state" : {
+        "revision" : "413285231ce8fa8b11e7074bbe265b48aa7277f9",
+        "version" : "0.4.1"
+      }
+    }
+  ],
+  "version" : 3
+}

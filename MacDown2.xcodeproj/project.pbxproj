@@ -10,6 +10,7 @@
 		A10000000000000000000001 /* MarkdownCore in Frameworks */ = {isa = PBXBuildFile; productRef = A10000000000000000000021 /* MarkdownCore */; };
 		A10000000000000000000002 /* WebAssets in Frameworks */ = {isa = PBXBuildFile; productRef = A10000000000000000000022 /* WebAssets */; };
 		A10000000000000000000003 /* ExtensionAPI in Frameworks */ = {isa = PBXBuildFile; productRef = A10000000000000000000023 /* ExtensionAPI */; };
+		A10000000000000000000004 /* EditorKit in Frameworks */ = {isa = PBXBuildFile; productRef = A10000000000000000000027 /* EditorKit */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -45,6 +46,7 @@
 				A10000000000000000000001 /* MarkdownCore in Frameworks */,
 				A10000000000000000000002 /* WebAssets in Frameworks */,
 				A10000000000000000000003 /* ExtensionAPI in Frameworks */,
+				A10000000000000000000004 /* EditorKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -90,6 +92,7 @@
 				A10000000000000000000021 /* MarkdownCore */,
 				A10000000000000000000022 /* WebAssets */,
 				A10000000000000000000023 /* ExtensionAPI */,
+				A10000000000000000000027 /* EditorKit */,
 			);
 			productName = MacDown2;
 			productReference = A10000000000000000000010 /* MacDown2.app */;
@@ -123,6 +126,7 @@
 				A10000000000000000000024 /* XCLocalSwiftPackageReference "Packages/MarkdownCore" */,
 				A10000000000000000000025 /* XCLocalSwiftPackageReference "Packages/WebAssets" */,
 				A10000000000000000000026 /* XCLocalSwiftPackageReference "Packages/ExtensionAPI" */,
+				A10000000000000000000028 /* XCLocalSwiftPackageReference "Packages/EditorKit" */,
 			);
 			productRefGroup = A10000000000000000000013 /* Products */;
 			projectDirPath = "";
@@ -278,6 +282,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/ExtensionAPI;
 		};
+		A10000000000000000000028 /* XCLocalSwiftPackageReference "Packages/EditorKit" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/EditorKit;
+		};
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -292,6 +300,10 @@
 		A10000000000000000000023 /* ExtensionAPI */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = ExtensionAPI;
+		};
+		A10000000000000000000027 /* EditorKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = EditorKit;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
