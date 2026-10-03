@@ -88,6 +88,7 @@
 │   MarkdownCore ── protocol MarkdownRenderer; JSCRenderer(JavaScriptCore)    │
 │   EditorKit    ── TextKit 2 文本视图、高亮、编辑辅助(可单测)                 │
 │   PreviewKit   ── 滚动同步算法、块映射、bridge 协议(纯 Swift,可单测)        │
+│   WorkspaceKit ── 文件树、FSEvents、收藏/最近(bookmark)、TabSession(可单测)│
 │   WebAssets    ── render.bundle.js / preview.bundle.js / quarto.chunk.js /  │
 │                   mermaid.chunk.js / flavors.json / css / katex             │
 │   ExtensionAPI ── MacDown2Extension / DocumentFlavor / SearchProvider 协议  │
@@ -116,7 +117,7 @@ MacDown2.0/
 │   ├── Document/   MarkdownDocument.swift  DocumentState.swift  FileTypes.swift
 │   ├── Editor/     EditorPane.swift  (薄壳,逻辑在 EditorKit)
 │   ├── Preview/    PreviewPane.swift  PreviewBridge.swift  ImageSchemeHandler.swift  BridgeSchemeHandler.swift(回退通道)  PreviewModeBanner.swift
-│   ├── Workspace/  WorkspaceSidebar.swift  FileTree.swift  FolderWatcher.swift  SearchPanel.swift
+│   ├── Workspace/  WorkspaceSidebar.swift  WorkspaceWindow.swift  WorkspaceDocument.swift  SearchPanel.swift   # 数据层在 Packages/WorkspaceKit
 │   ├── Search/     SearchService.swift  BuiltinSearchBackend.swift        # 核心自带的 SearchProvider
 │   ├── Tools/      LoginShellEnvironment.swift                             # 懒加载,只被扩展经 ExtensionHost 触发
 │   ├── Outline/    OutlineInspector.swift
@@ -136,6 +137,7 @@ MacDown2.0/
 │   │                   Tests/MarkdownCoreTests/{Snapshots/, Fixtures/ (来自 macdown3000, 带来源说明)}
 │   ├── EditorKit/      Sources/EditorKit/{MarkdownTextView.swift, Highlighter.swift, EditingAssistant.swift, LineTable.swift, Grammar/}
 │   ├── PreviewKit/     Sources/PreviewKit/{ScrollSync.swift, BlockMap.swift, BridgeMessage.swift}
+│   ├── WorkspaceKit/   Sources/WorkspaceKit/{FileTreeModel.swift, IgnoreRules.swift, FolderWatcher.swift, BookmarkStores.swift, TabSession.swift, CurrentLocation.swift}
 │   ├── WebAssets/      Sources/WebAssets/Resources/{render.bundle.js, preview.bundle.js, quarto.chunk.js, mermaid.chunk.js, flavors.json, katex/, hljs-themes/, preview-styles/, quarto-approx.css}
 │   ├── ExtensionAPI/   Sources/ExtensionAPI/{MacDown2Extension.swift, ExtensionHost.swift, DocumentFlavor.swift, SearchProvider.swift, AlternatePreviewMode.swift}
 │   ├── QuartoExtension/    Sources/QuartoExtension/{QuartoExtension.swift, QuartoFlavor.swift, QuartoDecorations.swift, QuartoLocator.swift, QuartoPreviewProcess.swift, QuartoLivePreviewMode.swift, QuartoSettingsPane.swift}
@@ -160,6 +162,7 @@ MacDown2.0/
 | `MarkdownCore` | JavaScriptCore(系统)、`WebAssets` | `MarkdownRenderer` 协议 + `JSCRenderer` 实现 + 选项/结果类型。**不**依赖 AppKit/WebKit,CLI 与 QL 可用。 |
 | `EditorKit` | AppKit、`SwiftTreeSitter`(ChimeHQ)、`Neon`、`TreeSitterMarkdown`(+Inline) | 文本视图、高亮、编辑辅助。 |
 | `PreviewKit` | 无(Foundation) | 滚动同步/块映射纯算法,100% 可单测。 |
+| `WorkspaceKit` | Foundation、CoreServices(FSEvents) | 工作区侧栏数据层:`FileTreeModel`、`FolderWatcher`、`FavoritesStore`/`RecentsStore`、`TabSession`、`CurrentLocation`。无 UI、无 AppKit,100% 可单测。 |
 | `WebAssets` | 无 | 只装资源(JS/CSS/字体/`flavors.json`)。 |
 | `ExtensionAPI` | `MarkdownCore` | 扩展协议与值类型(`MacDown2Extension`、`ExtensionHost`、`DocumentFlavor`、`SearchProvider`、`AlternatePreviewMode`),无 UI、无进程。 |
 | `QuartoExtension` | `ExtensionAPI`、`MarkdownCore`、AppKit/SwiftUI | 内置扩展(默认开):Quarto flavor、装饰高亮、真渲染进程、设置子页。 |
@@ -203,7 +206,7 @@ MacDown2.0/
 | `actor JSCRendererActor` | 持有一个 `JSContext`(非 Sendable,用 `nonisolated(unsafe)` 包在 actor 内) | QL / CLI / 导出 / 测试的渲染;一个 actor 一个 context,串行即正确。 |
 | `actor SearchService` | 调度已注册的 `SearchProvider`(核心 `builtin`;`qmd` 由 QmdSearchExtension 注册时才存在)、结果缓存 | 进程 IO 与文件遍历在后台;结果 `Sendable` 结构体回主线程。 |
 | `actor QuartoPreviewProcess`(QuartoExtension 内) | `Process` 生命周期、stdout/stderr 流解析、端口发现 | 一个文档一个实例;扩展 `deactivate()` 时全部终止。 |
-| `actor FolderWatcher` | FSEvents 流(CoreServices C API)回调 → 合并 → 主线程刷新树 | |
+| `FolderWatcher`(WorkspaceKit,final class,私有串行队列) | FSEvents 流(CoreServices C API)回调 → 丢弃被忽略目录事件 → 固定窗口合并 → App 层 hop 回主线程刷新树 | 回调本就在它自己的队列上;状态全部队列内,不需要 actor。 |
 | `actor LoginShellEnvironment` | 首次被 `ExtensionHost.toolEnvironment` 访问时 spawn 登录 shell 抓环境,带 5 s 超时;结果 `[String: String]` 缓存,扩展起的外部进程从这里取 `environment`(见 §4.16);两个扩展都关闭时永不执行 | GUI App 由 launchd 启动只有 `/usr/bin:/bin:/usr/sbin:/sbin`,不这么做 quarto/qmd/conda/R 全找不到 |
 | Neon 内部 | `TreeSitterClient` 混合同步/异步:文档 < 1 MB 走同步路径(按键内完成),更大走后台解析再回主线程 | 避免大文档卡键入。 |
 
@@ -339,6 +342,7 @@ Hoedown/MacDown 选项 → markdown-it 映射见 §5 对等清单"Markdown 偏�
 - `MarkdownDocument: ReferenceFileDocument`(class,`@Observable`):`text: String`、`fileURL`、`flavor`(由已启用扩展注册的 `DocumentFlavor.matches(contentType, firstBytes)` 依次判定,无命中则 `markdown`;Quarto 扩展关闭时 `.qmd` 就是普通 Markdown;扩展开关变化时所有已打开文档重新判定并重渲染)。`snapshot(contentType:)` 返回 `String`;`fileWrapper(snapshot:)` 写 UTF-8(保留原文件是否带 BOM/换行风格:读入时记录 `\r\n`→统一为 `\n` 编辑,写回时按设置"保持原换行"还原;文件尾确保换行按设置)。
 - 撤销/自动保存:`ReferenceFileDocument` 的自动保存与版本挂在 UndoManager 注册上。做法:`NSTextViewDelegate.undoManager(for:)` 返回 SwiftUI 环境里的 `undoManager`,这样 NSTextView 的每次编辑都登记到文档的 UndoManager → 自动保存、Versions("浏览所有版本")、iCloud Drive 同步全部走系统路径。**S1 spike 验证**;失败回退:App 改为 `NSDocument` 子类 + `NSHostingView` 承载 SwiftUI 内容(仅文档/窗口层用 AppKit,其余不变)。
 - 外部修改:`NSFilePresenter` 由 DocumentGroup 内部处理;额外监听 `fileURL` 的 `DispatchSource.makeFileSystemObjectSource` 以在"无未保存修改"时自动重载(MacDown 行为),有修改时弹"外部已修改"提示。
+- 工作区窗口(§4.11 S3 推荐方案 b):同一份读写逻辑(UTF-8、BOM、换行风格)要被 `ReferenceFileDocument`(单文件窗口)与 `NSDocument` 子类(工作区窗口)共用,届时抽成纯函数 `MarkdownFile.decode/encode`;外部修改、撤销、自动保存的路径与上面一致(S3 实测两种宿主下都走 `ExternalTextSync`)。
 - 文件类型(Info.plist):
   - 编辑器角色 `Editor`,类型 `net.daringfireball.markdown`(系统已有,conforms `public.plain-text`),扩展 `md markdown mdown mkd mkdn mdwn mdtxt mdtext text`。
   - **`.qmd`**:`UTImportedTypeDeclarations` 声明 `org.quarto.qmd` `⚠未验证`(Quarto 官方未发布 UTI;查无 `org.quarto.*` 注册。identifier 用 Quarto 域名反写、标 imported,一旦官方声明则无缝对接),`UTTypeConformsTo = [net.daringfireball.markdown]`(因而也 conforms `public.plain-text`),`UTTypeTagSpecification = { public.filename-extension: [qmd], public.mime-type: [text/x-quarto-markdown] }`。QL 扩展 `QLSupportedContentTypes` 同时列两者。该声明是**静态**的,与 Quarto 扩展开关无关(Info.plist 无法运行时撤销);开关只决定渲染 flavor。
@@ -561,9 +565,21 @@ editorLine(y):上式反函数,再由 LineTable 求该行 fragment 的 y,NSTextVi
 
 ### 4.11 文件夹工作区侧边栏
 
-- `NavigationSplitView` 侧栏(⌘\ 切换),每个**窗口**一个工作区根(`@SceneStorage("workspaceRoot")` 持久化);Quarto 扩展启用时识别 Quarto 项目目录(`_quarto.yml`)并显示徽标(扩展关闭时无此徽标)。
-- 树:只列目录与 `.md/.markdown/.qmd/.txt`,忽略 `.git`、`node_modules`、`_site`、`_book`、`_freeze`、`.quarto`、`*_files/`(Quarto/Pandoc 渲染副产物目录)、`.Rproj.user`、`__pycache__`、`.venv`;渲染出的 `.html` 本来就不在列出类型内。忽略规则可在设置里加减;"显示 Quarto 输出" 开关(Quarto 扩展子设置)默认关(Q13)。懒加载子目录;FSEvents 监听整树,`kFSEventStreamCreateFlagIgnoreSelf` + 自己保存后手动刷新(MacDown 教训);被忽略目录内的事件直接丢弃,避免真渲染时 `_files/` 刷屏。
-- 打开:双击/回车 → `openDocument(at:)`,目标是**同窗口新标签**。SwiftUI DocumentGroup 在 macOS 用 NSDocument 架构,原生标签遵循系统"打开文档时优先使用标签页"偏好;我们在窗口创建时拿到 `NSWindow`(经 `NSViewRepresentable` 的 `window` 访问器)设 `tabbingMode = .preferred`、`tabbingIdentifier = 工作区根路径`,使同工作区文档归入同一标签组(**S3 验证**;失败回退:不强制标签,新窗口打开)。
+**两种模式(用户 2026-10-03 定,都要)**:
+- **浏览模式**(默认):侧栏分三组。「收藏」:默认桌面、文稿、iCloud Drive,可添加/移除/排序(`FavoritesStore`);「当前位置」:活动文档所在目录,**跟随活动文档**,可展开成树,顶部路径栏可逐段往上跳(`CurrentLocation`,手动上跳后保持到活动文档再变);「最近」:最近打开的文件,上限 20,文件不存在自动清理(`RecentsStore`)。目的:不开工作区也能快速浏览整台电脑。
+- **工作区模式**:「打开文件夹…」或 `macdown2 .` 进入,侧栏只显示这个文件夹的树,可有多个根(`FileTreeModel.roots`)。
+
+**数据层 = `Packages/WorkspaceKit`(纯 Swift、无 UI、全部单测;UI 之后单独做,设计师在 Claude Design 出稿)**:
+- `FileTreeModel`(值类型):多根、懒加载(展开才读目录)、`rows()` 给出带深度的扁平行;排序=文件夹在前 + Finder 式自然序(`localizedStandardCompare`,`file2` 在 `file10` 前);默认只显示 `.md/.markdown/.qmd/.txt` 与文件夹,`showAllFiles` 切到全部(同时显示点文件);忽略规则(`IgnoreRules`)两种模式都生效;符号链接目录按目录处理、`.app` 等包按文件;读不了的目录显示为空并记入 `unreadable`;`reload(_:)` 接 `FolderWatcher` 的批次,目录消失则连带丢弃其下缓存与展开态。路径一律用 `URL.fileKey`(标准化、无尾斜杠)作键。
+- `FolderWatcher`:FSEvents(`FileEvents` 粒度)监听全部根;**被忽略目录内的事件在合并前丢弃**;合并窗口从首个事件起算(固定窗口 0.25 s,持续写入也会按时送达,不是尾部防抖);回调给"需要重读的目录集合"(事件项的父目录 + 目录事件本身),路径换回调用方书写的根前缀(FSEvents 报 realpath,`/var` 与 `/private/var` 不同);`ignoreSelf` 默认开(自己保存/新建后手动刷新,MacDown 教训);用后必须 `stop()`。
+- `FavoritesStore` / `RecentsStore`:持久化为 **bookmark data**(即使不开沙盒也用,文件移动/改名后仍能找回,`refresh()` 顺手刷新路径与过期书签);有上限(收藏 50、已满时拒绝而非静默挤掉;最近 20、最旧的滑出);`refresh()` 清掉已不存在或进了废纸篓的条目,**但离线卷(`/Volumes/<x>` 未挂载)上的条目保留不显示**,拔掉移动硬盘不会清空收藏;默认收藏只在首次播种一次,用户删掉的默认项不会回来。
+- `TabSession`:预览/固定标签状态机,纯逻辑,返回 `[Effect]` 由窗口层执行。规则:同时至多一个预览标签;**单击** = 在预览标签打开(替换原预览,原位替换;已开的文件只激活,固定标签不会被单击退回预览);**双击**或**首次编辑** = 固定;关闭活动标签激活右邻(无则左邻);同一文件去重(键 `fileKey`);新标签开在活动标签右侧;`moved(from:to:)` 处理侧栏里的改名(目标已开则合并);`Codable`,供窗口恢复。替换预览时 effect 顺序为"开新 → 激活 → 关旧",窗口层不会先失去唯一标签。
+- 未做(留给 UI/下一步):Quarto 项目徽标(需 Quarto 扩展)、"显示 Quarto 输出"开关(去掉 `*_files` 规则即可,Q13)、拖放、新建/重命名/移到废纸篓的文件操作。
+
+**窗口架构(S3,2026-10-03 原型结论,详见 §8.2)**:推荐 **(b) 工作区窗口(`WindowGroup`)自己持有多个 `NSDocument` 实例**(窗口无关文档,`NSDocumentController` 注册以保留一 URL 一文档、自动保存、撤销、Versions、冲突保护、关闭提示),窗口内自绘标签条,一个共享 `NSWindowController` 随活动标签切换 `document`(标题、代理图标、Versions/Revert/Rename 菜单随之);编辑器与预览视图只换文本,不重建。标签状态(`TabSession`)存 `@SceneStorage`。**待手测确认**(清单见 §8.2 S3 结论)后落地;任一项不过则回退 (a)。(a) = 继续 `DocumentGroup`,用 `NSWindow.tabbingIdentifier` + `addTabbedWindow` 并入同一标签组、关旧预览窗口来模拟预览标签,已验证可行但有 §8.2 列出的结构性代价(每次单击新建窗口+WebPage、侧栏每标签一份、同文件不能开两次、新窗口先独立显示再入组)。
+- 单文件窗口(Finder 双击 `.md`)在 M1 仍走 `DocumentGroup`;同一 URL 在 `DocumentGroup` 文档与工作区文档之间的归属见 Q15。
+
+- 树的内容与忽略:只列目录与 `.md/.markdown/.qmd/.txt`,忽略 `.git`、`node_modules`、`_site`、`_book`、`_freeze`、`.quarto`、`*_files/`(Quarto/Pandoc 渲染副产物目录)、`.Rproj.user`、`__pycache__`、`.venv`(`IgnoreRules.default`);渲染出的 `.html` 本来就不在列出类型内。忽略规则可在设置里加减;Quarto 扩展启用时识别 Quarto 项目目录(`_quarto.yml`)并显示徽标(扩展关闭时无此徽标)。
 - 右键:在 Finder 显示、拷贝路径、新建文件/文件夹、重命名、移到废纸篓。
 - 搜索面板(⌘⇧F,侧栏顶部):见 §4.12。
 
@@ -794,7 +810,7 @@ public protocol SearchProvider: Sendable {
 
 | 项 | 处置 | M |
 |---|---|---|
-| 多文档、原生标签页 | 保留(DocumentGroup) | M0 |
+| 多文档、原生标签页 | 单文件窗口保留 DocumentGroup(M0);工作区窗口内标签/预览标签见 §4.11(S3) | M0 / M2 |
 | 外部修改自动重载 / 冲突提示 | 保留 | M1 |
 | 远程卷(SSHFS)原子保存绕过 | 砍掉(交给 NSDocument 默认行为;若反馈再议) | — |
 | 文件夹工作区侧栏(`macdown .`、File ▸ Open Folder、⌘\、Reveal in Finder、Copy Path、FSEvents 刷新、跨标签同步宽度/展开态) | 保留+改进(加搜索、新建/重命名) | M2 |
@@ -956,7 +972,7 @@ Scripts/release.sh 0.1.0 --publish  # 另外:建 draft GitHub Release;若设了 
 |---|---|---|---|---|
 | S1 | DocumentGroup + ReferenceFileDocument + NSTextView 的撤销/自动保存/Versions/iCloud 是否顺畅;能否抑制启动空白文档 | 新建最小工程,NSTextView delegate 返回环境 UndoManager;在 iCloud Drive 建/改/重命名文档 | ⌘Z 跨保存有效;自动保存触发;Versions 可浏览;重命名后仍保存;无空白文档启动可控 | `NSDocument` 子类 + `NSHostingView` |
 | S2 ✅ | `WebPage` 桥:`callJavaScript` 传 1 MB 字串往返耗时;JS→Swift 通道;`URLSchemeHandler` 服图片与事件;`webViewOnScrollGeometryChange` 频率;是否可 inspect;PDF 导出 API | 最小工程加 markdown-it bundle | 桥接开销与渲染耗时分别达标(§4.1.4);事件 100/s 不丢;滚动几何回调 ≥ 30 Hz | 未触发(`WKWebView` + `NSViewRepresentable` 回退保留) |
-| S3 | 侧栏打开文档进同窗标签 | `openDocument(at:)` + `NSWindow.tabbingMode/.tabbingIdentifier` | 100% 进同一标签组且不受系统偏好影响 | 新窗口打开(功能降级,不阻塞) |
+| S3 ✅ | 侧栏打开文档进同窗标签;单击替换的预览标签怎么做 | 两个最小原型(见下结论):(a) DocumentGroup + `tabbingIdentifier`/`addTabbedWindow`;(b) `WindowGroup` + 窗口无关 `NSDocument` + 自绘标签条 | 自动保存/撤销/Versions/关闭提示/外部修改不退化;预览标签替换无新窗口抖动 | 推荐 (b);任一手测项不过则回退 (a)(已验证可行) |
 | S4 | TextKit 2 + SwiftTreeSitter + Neon:1 MB 高亮;中/日 IME;grammar 包依赖冲突;tree-sitter-quarto 试跑 | 用 10 个真实 .md/.qmd + 1 MB 生成文档 | 可见区同步高亮 < 8 ms;组字不中断;无符号冲突 | fork grammar Package.swift;IME 期间整体暂停高亮;tree-sitter-quarto 不达标则用叠加方案 |
 | S5 ✅ | QL 扩展内 JSC 跑 bundle(含 KaTeX)速度;`cid:` 附件;同目录图片可读性;QL 是否执行 JS | 写最小 QL 扩展预览 100 KB 文档 | < 500 ms;图片显示;确认 JS 不执行(或执行也不依赖) | 截断 + 占位图 |
 | S6 | Quarto 插件 TS 编译进 bundle;`quarto preview` 进程:端口解析、保存刷新、SIGTERM 退出干净;**从 Finder 启动的 App** 能否用抓到的环境让 Quarto 找到 conda venv 的 Python;`{{< include >}}` 内联 | 用 quarto 官方示例 + 一个 conda 环境;另做一次"运行中关闭扩展" | 10 个示例近似预览无 JS 异常;进程 100% 可回收(含 `deactivate()` 路径);Finder 启动下 `quarto check` 等价输出里 Python 路径指向 venv;Quarto 插件能独立打成 `quarto.chunk.js` 并在主 bundle 之后注册 | 插件按需裁剪;真渲染改用 `quarto render` 一次性;手动指定 Python |
@@ -969,6 +985,28 @@ Scripts/release.sh 0.1.0 --publish  # 另外:建 draft GitHub Release;若设了 
 
 **S5 结论(已完成,2026-10-03,macOS 27.2、M5 Pro、Xcode 27、Debug 构建、`qlmanage -p`、ad-hoc 签名沙盒扩展;详见 §4.9)**:100 KB 混合文档(标题/表格/代码/KaTeX/任务列表)渲染稳态 **约 270–300 ms**(JS 上下文创建 ≈ 20 ms),冷启动首次(刚重装扩展)约 640 ms;256 KB 稳态约 650 ms(冷首次 1.3 s)——100 KB 达标。**QL 的 HTML 预览会执行内联脚本,且不理会 meta CSP**,故设计不依赖 JS 之外还对原始 HTML 转义。**`cid:` 附件可用**(图片、`@font-face` 字体),`data:` URI 同样可用;同目录图片在**默认沙盒下**读不到(`EPERM`;其后用户拍板加只读临时例外解决,见 §4.9)。QL 进程里 JSC 无 JIT。未验证:Finder 空格键预览(只用 `qlmanage -p`,二者走同一 `QLPreviewReply` 路径)、Release/公证签名下的耗时。
 
+
+**S3 结论(已完成原型,2026-10-03,macOS 27.2、Xcode 27 SDK、Debug、ad-hoc 签名的最小 .app;原型在会话 scratchpad,不入库;推荐 (b))**:
+
+方法与局限:两个原型(A=DocumentGroup + 原生标签,B=WindowGroup + 窗口无关 `NSDocument` + 自绘标签条)各配一个**进程内**场景驱动(直接调 `NSDocumentController`/AppKit API,不合成任何键鼠事件),`open` 启动、日志落文件、只用 `screencapture -l` 截自家窗口。**App 全程未被激活**(`NSApp.isActive == false`),因此"需要激活态才发生"的行为没观察到(AppKit 自动并标签、`NSDocument` 对**非协调写**的外部修改检测);另外程序化 `NSTextView.insertText` 在两个原型里都登记了撤销却没把 `NSDocument` 标脏,驱动器每次模拟编辑后补一次 `updateChangeCount(.changeDone)`(A、B 同样处理,不构成差异)。
+
+| 项 | (a) DocumentGroup + 原生标签 | (b) WindowGroup + 窗口无关 NSDocument |
+|---|---|---|
+| 自动保存 | ✅ 编辑后 1 s 写盘 | ✅ 同 |
+| 撤销 | ✅ 撤销跨保存有效,撤销后文档重新变脏 | ✅ 同 |
+| Versions | ✅ 自动保存后 `NSFileVersion` 其他版本 = 1;浏览 UI 需人手 | ✅ 版本 = 1;共享 `NSWindowController` 挂上活动文档后 `browseDocumentVersions:`/`revertDocumentToSaved:`/`saveDocument:`/`duplicateDocument:`/`renameDocument:` 校验全为 true;浏览 UI 需人手 |
+| 未保存关闭提示 | ✅ 脏文档 `performClose` 弹系统表"Do you want to save…"(Save/Revert Changes/Cancel);外部冲突时弹"could not be autosaved…changed by another application" | ✅ 重写 `windowForSheet` 为工作区窗口后,关标签(`canClose`)弹同款表,Save 后落盘并关掉标签;⚠ 窗口 ✕ 与 ⌘Q 要自己接(`windowShouldClose` 遍历文档;`hasEditedDocuments` 已能看见窗口无关文档);原型里一次自动保存冲突的错误弹窗阻塞主线程约 85 s,待手测 |
+| 同一文件开两次 | ❌ `NSDocumentController` 一 URL 一文档,再开只激活旧窗口 | 单窗口内 ✅ 去重(`openDocument` 返回同一实例,`TabSession` 同键去重);同一 `NSDocument` 可被多个工作区窗口各自引用(未做原型) |
+| 外部修改 | ✅ 协调写:约 1 s 自动 revert,SwiftUI 换新文档实例,`ExternalTextSync` 重载编辑器,之后键入+自动保存 = 外部内容+新输入,**无旧内容写回**(EditorPane 的 `bind` 逻辑必须保留,原型缺它时就会回写旧文本);脏文档+外部写:强制自动保存报 67000,磁盘保留外部内容 | ✅ 同一实例 revert→`read(from:)`→`@Published`→`ExternalTextSync`,结果同左;67000 同左 |
+| 窗口恢复 | ✅ `NSQuitAlwaysKeepsWindows=1` 下优雅退出重开:3 个文档、同一标签组、选中标签全部恢复(系统包办);预览态不恢复(恢复为固定标签)。⚠ 用户系统设置"退出时关闭窗口"开启时系统本就不恢复 | ⚠ 原型里重开后没有恢复出窗口(未定论,待手测);方案是 `TabSession`(Codable)存 `@SceneStorage`,每窗口一份 |
+| 预览标签替换 | 开新文档(30–65 ms 出窗口)→`addTabbedWindow` 并入→关旧,期间约 60–100 ms 有两个窗口;窗口先作为独立窗口显示,`tabbingMode`/`identifier` 在 `viewDidMoveToWindow` 时才能设,自动并入靠不住(未激活时没发生),只能手动并入;每次单击新建完整窗口(原型里只有 NSTextView,真 App 还要建 WebPage,S2 实测冷启动 139 ms) | 单击→编辑器可见 33–70 ms,同一窗口、同一编辑器/预览视图只换文本,无窗口抖动 |
+| 标签标题斜体 | ✅ `NSWindowTab.attributedTitle`(SDK 27)——截图确认原生标签条里预览标签为斜体 | ✅ 自绘,任意样式 |
+| 侧栏 | ❌ 每个标签窗口各有一份侧栏(展开态/滚动/选中要靠共享模型同步,切标签时整块视图被换掉) | ✅ 窗口里只有一份 |
+| 标签位置/行为 | 新标签插在宿主窗口旁(位置不由我们定);Tab Overview、拖出标签、VoiceOver 免费 | 全部自绘:重排/拖出/Overview/可访问性要自己做 |
+
+**推荐 (b)**,理由:① 浏览式单击是该功能最高频的操作,(a) 每次单击都是"新建窗口+编辑器+WebPage、再关旧窗口",(b) 只换文本且无窗口抖动;② 侧栏是这个功能的主体,(a) 天生每标签一份;③ (b) 用 `NSDocument` 实例而不是自造文件模型,所以自动保存、撤销、Versions、冲突保护、关闭提示、去重、外部重载这些系统能力在原型里与 (a) 实测一致(这也是不选"自有文件模型"的原因:那条路要自己重写全部);④ (a) 的"同文件不能开两次""窗口先独立显示再入组""绕过系统标签偏好"是结构性的,修不掉。**代价**:自绘标签条(无 Tab Overview/原生拖拽,VoiceOver 要自己写)、窗口关闭与退出的未保存审阅要自己接、窗口标题/编辑点(`window.isDocumentEdited` 需手动与文档同步)、`@SceneStorage` 恢复、单文件 `DocumentGroup` 与工作区 `NSDocument` 并存时同 URL 的归属(Q15)。**回退**:(a) 已验证全部可行,代价就是上表中 (a) 列的 ❌。
+
+**手测清单(原型无法替代人手,落地前必过)**:① 真实打字(不是程序化插入)后标脏→自动保存→Versions 浏览(File ▸ Revert To ▸ Browse All Versions)在 (b) 的共享窗口控制器下可用;② 窗口 ✕ 与 ⌘Q 在有未保存文档时弹审阅表,取消能留住窗口;③ 外部程序(非协调写)改了当前干净文档:App 激活后编辑器重载,键入不会写回旧内容;外部改了脏文档:出现"另一应用已修改"选择表且无阻塞;④ 优雅退出重开:工作区窗口、标签集合、活动标签、侧栏模式恢复;⑤ 连点 20 个文件的单击替换手感(有无闪烁)与预览标签斜体。
 
 ---
 
@@ -1049,6 +1087,7 @@ Scripts/release.sh 0.1.0 --publish  # 另外:建 draft GitHub Release;若设了 
 | Q12 | `qmd embed`(重 CPU/GPU)由 App 在空闲时自动跑,还是只手动? | 自动需电源/空闲判定与节流逻辑;手动则语义结果可能过期。 |
 | Q13 | 文件夹侧栏是否提供 "显示 Quarto 输出(`.html`/`_files/`)" 开关? | 不提供则忽略列表写死,代码更少。 |
 | Q14 | 真渲染默认用 `quarto preview`(常驻、保存即刷新)还是 `quarto render` 一次性(无常驻进程、每次手动)? | 方案默认 preview;改为 render 则没有后台进程与端口,但失去保存自动刷新。 |
+| Q15 | (S3 推荐方案 b 之后)**单文件窗口是否也并入工作区窗口**(Finder 双击 `.md` = 一个无侧栏的工作区窗口)? | 不并入则 `DocumentGroup`(SwiftUI 自己的 NSDocument 子类)与工作区的 `NSDocument` 对同一 URL 各持一份,需要在打开入口做路由(已在工作区打开的文件优先激活工作区标签);并入则只剩一套文档栈,但要自己提供 New/Open/Open Recent 菜单,M0/M1 的 `DocumentGroup` 接线要改。 |
 
 ---
 
