@@ -20,6 +20,7 @@ No code from those projects is used.
 
 ```sh
 make test        # JS tests, drift + module-boundary checks, Swift package tests
+make app         # build the app (Debug, ad-hoc signed) into build/DerivedData/Build/Products/Debug
 make web         # rebuild the committed web assets after editing Web/ (CI fails on drift)
 ```
 
