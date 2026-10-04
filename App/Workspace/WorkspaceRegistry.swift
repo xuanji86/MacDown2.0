@@ -286,7 +286,7 @@ final class WorkspaceRegistry: DocumentBackend {
     /// `layout` is the command line's flag. A blank window (new, or the front one with nothing in it) that a workspace folder opens in
     /// takes the layout that folder last had; the flag beats that, and applies to a window that already had files too.
     private func perform(_ plan: OpenPlan, in model: WindowModel, layout: SplitMode?) {
-        let blank = model.controller.session.tabs.isEmpty && !model.sidebar.isWorkspace
+        let blank = model.controller.openKeys.isEmpty && !model.sidebar.isWorkspace  // a pristine Untitled tab counts as blank (as in OpenRouter)
         if !plan.folders.isEmpty {
             model.sidebar.openFolders(plan.folders)
         }
