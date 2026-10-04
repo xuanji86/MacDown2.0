@@ -58,7 +58,7 @@ struct TabBar: View {
         .scrollIndicators(.hidden)
         .frame(height: 34)
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("标签")
+        .accessibilityLabel("Tabs")
         .accessibilityAddTraits(.isTabBar)
     }
 }
@@ -82,7 +82,7 @@ private struct TabItem: View {
         HStack(spacing: 6) {
             if isMissing {
                 Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 10)).foregroundStyle(.orange)
-                    .help("文件在磁盘上已被删除或移走。文字还在这里,保存会重新创建它。")
+                    .help("The file was deleted or moved on disk. Your text is still here; saving will recreate the file.")
             }
             Text(title)
                 .font(.system(size: 12.5))
@@ -98,7 +98,7 @@ private struct TabItem: View {
                     Button(action: close) { Image(systemName: "xmark").font(.system(size: 9, weight: .semibold)) }
                         .buttonStyle(.plain)
                         .foregroundStyle(.secondary)
-                        .help("关闭标签 (⌘W)")
+                        .help(Text("Close Tab") + Text(verbatim: " (⌘W)"))
                 }
             }
             .frame(width: 14, height: 14)
@@ -123,9 +123,13 @@ private struct TabItem: View {
         .animation(.easeOut(duration: 0.15), value: tab.isPreview)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(title)
-        .accessibilityValue([tab.isPreview ? "预览" : nil, isMissing ? "文件已被删除或移走" : nil, isEdited ? "有未保存的修改" : nil].compactMap { $0 }.joined(separator: "，"))
+        .accessibilityValue(ListFormatter.localizedString(byJoining: [
+            tab.isPreview ? String(localized: "Preview") : nil,
+            isMissing ? String(localized: "File deleted or moved") : nil,
+            isEdited ? String(localized: "Has unsaved changes") : nil,
+        ].compactMap { $0 }))
         .accessibilityAddTraits(isActive ? [.isButton, .isSelected] : .isButton)
-        .accessibilityAction(named: "关闭标签", close)
-        .accessibilityAction(named: "固定标签", pin)
+        .accessibilityAction(named: "Close Tab", close)
+        .accessibilityAction(named: "Pin Tab", pin)
     }
 }

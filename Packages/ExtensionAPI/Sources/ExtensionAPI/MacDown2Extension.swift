@@ -17,7 +17,7 @@ public protocol MacDown2Extension: AnyObject {
     static var summary: LocalizedStringResource { get }
     static var enabledByDefault: Bool { get }
     /// Shown once on a document this extension would handle while it is switched off (PLAN 4.6), e.g.
-    /// "启用 Quarto 扩展以获得 callout/交叉引用预览". nil = say nothing.
+    /// "Turn on the Quarto extension to preview callouts and cross-references". nil = say nothing.
     static var disabledHint: LocalizedStringResource? { get }
     /// Must be cheap: no probing for external tools, no processes, no login-shell environment.
     init()
@@ -58,7 +58,7 @@ public protocol DocumentFlavor: Sendable {
     /// text of a path relative to the document folder, nil when it cannot or may not be read; the flavor decides which
     /// paths to ask for and when to stop.
     func auxiliaryFiles(for markdown: String, readFile: (String) -> String?) -> [String: String]
-    /// A label for the status bar and the preview ("Quarto · 近似预览") when the flavor is an approximation; nil for none.
+    /// A label for the status bar and the preview ("Quarto · Approximate Preview") when the flavor is an approximation; nil for none.
     var badge: FlavorBadge? { get }
 }
 

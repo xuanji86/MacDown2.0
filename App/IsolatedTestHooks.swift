@@ -9,8 +9,10 @@ import WorkspaceKit
 ///
 ///   MACDOWN2_TEST_UNTITLED_TEXT=<text>    the first untitled document starts with this text, as if typed
 ///   MACDOWN2_TEST_TERMINATE_AFTER=<secs>  quit through the normal Cmd-Q path (the unsaved-documents review) after a delay
-///   MACDOWN2_TEST_OPEN_SETTINGS=1         open the Settings window (as ⌘, does) once the app is up
-///   MACDOWN2_TEST_TOOL_ENV_REREAD=1       also run the Settings "重新抓取" (re-read login-shell environment) action first
+///   MACDOWN2_TEST_OPEN_SETTINGS=1         open the Settings window (as ⌘, does) once the app is up (after 1.5 s, or ...
+///   MACDOWN2_TEST_OPEN_SETTINGS_AFTER=<secs>  ... after this many seconds: opened before the document window exists, it is the only one)
+///   MACDOWN2_TEST_STATUS_BAR=1            show the status bar (View > Show Status Bar) in this launch's own defaults suite
+///   MACDOWN2_TEST_TOOL_ENV_REREAD=1       also run the Settings "Re-read" (login-shell environment) action first
 ///   MACDOWN2_TEST_SEARCH=<query>          the first workspace window shows the sidebar's search page and runs this query (waits
 ///                                         up to 5 s for a workspace folder or active document to search in)
 ///   MACDOWN2_TEST_SEARCH_REGEX=1          with the above: the regex switch is on
@@ -30,6 +32,9 @@ import WorkspaceKit
 ///   MACDOWN2_TEST_CLOSE_ACTIVE_TAB=<secs> the first window closes its active tab after this many seconds, as ⌘W does
 ///   MACDOWN2_TEST_CLOSE_WINDOW=<secs>     the first window closes, as the red button / ⇧⌘W does (`performClose`)
 ///   MACDOWN2_TEST_REOPEN=<secs>           the Dock icon is "clicked" (`applicationShouldHandleReopen`) after this many seconds
+///   MACDOWN2_TEST_DUMP_MENUS=<secs>       after this many seconds, the app's language and every title in the main menu bar go to the
+///                                         log (menus cannot be photographed window-only): category "menu-dump"
+///                                         (the language itself is chosen with MACDOWN2_LANGUAGE in `Scripts/run-isolated.sh`)
 enum IsolatedTestHooks {
     #if DEBUG
     private static func value(_ name: String) -> String? {
@@ -43,6 +48,7 @@ enum IsolatedTestHooks {
     private nonisolated(unsafe) static var tabUndoRan = false
     private static let tabLog = Logger(subsystem: "io.github.xuanji86.MacDown2", category: "tab-undo-hook")
     private static let hookLog = Logger(subsystem: "io.github.xuanji86.MacDown2", category: "task-toggle-hook")
+    private static let menuLog = Logger(subsystem: "io.github.xuanji86.MacDown2", category: "menu-dump")
     #endif
 
     @MainActor static func typeIntoUntitled(_ model: WindowModel) {
@@ -116,10 +122,12 @@ enum IsolatedTestHooks {
 
     @MainActor static func scheduleSettings() {
         #if DEBUG
+        if value("MACDOWN2_TEST_STATUS_BAR") == "1" { AppDefaults.store.set(true, forKey: WindowChromeKey.statusBar) }
         guard value("MACDOWN2_TEST_OPEN_SETTINGS") == "1" else { return }
         let reread = value("MACDOWN2_TEST_TOOL_ENV_REREAD") == "1"
+        let delay = value("MACDOWN2_TEST_OPEN_SETTINGS_AFTER").flatMap(Double.init) ?? 1.5
         Task {
-            try? await Task.sleep(for: .seconds(1.5))
+            try? await Task.sleep(for: .seconds(delay))
             if reread { await AppExtensions.loginShell.reread() }
             NSApp.activate()
             // The "Settings…" item (⌘,) of the app menu, activated directly; no key event is sent.
@@ -142,8 +150,25 @@ enum IsolatedTestHooks {
         after("MACDOWN2_TEST_CLOSE_ACTIVE_TAB") { WorkspaceRegistry.shared.orderedModels().first?.closeActiveTab() }
         after("MACDOWN2_TEST_CLOSE_WINDOW") { WorkspaceRegistry.shared.orderedModels().first?.closeWindow() }
         after("MACDOWN2_TEST_REOPEN") { _ = NSApp.delegate?.applicationShouldHandleReopen?(NSApp, hasVisibleWindows: false) }
+        after("MACDOWN2_TEST_DUMP_MENUS") { dumpMenus() }
         #endif
     }
+
+    #if DEBUG
+    /// Logs the language the app runs in and the title of every main-menu item ("File > Open Recent > Clear Menu").
+    @MainActor private static func dumpMenus() {
+        menuLog.info("language: \(Bundle.main.preferredLocalizations.joined(separator: ","), privacy: .public); AppleLanguages: \(UserDefaults.standard.stringArray(forKey: "AppleLanguages")?.joined(separator: ",") ?? "-", privacy: .public)")
+        func walk(_ menu: NSMenu, _ path: String) {
+            for item in menu.items where !item.isSeparatorItem {
+                let title = item.title.isEmpty ? (item.submenu?.title ?? "") : item.title
+                let name = path.isEmpty ? title : "\(path) > \(title)"
+                menuLog.info("menu: \(name, privacy: .public)")
+                if let submenu = item.submenu { walk(submenu, name) }
+            }
+        }
+        if let main = NSApp.mainMenu { walk(main, "") }
+    }
+    #endif
 
     @MainActor static func scheduleTermination() {
         #if DEBUG

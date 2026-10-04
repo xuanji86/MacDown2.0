@@ -20,7 +20,7 @@ public enum SearchReadiness: Sendable, Equatable {
 public protocol SearchProvider: Sendable {
     /// "builtin"; matches `SearchHit.source`.
     var id: String { get }
-    /// The short label of the source badge on a result ("内置").
+    /// The short label of the source badge on a result ("Built-in").
     var badge: String { get }
     var capabilities: SearchCapabilities { get }
     /// Called when the user first opens the search panel for `workspace` (detect tools, ask consent, register collections).
@@ -32,7 +32,7 @@ public protocol SearchProvider: Sendable {
 
 extension BuiltinSearchBackend: SearchProvider {
     public var id: String { Self.providerID }
-    public var badge: String { "内置" }
+    public var badge: String { L10n.builtinBadge }
     public var capabilities: SearchCapabilities { .keyword }
     public func prepare(workspace: URL) async throws -> SearchReadiness { .ready }
     public func cancelAll() async { cancel() }

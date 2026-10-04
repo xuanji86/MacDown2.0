@@ -66,9 +66,9 @@ public enum SearchError: Error, Equatable, LocalizedError {
 
     public var errorDescription: String? {
         switch self {
-        case .invalidRegex: return "正则表达式无效"
-        case .truncated(.hits(let n)): return "只显示前 \(n) 处匹配，请缩小范围"
-        case .truncated(.files(let n)): return "只搜索了前 \(n) 个文件，请缩小范围"
+        case .invalidRegex: return L10n.invalidRegex
+        case .truncated(.hits(let n)): return L10n.truncatedHits(n)
+        case .truncated(.files(let n)): return L10n.truncatedFiles(n)
         }
     }
 }

@@ -43,7 +43,7 @@ public enum SidebarItem: Equatable, Sendable, Identifiable {
 
 public struct SidebarSnapshot: Equatable, Sendable {
     public var items: [SidebarItem]
-    /// Names matching the filter (nil: no filter active). Drives "4 项匹配".
+    /// Names matching the filter (nil: no filter active). Drives "4 matches".
     public var matchCount: Int?
 }
 
@@ -60,13 +60,13 @@ public enum SidebarContent {
         var matches = 0
 
         if !filtering {
-            items.append(.header(.favorites, title: "收藏", trailing: .add))
+            items.append(.header(.favorites, title: L10n.favorites, trailing: .add))
             items += favorites.map(SidebarItem.favorite)
-            if favorites.isEmpty { items.append(.placeholder(.favorites, "把文件夹拖到这里，或右键「添加到收藏」")) }
+            if favorites.isEmpty { items.append(.placeholder(.favorites, L10n.dragFoldersHere)) }
         }
 
         let isReading = location.directory.map { !tree.isLoaded($0) && skeletons.contains($0.fileKey) } ?? false
-        items.append(.header(.location, title: "当前位置", trailing: isReading ? .loading : .none))
+        items.append(.header(.location, title: L10n.currentLocation, trailing: isReading ? .loading : .none))
         if let directory = location.directory {
             items.append(.pathBar(location.segments(rootTitle: rootTitle), canGoUp: canGoUp ?? (location.parent != nil)))
             if tree.unreadable.contains(directory.fileKey) {
@@ -83,18 +83,18 @@ public enum SidebarContent {
                     rows = tree.rows(showRoots: false)
                 }
                 items += decorate(rows, tree: tree, skeletons: skeletons, section: .location)
-                if rows.isEmpty { items.append(.placeholder(.location, filtering ? "没有匹配项" : "这个文件夹里没有可显示的文件")) }
+                if rows.isEmpty { items.append(.placeholder(.location, filtering ? L10n.noMatches : L10n.folderIsEmpty)) }
             }
         } else {
-            items.append(.placeholder(.location, "还没有打开文档。打开或新建后，这里显示它所在的文件夹；也可以把文件夹拖进来"))
+            items.append(.placeholder(.location, L10n.noDocumentOpen))
         }
 
         let shownRecents = filtering ? recents.filter { matchesName($0.lastPathComponent, needle) } : recents
         if filtering { matches += shownRecents.count }
         if !filtering || !shownRecents.isEmpty {
-            items.append(.header(.recents, title: "最近", trailing: recents.isEmpty ? .none : .clear))
+            items.append(.header(.recents, title: L10n.recents, trailing: recents.isEmpty ? .none : .clear))
             items += shownRecents.map(SidebarItem.recent)
-            if recents.isEmpty { items.append(.placeholder(.recents, "最近没有打开过文件")) }
+            if recents.isEmpty { items.append(.placeholder(.recents, L10n.noRecents)) }
         }
         return SidebarSnapshot(items: items, matchCount: filtering ? matches : nil)
     }
@@ -113,7 +113,7 @@ public enum SidebarContent {
             rows = tree.rows()
         }
         var items = decorate(rows, tree: tree, skeletons: skeletons, section: .location)
-        if filtering, rows.isEmpty { items = [.placeholder(.location, "没有匹配项")] }
+        if filtering, rows.isEmpty { items = [.placeholder(.location, L10n.noMatches)] }
         return SidebarSnapshot(items: items, matchCount: matches)
     }
 

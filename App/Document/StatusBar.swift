@@ -9,7 +9,7 @@ struct StatusBar: View {
     let document: MarkdownDocument
     let preview: PreviewModel
     let status: EditorStatus
-    /// "Markdown", or the flavor's badge title ("Quarto · 近似预览") with its tooltip.
+    /// "Markdown", or the flavor's badge title ("Quarto · Approximate Preview") with its tooltip.
     var renderMode = "Markdown"
     var renderModeHelp: String?
     @AppStorage("statusBar.countMode") private var mode = CountMode.words
@@ -18,14 +18,14 @@ struct StatusBar: View {
         let selection = status.selection
         let stats = selection ?? preview.metadata?.stats
         HStack(spacing: 12) {
-            Text("行 \(status.line + 1)，列 \(status.column + 1)")
+            Text("Ln \(status.line + 1), Col \(status.column + 1)")
             Button { mode = mode.next } label: {
-                Text(stats.map { "\(selection == nil ? "" : "选中 ")\($0.count(mode).formatted()) \(mode.unit)" } ?? "—")
+                Text(stats.map { mode.label($0.count(mode), selected: selection != nil) } ?? "—")
             }
             .buttonStyle(.plain)
-            .help("点击切换计数方式")
+            .help("Click to change what is counted")
             if document.editedFlag.missing {
-                Label("文件已被删除或移走,保存可重建", systemImage: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                Label("The file was deleted or moved; saving will recreate it", systemImage: "exclamationmark.triangle.fill").foregroundStyle(.orange)
             }
             encodingMenu
             Text(renderMode).help(renderModeHelp ?? "")
@@ -49,24 +49,30 @@ struct StatusBar: View {
         .menuIndicator(.hidden)
         .buttonStyle(.plain)
         .fixedSize()
-        .help(document.canReopenWithEncoding ? "文件编码与换行符。点击可换编码重新打开" : "文件编码与换行符。保存后才能换编码重新打开")
+        .help(encodingHelp)
+    }
+
+    private var encodingHelp: LocalizedStringKey {
+        document.canReopenWithEncoding
+            ? "File encoding and line endings. Click to reopen with another encoding"
+            : "File encoding and line endings. Save the file to reopen it with another encoding"
     }
 }
 
-/// "Reopen with encoding" and "convert to UTF-8": the status bar's encoding menu, and File ▸ 编码 for when the bar is hidden.
+/// "Reopen with encoding" and "convert to UTF-8": the status bar's encoding menu, and File ▸ Encoding for when the bar is hidden.
 struct EncodingMenuItems: View {
     let document: MarkdownDocument
 
     var body: some View {
         let format = document.format
-        Section("用此编码重新打开") {
+        Section("Reopen with Encoding") {
             ForEach(TextEncoding.allCases, id: \.self) { encoding in
                 Toggle(encoding.displayName, isOn: Binding(get: { format.encoding == encoding }, set: { _ in reopen(as: encoding) }))
             }
         }
         .disabled(!document.canReopenWithEncoding)
         Divider()
-        Button("转为 UTF-8 保存") { document.convertToUTF8() }
+        Button("Convert to UTF-8 and Save") { document.convertToUTF8() }
             .disabled(format.encoding == .utf8)
     }
 
@@ -82,11 +88,15 @@ extension MarkdownDocument {
 }
 
 private extension CountMode {
-    var unit: String {
-        switch self {
-        case .words: "词"
-        case .characters: "字符"
-        case .charactersNoSpaces: "字符（不含空格）"
+    /// "1,234 words", or "12 words selected" when it counts the selection.
+    func label(_ count: Int, selected: Bool) -> String {
+        switch (self, selected) {
+        case (.words, false): String(localized: "\(count) words")
+        case (.words, true): String(localized: "\(count) words selected")
+        case (.characters, false): String(localized: "\(count) characters")
+        case (.characters, true): String(localized: "\(count) characters selected")
+        case (.charactersNoSpaces, false): String(localized: "\(count) characters (no spaces)")
+        case (.charactersNoSpaces, true): String(localized: "\(count) characters selected (no spaces)")
         }
     }
 }

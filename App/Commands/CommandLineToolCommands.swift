@@ -3,11 +3,11 @@ import CLIKit
 import SwiftUI
 
 /// App menu > Install Command Line Tool…: links `macdown2` (inside this app) into `/opt/homebrew/bin` or `~/.local/bin`.
-/// No administrator rights are ever requested; the rules are in `CLIInstaller` (tested).
+/// No administrator rights are ever requested; the rules are in `CLIInstaller` (tested), the words are here.
 struct CommandLineToolCommands: Commands {
     var body: some Commands {
         CommandGroup(after: .appInfo) {
-            Button("安装命令行工具…") { CommandLineToolInstaller.run() }
+            Button("Install Command Line Tool…") { CommandLineToolInstaller.run() }
         }
     }
 }
@@ -21,29 +21,56 @@ enum CommandLineToolInstaller {
         var replace = false
         switch CLIInstaller.state(link: link, helper: helper) {
         case .installed:
-            show("命令行工具已安装", "\(link.path) 已指向这个 MacDown2.0。\n\n在终端里运行 macdown2 --help 查看用法。")
+            show(
+                String(localized: "Command Line Tool Installed"),
+                String(localized: "\(link.path) already points to this MacDown2.0.\n\nRun macdown2 --help in Terminal to see how to use it.")
+            )
             return
-        case .elsewhere(let what):
+        case .elsewhere(let occupant):
             let alert = NSAlert()
-            alert.messageText = "要覆盖现有的 macdown2 吗？"
-            alert.informativeText = "\(link.path) 现在是\(what)。覆盖后它会指向这个 MacDown2.0。"
-            alert.addButton(withTitle: "覆盖")
-            alert.addButton(withTitle: "取消")
+            alert.messageText = String(localized: "Replace the existing macdown2?")
+            alert.informativeText = String(localized: "\(link.path) is currently \(describe(occupant)). Replacing it points it to this MacDown2.0.")
+            alert.addButton(withTitle: String(localized: "Replace"))
+            alert.addButton(withTitle: String(localized: "Cancel"))
             guard alert.runModal() == .alertFirstButtonReturn else { return }
             replace = true
-        case .foreign(let what):
+        case .foreign(let occupant):
             // Not ours (a regular file, a folder, a link to another program): never offered for replacement.
-            show("无法安装命令行工具", CLIInstaller.foreignMessage(link: link, what: what), style: .warning)
+            show(String(localized: "Could Not Install the Command Line Tool"), foreignMessage(link: link, occupant), style: .warning)
             return
         case .notInstalled:
             break
         }
         do {
             try CLIInstaller.install(helper: helper, into: directory, replace: replace)
-            show("命令行工具已安装", "\(link.path) → \(helper.path)\n\n\(CLIInstaller.pathHint(directory: directory))")
+            show(String(localized: "Command Line Tool Installed"), "\(link.path) → \(helper.path)\n\n\(pathHint(directory: directory))")
+        } catch let error as CLIInstaller.InstallError {
+            switch error {
+            case .helperMissing(let helper):
+                show(String(localized: "Could Not Install the Command Line Tool"), String(localized: "\(helper.path) is missing; this build has no command line tool."), style: .warning)
+            case .foreign(let link, let occupant):
+                show(String(localized: "Could Not Install the Command Line Tool"), foreignMessage(link: link, occupant), style: .warning)
+            }
         } catch {
-            show("无法安装命令行工具", error.localizedDescription, style: .warning)
+            show(String(localized: "Could Not Install the Command Line Tool"), error.localizedDescription, style: .warning)
         }
+    }
+
+    private static func describe(_ occupant: CLIInstaller.Occupant) -> String {
+        switch occupant {
+        case .link(let target): String(localized: "a link to \(target)")
+        case .file: String(localized: "an existing file")
+        }
+    }
+
+    private static func foreignMessage(link: URL, _ occupant: CLIInstaller.Occupant) -> String {
+        String(localized: "\(link.path) is \(describe(occupant)), not a MacDown2.0 link, so it was left alone. Move or remove it yourself and install again.")
+    }
+
+    /// What to tell the user about PATH. A GUI app cannot see the shell's PATH, so this is a hint, not a check.
+    private static func pathHint(directory: URL) -> String {
+        if CLIInstaller.isOnHomebrewPath(directory) { return String(localized: "/opt/homebrew/bin is on the PATH of a normal Homebrew setup.") }
+        return String(localized: "Make sure \(directory.path) is on your PATH. If `macdown2` is not found in a new terminal, add this to ~/.zshrc:\nexport PATH=\"$HOME/.local/bin:$PATH\"")
     }
 
     private static func show(_ title: String, _ detail: String, style: NSAlert.Style = .informational) {

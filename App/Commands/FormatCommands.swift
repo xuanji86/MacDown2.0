@@ -8,7 +8,7 @@ struct FormatCommands: Commands {
     @FocusedValue(\.workspace) private var workspace
     @AppStorage(WindowChromeKey.statusBar, store: AppDefaults.store) private var showsStatusBar = false
 
-    private func item(_ title: String, _ command: MarkdownCommand) -> some View {
+    private func item(_ title: LocalizedStringKey, _ command: MarkdownCommand) -> some View {
         Button(title) { actions?.editor.perform(command) }
             .disabled(actions?.editorEnabled != true)
     }
@@ -46,23 +46,25 @@ struct FormatCommands: Commands {
                 .disabled(actions == nil)
         }
         CommandGroup(after: .textEditing) {
-            Button("在文件中搜索") { workspace?.showSearch() }
+            Button("Search in Files") { workspace?.showSearch() }
                 .keyboardShortcut("f", modifiers: [.command, .shift])
                 .disabled(workspace == nil)
         }
         CommandGroup(after: .toolbar) {
             Divider()
             SplitLayoutItems(actions: actions)
-            Button(workspace?.sidebarVisible == false ? "展开侧栏" : "收起侧栏") { workspace?.sidebarVisible.toggle() }
+            let sidebarTitle: LocalizedStringKey = workspace?.sidebarVisible == false ? "Show Sidebar" : "Hide Sidebar"
+            Button(sidebarTitle) { workspace?.sidebarVisible.toggle() }
                 .keyboardShortcut("\\")
                 .disabled(workspace == nil)
-            Button("显示大纲") { workspace?.showOutline() }
+            Button("Show Outline") { workspace?.showOutline() }
                 .keyboardShortcut("o", modifiers: [.command, .control])
                 .disabled(workspace == nil)
             Button("Cycle Editor and Preview") { actions?.cycleLayout() }
                 .keyboardShortcut("l", modifiers: [.command, .control])
                 .disabled(actions == nil)
-            Button(showsStatusBar ? "隐藏状态栏" : "显示状态栏") { showsStatusBar.toggle() }
+            let statusBarTitle: LocalizedStringKey = showsStatusBar ? "Hide Status Bar" : "Show Status Bar"
+            Button(statusBarTitle) { showsStatusBar.toggle() }
         }
     }
 }

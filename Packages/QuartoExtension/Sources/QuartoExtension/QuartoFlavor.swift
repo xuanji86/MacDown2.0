@@ -29,6 +29,6 @@ public struct QuartoFlavor: DocumentFlavor {
     }
 
     public var badge: FlavorBadge? {
-        FlavorBadge(title: "Quarto · 近似预览", help: "未执行代码、未应用项目配置")
+        FlavorBadge(title: L10n.badgeTitle, help: L10n.badgeHelp)
     }
 }

@@ -16,7 +16,7 @@ enum AppearanceDefault {
     static let previewStyle = PreviewStyles.defaultID  // "github" (white)
 }
 
-/// View ▸ 编辑器主题 / 预览样式: pick one, plus a 跟随系统 switch that swaps in the pick's light/dark partner by itself.
+/// View ▸ Editor Theme / Preview Style: pick one, plus a Follow System switch that swaps in the pick's light/dark partner by itself.
 struct AppearanceCommands: Commands {
     @AppStorage(AppearanceKey.editorTheme, store: AppDefaults.store) private var editorTheme = AppearanceDefault.editorTheme
     @AppStorage(AppearanceKey.editorThemeFollowsSystem, store: AppDefaults.store) private var editorFollows = false
@@ -26,21 +26,21 @@ struct AppearanceCommands: Commands {
     var body: some Commands {
         CommandGroup(after: .toolbar) {
             Divider()
-            Menu("编辑器主题") {
-                Picker("编辑器主题", selection: $editorTheme) {
+            Menu("Editor Theme") {
+                Picker("Editor Theme", selection: $editorTheme) {
                     ForEach(ThemeLibrary.all, id: \.name) { Text($0.name).tag($0.name) }
                 }
                 .pickerStyle(.inline)
                 Divider()
-                Toggle("跟随系统", isOn: $editorFollows)
+                Toggle("Follow System", isOn: $editorFollows)
             }
-            Menu("预览样式") {
-                Picker("预览样式", selection: $previewStyle) {
+            Menu("Preview Style") {
+                Picker("Preview Style", selection: $previewStyle) {
                     ForEach(PreviewStyles.all) { Text($0.name).tag($0.id) }
                 }
                 .pickerStyle(.inline)
                 Divider()
-                Toggle("跟随系统", isOn: $previewFollows)
+                Toggle("Follow System", isOn: $previewFollows)
             }
         }
     }

@@ -58,7 +58,7 @@ extension WindowModel {
         let panel = NSSavePanel()
         panel.directoryURL = url.deletingLastPathComponent()
         let base = url.deletingPathExtension().lastPathComponent
-        panel.nameFieldStringValue = "\(base) copy.\(url.pathExtension)"
+        panel.nameFieldStringValue = String(localized: "\(base) copy") + "." + url.pathExtension
         panel.beginSheetModal(for: window) { response in
             guard response == .OK, let target = panel.url else { return }
             do {

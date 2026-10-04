@@ -12,12 +12,12 @@ public struct WorkspaceFolders: Equatable, Sendable {
     public var isActive: Bool { !roots.isEmpty }
     public var rootKeys: Set<String> { Set(roots.map(\.fileKey)) }
 
-    /// "MyBook" for one root, "2 个文件夹" for several (the chip's title).
+    /// "MyBook" for one root, "2 folders" for several (the chip's title).
     public var title: String {
         switch roots.count {
         case 0: return ""
         case 1: return roots[0].lastPathComponent
-        default: return "\(roots.count) 个文件夹"
+        default: return L10n.folders(roots.count)
         }
     }
 

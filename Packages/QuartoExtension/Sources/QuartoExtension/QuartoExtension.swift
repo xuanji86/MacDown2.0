@@ -11,10 +11,10 @@ import SwiftUI
 @MainActor
 public final class QuartoExtension: MacDown2Extension {
     public static let id: ExtensionID = "quarto"
-    public static let displayName: LocalizedStringResource = "Quarto"
-    public static let summary: LocalizedStringResource = "打开 .qmd 文档，近似预览 callout、交叉引用、代码单元和 include；不执行代码。"
+    public static let displayName = L10n.resource("Quarto")
+    public static let summary = L10n.resource("Opens .qmd documents and previews callouts, cross-references, code cells and includes approximately; code is never run.")
     public static let enabledByDefault = true
-    public static let disabledHint: LocalizedStringResource? = "启用 Quarto 扩展以获得 callout / 交叉引用预览"
+    public static let disabledHint: LocalizedStringResource? = L10n.resource("Turn on the Quarto extension to preview callouts and cross-references")
 
     public required init() {}
 
@@ -31,9 +31,9 @@ public final class QuartoExtension: MacDown2Extension {
 struct QuartoSettingsPane: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("近似预览").font(.subheadline.weight(.medium))
-            Text("支持 callout、div、span、引用与交叉引用、图表标题、网格表格、公式、shortcode 惰性标记，以及 ```{python}``` / ```{r}``` 代码单元（只高亮，不执行）和 {{< include >}}（限文档所在目录，最多 5 层）。")
-            Text("不读取 _quarto.yml、_extensions 或 .bib，交叉引用编号显示为“?”。使用本机 Quarto 的真渲染将在后续版本加入。")
+            Text("Approximate Preview", bundle: .module).font(.subheadline.weight(.medium))
+            Text("Supports callouts, divs, spans, citations and cross-references, figure and table captions, grid tables, equations, inert shortcode markers, ```{python}``` / ```{r}``` code cells (highlighted only, never run) and {{< include >}} (limited to the document’s folder, at most 5 levels deep).", bundle: .module)
+            Text("_quarto.yml, _extensions and .bib files are not read, and cross-reference numbers show as “?”. Real rendering with your local Quarto will come in a later version.", bundle: .module)
                 .foregroundStyle(.secondary)
         }
         .font(.callout)

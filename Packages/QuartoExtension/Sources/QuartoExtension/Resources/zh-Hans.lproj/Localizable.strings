@@ -1,0 +1,8 @@
+"Approximate Preview" = "近似预览";
+"Code was not run and the project configuration was not applied" = "未执行代码、未应用项目配置";
+"Opens .qmd documents and previews callouts, cross-references, code cells and includes approximately; code is never run." = "打开 .qmd 文档，近似预览 callout、交叉引用、代码单元和 include；不执行代码。";
+"Quarto" = "Quarto";
+"Quarto · Approximate Preview" = "Quarto · 近似预览";
+"Supports callouts, divs, spans, citations and cross-references, figure and table captions, grid tables, equations, inert shortcode markers, ```{python}``` / ```{r}``` code cells (highlighted only, never run) and {{< include >}} (limited to the document’s folder, at most 5 levels deep)." = "支持 callout、div、span、引用与交叉引用、图表标题、网格表格、公式、shortcode 惰性标记，以及 ```{python}``` / ```{r}``` 代码单元（只高亮，不执行）和 {{< include >}}（限文档所在目录，最多 5 层）。";
+"Turn on the Quarto extension to preview callouts and cross-references" = "启用 Quarto 扩展以获得 callout / 交叉引用预览";
+"_quarto.yml, _extensions and .bib files are not read, and cross-reference numbers show as “?”. Real rendering with your local Quarto will come in a later version." = "不读取 _quarto.yml、_extensions 或 .bib，交叉引用编号显示为“?”。使用本机 Quarto 的真渲染将在后续版本加入。";

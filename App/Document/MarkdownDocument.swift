@@ -284,10 +284,10 @@ final class MarkdownDocument: NSDocument, ObservableObject {
         guard externalMonitor?.tracker.isPrompting == true, externalPrompt == nil else { return }
         guard let window = WorkspaceRegistry.shared.visibleWindow(showing: self) else { return }
         let alert = NSAlert()
-        alert.messageText = String(localized: "“\(displayName ?? "")” 已被其他程序修改")
-        alert.informativeText = String(localized: "这份文档里有未保存的修改。保留我的版本:磁盘上的新内容会在下次保存时被覆盖。从磁盘重新载入:放弃这里未保存的修改。")
-        alert.addButton(withTitle: String(localized: "保留我的版本"))
-        alert.addButton(withTitle: String(localized: "从磁盘重新载入"))
+        alert.messageText = String(localized: "“\(displayName ?? "")” was modified by another program")
+        alert.informativeText = String(localized: "This document has unsaved changes. Keep My Version: the new content on disk will be overwritten the next time you save. Reload from Disk: discard the unsaved changes here.")
+        alert.addButton(withTitle: String(localized: "Keep My Version"))
+        alert.addButton(withTitle: String(localized: "Reload from Disk"))
         alert.buttons[1].hasDestructiveAction = true
         externalPrompt = alert
         alert.beginSheetModal(for: window) { [weak self] response in
@@ -385,26 +385,26 @@ enum SaveEncodingError {
     static func make(document: MarkdownDocument, encoding: TextEncoding, characters: [Character]) -> NSError {
         let shown = characters.map { "“\($0)”" }.joined(separator: " ")
         return NSError(domain: domain, code: 1, userInfo: [
-            NSLocalizedDescriptionKey: "无法以 \(encoding.displayName) 保存:文档里有这种编码表示不了的字符 \(shown)。",
-            NSLocalizedRecoverySuggestionErrorKey: "文件没有被改动,也不会丢字。可以改用 UTF-8 保存(它能表示所有字符)。",
-            NSLocalizedRecoveryOptionsErrorKey: ["改用 UTF-8 保存", "取消"],
+            NSLocalizedDescriptionKey: String(localized: "Could not save as \(encoding.displayName): the document contains characters this encoding cannot represent: \(shown)."),
+            NSLocalizedRecoverySuggestionErrorKey: String(localized: "The file was not changed and no text is lost. You can save as UTF-8 instead (it can represent every character)."),
+            NSLocalizedRecoveryOptionsErrorKey: [String(localized: "Save as UTF-8 Instead"), String(localized: "Cancel")],
             NSRecoveryAttempterErrorKey: UTF8Recovery(document: document),
         ])
     }
 
     static let reopenNeedsSave = NSError(domain: domain, code: 2, userInfo: [
-        NSLocalizedDescriptionKey: "有未保存的修改,不能重新打开。",
-        NSLocalizedRecoverySuggestionErrorKey: "先保存或还原修改,再选择编码。",
+        NSLocalizedDescriptionKey: String(localized: "The document has unsaved changes, so it can’t be reopened."),
+        NSLocalizedRecoverySuggestionErrorKey: String(localized: "Save or revert the changes, then choose the encoding."),
     ])
 
     static func cannotDecode(_ encoding: TextEncoding) -> NSError {
         NSError(domain: domain, code: 3, userInfo: [
-            NSLocalizedDescriptionKey: "无法以 \(encoding.displayName) 打开这个文件。",
-            NSLocalizedRecoverySuggestionErrorKey: "文件内容在该编码下无效,或读出的文字无法原样写回。文档保持原样。",
+            NSLocalizedDescriptionKey: String(localized: "Could not open this file as \(encoding.displayName)."),
+            NSLocalizedRecoverySuggestionErrorKey: String(localized: "The file’s contents are not valid in that encoding, or the text read from it cannot be written back unchanged. The document was left as it is."),
         ])
     }
 
-    /// NSError's recovery attempter: "改用 UTF-8 保存" switches the document and saves it again.
+    /// NSError's recovery attempter: "Save as UTF-8 Instead" switches the document and saves it again.
     private final class UTF8Recovery: NSObject {
         weak var document: MarkdownDocument?
         init(document: MarkdownDocument) { self.document = document }
