@@ -10,6 +10,7 @@ struct WorkspaceView: View {
     @State private var scrollSync = ScrollSyncController()
     @State private var editor = EditorHandle()
     @State private var status = EditorStatus()
+    @State private var titleGuard = HiddenTitleGuard()
     @Environment(\.openWindow) private var openWindow
 
     private var visibility: Binding<NavigationSplitViewVisibility> {
@@ -19,6 +20,8 @@ struct WorkspaceView: View {
             set: { if !model.isRestoring { model.sidebarVisible = $0 != .detailOnly } }
         )
     }
+
+    private var title: String { model.controller.activeURL?.lastPathComponent ?? "MacDown2" }
 
     var body: some View {
         NavigationSplitView(columnVisibility: visibility) {
@@ -39,8 +42,15 @@ struct WorkspaceView: View {
                 if !model.controller.session.tabs.isEmpty { TabBar(model: model) }
             }
         }
-        .navigationTitle(model.controller.activeURL?.lastPathComponent ?? "MacDown2")
-        .background(WindowAccessor { WorkspaceRegistry.shared.attach($0, to: model) })
+        .navigationTitle(title)
+        // The system draws a window title leading-aligned inside the detail column; the original MacDown centres it over
+        // the whole title bar. So the system one is hidden (the window keeps its title for the Window menu and
+        // accessibility) and this one is drawn in its place.
+        .overlay(alignment: .top) { CenteredTitle(title: title) }
+        .background(WindowAccessor { window in
+            titleGuard.hideTitle(of: window)
+            WorkspaceRegistry.shared.attach(window, to: model)
+        })
         .focusedSceneValue(\.workspace, model)
         .onAppear {
             WorkspaceRegistry.shared.openWindow = { openWindow(id: WorkspaceScene.id) }
@@ -57,6 +67,37 @@ struct WorkspaceView: View {
     private func jump(toLine line: Int) {
         editor.goTo(line: line, focus: model.layout.showsEditor)
         preview.scroll(toLine: Double(line))
+    }
+}
+
+/// Keeps the system window title hidden: SwiftUI puts it back whenever the navigation title or toolbar changes.
+@MainActor private final class HiddenTitleGuard {
+    private var observation: NSKeyValueObservation?
+
+    func hideTitle(of window: NSWindow) {
+        window.titleVisibility = .hidden
+        observation = window.observe(\.titleVisibility, options: .new) { window, _ in
+            if window.titleVisibility != .hidden { MainActor.assumeIsolated { window.titleVisibility = .hidden } }
+        }
+    }
+}
+
+/// The window title in the title bar row, centred between the traffic lights and the window's right edge.
+private struct CenteredTitle: View {
+    let title: String
+
+    var body: some View {
+        Text(title)
+            .font(.system(size: 13, weight: .semibold))
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+            .truncationMode(.middle)
+            .padding(.horizontal, 90)
+            .frame(maxWidth: .infinity)
+            .frame(height: 34)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+            .ignoresSafeArea(.container, edges: .top)
     }
 }
 
