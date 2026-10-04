@@ -16,8 +16,10 @@ let seq = 0;
 async function svgOf(source: string, theme: string): Promise<string> {
   if (configured !== theme) {
     // `strict` sanitizes labels and disables click handlers; `suppressErrorRendering` makes a bad diagram throw
-    // instead of inserting mermaid's own "syntax error" graphic into the page.
-    mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', theme: theme as 'dark' | 'default', suppressErrorRendering: true });
+    // instead of inserting mermaid's own "syntax error" graphic into the page. Mermaid 12 defaults to `layout: elk`,
+    // but elkjs is not in this chunk (EPL-2.0, see build.mjs): dagre is the default here, and a document that asks
+    // for `layout: elk` gets the stub's error on its diagram.
+    mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', layout: 'dagre', theme: theme as 'dark' | 'default', suppressErrorRendering: true });
     configured = theme;
   }
   return (await mermaid.render(`md2-mermaid-${seq++}`, source)).svg;

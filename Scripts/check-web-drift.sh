@@ -19,6 +19,12 @@ for bundle in render.bundle.js preview.bundle.js; do
     echo "error: $bundle contains Mermaid; it belongs in mermaid.chunk.js" >&2; exit 1
   fi
 done
+# elkjs is EPL-2.0 without a GPL secondary-licence notice: not shippable under GPL-3.0 (build.mjs stubs it out).
+for f in mermaid.chunk.js THIRD_PARTY_LICENSES.txt; do
+  if grep -q -e 'org\.eclipse\.elk' -e elkjs "$res/$f"; then
+    echo "error: $f contains elkjs (EPL-2.0, not GPL-3.0 compatible)" >&2; exit 1
+  fi
+done
 grep -q flowchart-v2 "$res/mermaid.chunk.js" || { echo "error: mermaid.chunk.js does not contain Mermaid" >&2; exit 1; }
 # Main bundle budget (PLAN 4.1.2: <= 800 KB minified).
 size=$(wc -c < "$res/render.bundle.js")

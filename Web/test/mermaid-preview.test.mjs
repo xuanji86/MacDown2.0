@@ -57,7 +57,7 @@ const driver = `(async () => {
     out.steps.draw = {
       chunkLoaded: chunkLoaded(), states: pres().map((p) => p.dataset.mermaid + '/' + p.dataset.mermaidTheme),
       svgs: pres().map((p) => p.querySelectorAll('svg').length), codeHidden: getComputedStyle(d1.querySelector('code')).display,
-      text1: d1.textContent.includes('A') && d1.textContent.includes('B'), dataLine: d1.getAttribute('data-line'),
+      text1: d1.textContent.includes('A') && d1.textContent.includes('B'), dataLine: d1.getAttribute('data-line'), errors: pres().map((p) => (p.querySelector('.mermaid-error') || {}).textContent),
     };
 
     // 3. edit the paragraph: nothing is redrawn; edit the second diagram: only that one is
@@ -73,6 +73,11 @@ const driver = `(async () => {
     await until(settled(2));
     const bad = pres()[1];
     out.steps.error = { state: bad.dataset.mermaid, svgs: bad.querySelectorAll('svg').length, message: (bad.querySelector('.mermaid-error') || {}).textContent, codeShown: getComputedStyle(bad.querySelector('code')).display !== 'none', strayNodes: document.querySelectorAll('body > [id*="md2-mermaid"]').length };
+
+    // 4b. ELK layout is not bundled (licence): a clear error instead of a blank page; dagre diagrams next to it are fine
+    update('# Doc\\n\\n' + flow('A', 'B') + '\\n\`\`\`mermaid\\n---\\nconfig:\\n  layout: elk\\n---\\nflowchart LR\\n  X --> Y\\n\`\`\`\\n');
+    await until(settled(2));
+    out.steps.elk = { states: pres().map((p) => p.dataset.mermaid), message: (pres()[1].querySelector('.mermaid-error') || {}).textContent };
 
     // 5. dark style: every diagram is redrawn with the dark theme
     MacDown2Preview.setStyle('github-dark', null);
@@ -154,6 +159,8 @@ test('preview page draws mermaid blocks lazily, redraws only changed ones, repor
   assert.match(s.error.message, /^Mermaid: /);
   assert.equal(s.error.codeShown, true);
   assert.equal(s.error.strayNodes, 0, 'a failed render must not leave mermaid scratch nodes in <body>');
+  assert.deepEqual(s.elk.states, ['ok', 'error']);
+  assert.match(s.elk.message, /ELK 布局未内置（许可原因）/);
   assert.deepEqual(s.dark.themes, ['dark', 'dark']);
   assert.equal(s.dark.okSvg, 1);
   assert.equal(s.dark.colorScheme, 'dark');

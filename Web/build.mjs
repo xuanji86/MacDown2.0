@@ -62,7 +62,22 @@ if (chunkSize > CHUNK_BUDGET) throw new Error(`quarto.chunk.js is ${chunkSize} b
 // Mermaid chunk (PLAN 4.1.2): the preview page loads it with a nonce'd <script> and the print page evaluates it, only when
 // a document has a mermaid block. It is big (every diagram type, d3, layout engines) and deliberately in neither
 // bundle above; Scripts/check-web-drift.sh asserts it does not leak into them.
+//
+// elkjs (Mermaid's optional `layout: elk`) is EPL-2.0 with no GPL secondary-licence notice, which GPL-3.0 cannot ship
+// with, so it is replaced by a stub: dagre (the default layout) is untouched, and a document that asks for ELK gets a
+// clear error on its diagram. Two hooks: the `elkjs` package itself, and Mermaid's own `elk-<hash>.mjs` layout module
+// (its only importer; the hash changes with the pinned version, and the drift check fails if elk code ever leaks in).
+const ELK_STUB = `export const render = async () => { throw new Error('ELK 布局未内置（许可原因）/ ELK layout is not bundled (licence)'); };
+export default class ELK { constructor() { throw new Error('ELK 布局未内置（许可原因）/ ELK layout is not bundled (licence)'); } }`;
+const withoutElk = {
+  name: 'without-elk',
+  setup(b) {
+    b.onResolve({ filter: /^elkjs(\/|$)|\/elk-[A-Z0-9]+\.mjs$/ }, (a) => ({ path: a.path, namespace: 'elk-stub' }));
+    b.onLoad({ filter: /.*/, namespace: 'elk-stub' }, () => ({ contents: ELK_STUB, loader: 'js' }));
+  },
+};
 const mermaid = await build({
+  plugins: [withoutElk],
   entryPoints: [join(here, 'src/mermaid/index.ts')],
   outfile: join(outDir, 'mermaid.chunk.js'),
   bundle: true,
