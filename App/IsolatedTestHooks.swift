@@ -6,6 +6,8 @@ import Foundation
 ///
 ///   MACDOWN2_TEST_UNTITLED_TEXT=<text>    the first untitled document starts with this text, as if typed
 ///   MACDOWN2_TEST_TERMINATE_AFTER=<secs>  quit through the normal Cmd-Q path (the unsaved-documents review) after a delay
+///   MACDOWN2_TEST_OPEN_SETTINGS=1         open the Settings window (as ⌘, does) once the app is up
+///   MACDOWN2_TEST_TOOL_ENV_REREAD=1       also run the Settings "重新抓取" (re-read login-shell environment) action first
 ///   MACDOWN2_TEST_WINDOW_FRAME=<"x y w h" | max>  every workspace window takes this frame in screen points (bottom-left
 ///                                         origin), or the main screen's visible frame ("max": what zoom gives), once
 ///   MACDOWN2_TEST_EDIT_TEXT=<text>        <text> is appended to the first open file document, as if typed (it becomes unsaved), ...
@@ -65,6 +67,22 @@ enum IsolatedTestHooks {
         let seconds = value("MACDOWN2_TEST_PROMPT_DELAY").flatMap(Double.init) ?? 4
         DispatchQueue.main.asyncAfter(deadline: .now() + seconds) {
             window.endSheet(alert.window, returnCode: answer == "reload" ? .alertSecondButtonReturn : .alertFirstButtonReturn)
+        }
+        #endif
+    }
+
+    @MainActor static func scheduleSettings() {
+        #if DEBUG
+        guard value("MACDOWN2_TEST_OPEN_SETTINGS") == "1" else { return }
+        let reread = value("MACDOWN2_TEST_TOOL_ENV_REREAD") == "1"
+        Task {
+            try? await Task.sleep(for: .seconds(1.5))
+            if reread { await AppExtensions.loginShell.reread() }
+            NSApp.activate()
+            // The "Settings…" item (⌘,) of the app menu, activated directly; no key event is sent.
+            if let menu = NSApp.mainMenu?.items.first?.submenu, let index = menu.items.firstIndex(where: { $0.keyEquivalent == "," }) {
+                menu.performActionForItem(at: index)
+            }
         }
         #endif
     }

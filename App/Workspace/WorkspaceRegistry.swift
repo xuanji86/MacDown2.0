@@ -57,6 +57,7 @@ final class WorkspaceRegistry: DocumentBackend {
         restoreQueue = WindowRestoration.decode(AppDefaults.store.data(forKey: Self.defaultsKey))
         IsolatedTestHooks.scheduleTermination()
         IsolatedTestHooks.scheduleEdit()
+        IsolatedTestHooks.scheduleSettings()
         Task {
             try? await Task.sleep(for: Self.launchGrace)
             launchGraceOver = true

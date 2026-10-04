@@ -36,6 +36,7 @@ private struct StubFlavor: DocumentFlavor {
         let id: ExtensionID
         unowned let provider: FakeProvider
         let settings: ExtensionSettingsStore
+        var toolEnvironment: any ToolEnvironment { provider.toolEnvironment }
         init(id: ExtensionID, provider: FakeProvider) {
             self.id = id
             self.provider = provider
@@ -44,6 +45,8 @@ private struct StubFlavor: DocumentFlavor {
         func register(flavor: any DocumentFlavor) { provider.flavors[id, default: []].append(flavor.id) }
     }
     let defaults: UserDefaults
+    let spawner = CountingSpawner()
+    lazy var toolEnvironment = LoginShellEnvironment(spawner: spawner, processEnvironment: ["SHELL": "/bin/sh", "PATH": "/usr/bin"])
     var flavors: [ExtensionID: [FlavorID]] = [:]
     var revoked: [ExtensionID] = []
     init(defaults: UserDefaults) { self.defaults = defaults }
@@ -148,4 +151,62 @@ private struct FileFlavor: DocumentFlavor {
     #expect(store.bool("liveRender") == nil)
     store.set(true, for: "liveRender")
     #expect(defaults.bool(forKey: "extension.quarto.liveRender"))
+}
+
+// MARK: PLAN 4.16 / 6.1: the login-shell environment is lazy, and only extensions can ask for it
+
+/// Keeps its host, like an extension that later (on a user action) looks for its tool.
+@MainActor private class ToolUsingExtension: MacDown2Extension {
+    class var id: ExtensionID { "tool-on" }
+    static let displayName: LocalizedStringResource = "Tools"
+    static let summary: LocalizedStringResource = "Test extension that needs external tools"
+    class var enabledByDefault: Bool { true }
+    var host: (any ExtensionHost)?
+    required init() {}
+    func activate(host: any ExtensionHost) async { self.host = host }  // must not touch toolEnvironment
+    func deactivate() async { host = nil }
+    /// What a feature does when the user first uses it.
+    func findTool() async -> String? { await host?.toolEnvironment.which("sh") }
+}
+
+@MainActor private final class ToolUsingOff: ToolUsingExtension {
+    override class var id: ExtensionID { "tool-off" }
+    override class var enabledByDefault: Bool { false }
+}
+
+@Test @MainActor func zeroSpawnsUntilAnEnabledExtensionUsesATool() async throws {
+    let defaults = freshDefaults()
+    let provider = FakeProvider(defaults: defaults)
+    provider.spawner.script(.output(Data("PATH=/bin:/usr/bin\0".utf8)))
+    let registry = ExtensionRegistry([ToolUsingExtension.self, ToolUsingOff.self], defaults: defaults, provider: provider)
+
+    // Creating the registry (every `init`) and starting it (every enabled `activate`) reads no environment.
+    await registry.start()
+    #expect(registry.active == ["tool-on"])
+    #expect(provider.spawner.spawns == 0)
+    #expect(await provider.toolEnvironment.state() == .notNeeded)
+
+    // Switching things on and off does not either.
+    await registry.setEnabled(true, for: "tool-off")
+    await registry.setEnabled(false, for: "tool-off")
+    await registry.setEnabled(false, for: "tool-on")
+    await registry.setEnabled(true, for: "tool-on")
+    #expect(provider.spawner.spawns == 0)
+
+    // Only a feature actually using a tool does, once, however often it asks.
+    let ext = try #require(registry.extensions.first { type(of: $0).id == "tool-on" } as? ToolUsingExtension)
+    #expect(await ext.findTool() == "/bin/sh")
+    #expect(await ext.findTool() == "/bin/sh")
+    #expect(provider.spawner.spawns == 1)
+}
+
+@Test @MainActor func everyExtensionOffMeansTheShellIsNeverRead() async {
+    let defaults = freshDefaults()
+    defaults.set(false, forKey: ExtensionRegistry.enabledKey("tool-on"))
+    let provider = FakeProvider(defaults: defaults)
+    let registry = ExtensionRegistry([ToolUsingExtension.self, ToolUsingOff.self], defaults: defaults, provider: provider)
+    await registry.start()
+    #expect(registry.active.isEmpty)
+    #expect(provider.spawner.spawns == 0)
+    #expect(await provider.toolEnvironment.state() == .notNeeded)
 }
