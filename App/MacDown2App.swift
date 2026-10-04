@@ -24,6 +24,7 @@ struct MacDown2App: App {
         .defaultLaunchBehavior(.presented)
         .commands {
             UpdateCommands()
+            CommandLineToolCommands()
             FileCommands()
             TabCommands()
             AppearanceCommands()

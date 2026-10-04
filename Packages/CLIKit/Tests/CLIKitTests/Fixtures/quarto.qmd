@@ -1,0 +1,13 @@
+---
+title: Quarto fixture
+---
+
+::: {.callout-note}
+## Heads up
+A callout.
+:::
+
+```{python}
+#| echo: false
+print(1)
+```

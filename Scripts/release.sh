@@ -81,7 +81,14 @@ done < <(find "$APP_PATH" -type f | sort)
 # Guard against the loop silently checking nothing: these must have been among the files seen.
 [ -f "$APP_PATH/Contents/MacOS/$APP" ] && [ -d "$APP_PATH/Contents/PlugIns/MacDown2QuickLook.appex" ] \
   && [ -f "$APP_PATH/Contents/Frameworks/Sparkle.framework/Sparkle" ] || die "expected app / appex / Sparkle binaries missing"
-[ "$MACHO_COUNT" -ge 7 ] || die "only $MACHO_COUNT Mach-O files found; expected app, appex, Sparkle and its helpers"
+# The command line tool (cask `binary` and the "Install Command Line Tool…" menu both point at it) must be there and universal;
+# its web assets are the app's own bundle, reached through a symlink, so a missing link would only show up at run time.
+CLI_TOOL=$APP_PATH/Contents/Helpers/macdown2
+[ -x "$CLI_TOOL" ] || die "Contents/Helpers/macdown2 is missing or not executable"
+CLI_ARCHS=" $(lipo -archs "$CLI_TOOL") "
+[[ "$CLI_ARCHS" == *" arm64 "* && "$CLI_ARCHS" == *" x86_64 "* ]] || die "Contents/Helpers/macdown2 is not universal (arm64 + x86_64): ->$CLI_ARCHS"
+[ -f "$APP_PATH/Contents/Helpers/WebAssets_WebAssets.bundle/Contents/Resources/Resources/render.bundle.js" ] || die "Contents/Helpers/WebAssets_WebAssets.bundle does not resolve to the app's web assets"
+[ "$MACHO_COUNT" -ge 8 ] || die "only $MACHO_COUNT Mach-O files found; expected app, appex, CLI, Sparkle and its helpers"
 
 # ---- 2. Ad-hoc sign, innermost first. No --deep: it would re-sign the Quick Look appex without its sandbox
 #         entitlement (which pluginkit requires); --preserve-metadata keeps what the build put on each bundle.
@@ -94,6 +101,7 @@ if [ -d "$SPARKLE" ]; then
   sign "$SPARKLE"
 fi
 for appex in "$APP_PATH"/Contents/PlugIns/*.appex; do sign "$appex"; done
+sign "$APP_PATH/Contents/Helpers/macdown2"
 sign "$APP_PATH"
 
 # ---- 3. Verify the signed bundle ----
@@ -107,6 +115,8 @@ APPEX=$APP_PATH/Contents/PlugIns/MacDown2QuickLook.appex
 codesign --verify --strict "$APPEX"
 ENTS=$(codesign -d --entitlements - "$APPEX" 2>&1)
 [[ "$ENTS" == *"com.apple.security.app-sandbox"* ]] || die "appex lost its sandbox entitlement"
+codesign --verify --strict "$APP_PATH/Contents/Helpers/macdown2"
+[ "$("$APP_PATH/Contents/Helpers/macdown2" --version)" = "macdown2 $VERSION" ] || die "macdown2 --version does not report $VERSION"
 PLIST=$APP_PATH/Contents/Info.plist
 [ "$(plutil -extract CFBundleShortVersionString raw "$PLIST")" = "$VERSION" ] || die "version not stamped into Info.plist"
 ED_KEY=$(plutil -extract SUPublicEDKey raw "$PLIST" 2>/dev/null || true)

@@ -57,6 +57,19 @@ brew install --cask xuanji86/tap/macdown2    # 即将推出
 
 在首个版本发布之前，可以自己构建，一条命令的事。
 
+## 命令行
+
+应用自带 `macdown2` 命令。在应用菜单里点「MacDown2.0 › 安装命令行工具…」即可（不需要管理员权限，会链接到 `/opt/homebrew/bin` 或 `~/.local/bin`）；用 Homebrew cask 安装时会自动装好。
+
+```sh
+macdown2 notes.md docs/      # 打开文件；传文件夹则以工作区方式打开
+cat draft.md | macdown2      # 管道输入会存到 ~/Library/Caches/io.github.xuanji86.MacDown2/stdin/ 再打开
+macdown2 render a.md --standalone -o a.html    # 不启动应用，直接渲染 HTML
+macdown2 --help
+```
+
+退出码：0 成功，64 参数错误，66 文件问题，70 渲染失败。
+
 ## 从源码构建
 
 需要 macOS 26（Apple Silicon 或 Intel）和 Xcode 27。只有在修改 `Web/` 下的 JavaScript 渲染器时才需要 Node.js 23.6+。
