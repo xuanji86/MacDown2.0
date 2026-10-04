@@ -1,4 +1,5 @@
 import Foundation
+import WorkspaceKit
 
 /// `macdown2 [paths…]`: hand the files and folders to MacDown2.0 through `/usr/bin/open`.
 ///
@@ -29,10 +30,15 @@ enum Open {
             }
         }
         let arguments = openArguments(urls: urls, host: host)
+        if let layout = args.layout, urls.isEmpty {
+            throw CLIError(ExitCode.usage, "\(layout.flag) needs a file or folder to apply to")
+        }
         if args.dryRun {
             host.out((["open"] + arguments).map(shellQuoted).joined(separator: " ") + "\n")
+            if let layout = args.layout { host.out("# layout: \(layout.rawValue), told to the app through \(hintDirectory(host: host).path)\n") }
             return
         }
+        if let layout = args.layout { recordLayout(layout, for: urls, host: host) }
         let status = host.launch(arguments)
         guard status == 0 else { throw CLIError(ExitCode.unavailable, "could not open MacDown2.0 (open exited with status \(status))") }
     }
@@ -47,6 +53,22 @@ enum Open {
         }
         arguments += host.appBundle.map { ["-a", $0.path] } ?? ["-b", CLIHost.bundleIdentifier]
         return arguments + urls.map(\.path)
+    }
+
+    // MARK: layout flag
+
+    static func hintDirectory(host: CLIHost) -> URL {
+        LayoutHints.directory(home: host.home, suite: host.environment[isolationVariables[0]])
+    }
+
+    /// The app reads this hint when it is asked to open one of these paths (see `LayoutHints`). Written before `open` runs, so it is
+    /// there however fast the app is. A failure is reported but does not stop the files from opening.
+    static func recordLayout(_ layout: SplitMode, for urls: [URL], host: CLIHost) {
+        do {
+            try LayoutHints.write(layout, for: urls.map(\.fileKey), in: hintDirectory(host: host), now: host.now())
+        } catch {
+            host.err("macdown2: could not pass \(layout.flag) to the app (\(error.localizedDescription)); opening with its usual layout\n")
+        }
     }
 
     // MARK: stdin

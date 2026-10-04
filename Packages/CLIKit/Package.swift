@@ -2,14 +2,15 @@
 import PackageDescription
 
 // Everything the `macdown2` command does, as a library so `swift test` covers it (the CLI target is a one-line main.swift).
-// Foundation only: no AppKit, so the tool never gets a Dock icon. Depends on MarkdownCore + WebAssets, never on an *Extension module.
+// Foundation only: no AppKit, so the tool never gets a Dock icon. Depends on MarkdownCore + WebAssets + WorkspaceKit (the layout
+// names and the layout-hint file the app reads; WorkspaceKit is Foundation + CoreServices), never on an *Extension module.
 let package = Package(
     name: "CLIKit",
     platforms: [.macOS(.v26)],
     products: [.library(name: "CLIKit", targets: ["CLIKit"])],
-    dependencies: [.package(path: "../MarkdownCore"), .package(path: "../WebAssets")],
+    dependencies: [.package(path: "../MarkdownCore"), .package(path: "../WebAssets"), .package(path: "../WorkspaceKit")],
     targets: [
-        .target(name: "CLIKit", dependencies: ["MarkdownCore", "WebAssets"]),
+        .target(name: "CLIKit", dependencies: ["MarkdownCore", "WebAssets", "WorkspaceKit"]),
         .testTarget(name: "CLIKitTests", dependencies: ["CLIKit"], resources: [.copy("Fixtures")]),
     ]
 )

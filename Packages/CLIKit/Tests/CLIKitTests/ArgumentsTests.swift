@@ -1,4 +1,5 @@
 import Testing
+import WorkspaceKit
 @testable import CLIKit
 
 @Test func noArgumentsOpensNothing() throws {
@@ -17,6 +18,38 @@ import Testing
     // After `--` everything is a path, including names that look like options or subcommands.
     #expect(try Arguments.parse(["--", "-x.md", "--dry-run", "render"]) == .open(OpenArgs(paths: ["-x.md", "--dry-run", "render"])))
     #expect(try Arguments.parse(["open", "--", "render"]) == .open(OpenArgs(paths: ["render"])))
+}
+
+@Test func layoutFlags() throws {
+    #expect(try Arguments.parse(["--preview-only", "a.md"]) == .open(OpenArgs(paths: ["a.md"], layout: .previewOnly)))
+    #expect(try Arguments.parse(["a.md", "--editor-only"]) == .open(OpenArgs(paths: ["a.md"], layout: .editorOnly)))
+    #expect(try Arguments.parse(["open", "--both", "a.md", "--dry-run"]) == .open(OpenArgs(paths: ["a.md"], dryRun: true, layout: .both)))
+    #expect(try Arguments.parse(["--preview-only", "--preview-only", "a.md"]) == .open(OpenArgs(paths: ["a.md"], layout: .previewOnly)))  // the same twice is harmless
+    #expect(try Arguments.parse(["a.md"]) == .open(OpenArgs(paths: ["a.md"], layout: nil)))
+    // After `--` a file may be called anything.
+    #expect(try Arguments.parse(["--", "--preview-only"]) == .open(OpenArgs(paths: ["--preview-only"])))
+}
+
+@Test func layoutFlagsAreMutuallyExclusive() {
+    for combo in [["--preview-only", "--editor-only"], ["--editor-only", "--both"], ["--both", "--preview-only"]] {
+        do {
+            _ = try Arguments.parse(combo + ["a.md"])
+            Issue.record("\(combo) should not parse")
+        } catch let e as CLIError {
+            #expect(e.code == 64)
+            #expect(e.message == "\(combo[0]) and \(combo[1]) cannot be combined: pick one layout")
+        } catch {
+            Issue.record("unexpected \(error)")
+        }
+    }
+}
+
+@Test func layoutFlagsBelongToOpenOnly() {
+    #expect(throws: CLIError.self) { try Arguments.parse(["render", "a.md", "--preview-only"]) }
+}
+
+@Test func helpDocumentsTheLayoutFlags() {
+    for flag in ["--both", "--editor-only", "--preview-only"] { #expect(Arguments.help.contains(flag)) }
 }
 
 @Test func helpAndVersion() throws {

@@ -21,6 +21,8 @@ final class WorkspaceRegistry: DocumentBackend {
     /// Saved windows still to be recreated, back-most last (the next window to appear takes the last one).
     private var restoreQueue: [WorkspaceWindowState] = []
     private var pendingURLs: [URL] = []
+    /// `macdown2 --preview-only` & co. for the pending opens. lazy: one layout for all of them (the last flag wins), not one per file.
+    private var pendingLayout: SplitMode?
     private var launchGraceOver = false
     private(set) var isTerminating = false
     /// Filled by the first window (`OpenWindowAction` only exists inside the view tree).
@@ -244,19 +246,26 @@ final class WorkspaceRegistry: DocumentBackend {
     func open(_ urls: [URL]) {
         let urls = urls.filter(AppDefaults.permitsOpening)
         if urls.isEmpty { return }
+        // The command line's layout flag, left as a hint file by `macdown2` just before it asked LaunchServices to open these.
+        let layout = LayoutHints.take(for: urls.map(\.fileKey), in: Self.layoutHintDirectory)
         if models.isEmpty || !restoreQueue.isEmpty {  // launching: the windows are still coming
             pendingURLs += urls
+            pendingLayout = layout ?? pendingLayout
             if launchGraceOver, models.isEmpty { requestWindow() }
             return
         }
-        route(urls)
+        route(urls, layout: layout)
     }
 
-    private func route(_ urls: [URL]) {
+    private static var layoutHintDirectory: URL {
+        LayoutHints.directory(home: FileManager.default.homeDirectoryForCurrentUser, suite: AppDefaults.isolation?.suiteName)
+    }
+
+    private func route(_ urls: [URL], layout: SplitMode?) {
         guard let plan = OpenRouter.plan(opening: urls, windows: orderedModels().map(\.snapshot)) else { return }
         switch plan.target {
-        case .window(let id): if let model = models[id] { perform(plan, in: model) }
-        case .newWindow: pendingURLs += urls; requestWindow()
+        case .window(let id): if let model = models[id] { perform(plan, in: model, layout: layout) }
+        case .newWindow: pendingURLs += urls; pendingLayout = layout ?? pendingLayout; requestWindow()
         }
     }
 
@@ -264,19 +273,24 @@ final class WorkspaceRegistry: DocumentBackend {
     /// rules, but when those say "new window" this fresh one is that window (asking for yet another would never end).
     private func drainPending(into model: WindowModel) {
         guard !pendingURLs.isEmpty, restoreQueue.isEmpty else { return }
-        let urls = pendingURLs
+        let urls = pendingURLs, layout = pendingLayout
         pendingURLs = []
+        pendingLayout = nil
         guard let plan = OpenRouter.plan(opening: urls, windows: orderedModels().map(\.snapshot)) else { return }
         switch plan.target {
-        case .window(let id): perform(plan, in: models[id] ?? model)
-        case .newWindow: perform(plan, in: model)
+        case .window(let id): perform(plan, in: models[id] ?? model, layout: layout)
+        case .newWindow: perform(plan, in: model, layout: layout)
         }
     }
 
-    private func perform(_ plan: OpenPlan, in model: WindowModel) {
+    /// `layout` is the command line's flag. A blank window (new, or the front one with nothing in it) that a workspace folder opens in
+    /// takes the layout that folder last had; the flag beats that, and applies to a window that already had files too.
+    private func perform(_ plan: OpenPlan, in model: WindowModel, layout: SplitMode?) {
+        let blank = model.controller.openKeys.isEmpty && !model.sidebar.isWorkspace  // a pristine Untitled tab counts as blank (as in OpenRouter)
         if !plan.folders.isEmpty {
             model.sidebar.openFolders(plan.folders)
         }
+        model.startLayout(cli: layout, workspace: blank ? plan.folders : [])
         perform(plan.urls, in: model)
     }
 

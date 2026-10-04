@@ -1,19 +1,18 @@
 import Foundation
+import WorkspaceKit
 
 /// Which panes of a document window show and how the width is divided. Persisted per window (`@SceneStorage`) as
 /// `mode` + `editorFraction`; a dragged divider just writes an arbitrary fraction.
 struct SplitLayout: Equatable {
-    enum Mode: String, CaseIterable {
-        case both, editorOnly, previewOnly
-    }
+    typealias Mode = SplitMode  // in WorkspaceKit: the command line, the Settings default and the saved windows share it
 
     static let minFraction = 0.15, maxFraction = 0.85
 
     var mode: Mode = .both
     var editorFraction = 0.5
 
-    var showsEditor: Bool { mode != .previewOnly }
-    var showsPreview: Bool { mode != .editorOnly }
+    var showsEditor: Bool { mode.showsEditor }
+    var showsPreview: Bool { mode.showsPreview }
 
     /// Editor width in a window `total` points wide (0 when hidden); the preview gets the rest.
     func editorWidth(total: Double) -> Double {
@@ -25,13 +24,7 @@ struct SplitLayout: Equatable {
     }
 
     /// Toolbar button: both -> editor only -> preview only -> both.
-    var cycled: SplitLayout {
-        switch mode {
-        case .both: SplitLayout(mode: .editorOnly, editorFraction: editorFraction)
-        case .editorOnly: SplitLayout(mode: .previewOnly, editorFraction: editorFraction)
-        case .previewOnly: SplitLayout(mode: .both, editorFraction: editorFraction)
-        }
-    }
+    var cycled: SplitLayout { SplitLayout(mode: mode.next, editorFraction: editorFraction) }
 }
 
 /// The named layouts of the toolbar menu and View menu.

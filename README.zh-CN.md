@@ -64,9 +64,12 @@ brew install --cask xuanji86/tap/macdown2    # 即将推出
 ```sh
 macdown2 notes.md docs/      # 打开文件；传文件夹则以工作区方式打开
 cat draft.md | macdown2      # 管道输入会存到 ~/Library/Caches/io.github.xuanji86.MacDown2/stdin/ 再打开
+macdown2 --preview-only a.md # 只显示预览地打开（另有 --editor-only、--both）
 macdown2 render a.md --standalone -o a.html    # 不启动应用，直接渲染 HTML
 macdown2 --help
 ```
+
+`--both`、`--editor-only`、`--preview-only` 指定文件所在窗口的布局，应用是否已在运行都有效（最多给一个，且需要同时给文件或文件夹）。不带参数时，新窗口使用「设置 › Editor › 布局」里的启动布局，重新打开的文件夹恢复它上次的布局，恢复的窗口沿用自己的布局。
 
 退出码：0 成功，64 参数错误，66 文件问题，70 渲染失败。
 
