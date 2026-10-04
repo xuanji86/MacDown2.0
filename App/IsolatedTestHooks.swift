@@ -26,6 +26,7 @@ import WorkspaceKit
 ///                                         (see `toggleTaskThroughPage`); `_DELAY`, `_LAYOUT=previewOnly`, `_UNDO=1` and `_SAVE=afterToggle|afterUndo` refine it
 ///   MACDOWN2_TEST_TAB_UNDO=<secs>         type into tab A, switch to B, open A in a second window and undo there, <secs> between the
 ///                                         steps (see `tabSwitchUndo`; needs two files open in the first window)
+///   MACDOWN2_TEST_SHOW_OUTLINE=<secs>     the first window shows the sidebar's outline page after this many seconds
 ///   MACDOWN2_TEST_CLOSE_ACTIVE_TAB=<secs> the first window closes its active tab after this many seconds, as ⌘W does
 ///   MACDOWN2_TEST_CLOSE_WINDOW=<secs>     the first window closes, as the red button / ⇧⌘W does (`performClose`)
 ///   MACDOWN2_TEST_REOPEN=<secs>           the Dock icon is "clicked" (`applicationShouldHandleReopen`) after this many seconds
@@ -137,6 +138,7 @@ enum IsolatedTestHooks {
             guard let seconds = value(name).flatMap(Double.init) else { return }
             DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { MainActor.assumeIsolated(action) }
         }
+        after("MACDOWN2_TEST_SHOW_OUTLINE") { WorkspaceRegistry.shared.orderedModels().first?.showOutline() }
         after("MACDOWN2_TEST_CLOSE_ACTIVE_TAB") { WorkspaceRegistry.shared.orderedModels().first?.closeActiveTab() }
         after("MACDOWN2_TEST_CLOSE_WINDOW") { WorkspaceRegistry.shared.orderedModels().first?.closeWindow() }
         after("MACDOWN2_TEST_REOPEN") { _ = NSApp.delegate?.applicationShouldHandleReopen?(NSApp, hasVisibleWindows: false) }

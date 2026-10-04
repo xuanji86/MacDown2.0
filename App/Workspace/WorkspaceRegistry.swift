@@ -207,19 +207,20 @@ final class WorkspaceRegistry: DocumentBackend {
         guard !model.isRegistered else { return }
         model.isRegistered = true
         models[model.controller.id] = model
-        if let saved = restoreQueue.popLast() { model.apply(saved) }
+        let restored = restoreQueue.popLast()
+        if let restored { model.apply(restored) }
         sync(model)
         persist()
         DispatchQueue.main.async { [self] in
             if !restoreQueue.isEmpty { requestWindow() } else { drainPending(into: model) }
-            blankWindowGetsUntitled(model)
+            blankWindowGetsUntitled(model, restored: restored != nil)
         }
     }
 
     /// A window with nothing in it (a launch with nothing to restore or open, Cmd-Option-N, the Dock icon with no window) gets an
     /// untitled tab, as the original MacDown does. A workspace window stays as it is: its tree is the way in.
-    private func blankWindowGetsUntitled(_ model: WindowModel) {
-        guard WindowLifecycle.newWindowNeedsUntitled(tabs: model.controller.session.tabs.count, isWorkspace: model.sidebar.isWorkspace, pendingOpens: pendingURLs.count),
+    private func blankWindowGetsUntitled(_ model: WindowModel, restored: Bool) {
+        guard WindowLifecycle.newWindowNeedsUntitled(tabs: model.controller.session.tabs.count, isWorkspace: model.sidebar.isWorkspace, pendingOpens: pendingURLs.count, restored: restored),
               models[model.controller.id] != nil else { return }
         model.controller.newUntitled()
         IsolatedTestHooks.typeIntoUntitled(model)

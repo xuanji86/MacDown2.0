@@ -69,7 +69,10 @@ struct WorkspaceView: View {
             IsolatedTestHooks.showSearch(in: model) { open(hit: $0, pinned: true) }
         }
         .onChange(of: model.state) { WorkspaceRegistry.shared.persist() }
-        .onChange(of: model.controller.activeURL) { _, url in model.sidebar.follow(url) }
+        .onChange(of: model.controller.activeURL) { _, url in
+            model.sidebar.follow(url)
+            if url == nil { preview.clear() }  // no document: no outline or counts of the one that was closed
+        }
         // Preview links to Markdown files under a workspace folder open in the app (PreviewNavigationDecider).
         .onChange(of: model.sidebar.folders.roots, initial: true) { _, roots in preview.workspaceRoots = roots }
     }

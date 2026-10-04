@@ -11,6 +11,7 @@ struct WindowLifecycleTests {
         #expect(!WindowLifecycle.newWindowNeedsUntitled(tabs: 1, isWorkspace: false, pendingOpens: 0))
         #expect(!WindowLifecycle.newWindowNeedsUntitled(tabs: 0, isWorkspace: true, pendingOpens: 0))
         #expect(!WindowLifecycle.newWindowNeedsUntitled(tabs: 0, isWorkspace: false, pendingOpens: 2))
+        #expect(!WindowLifecycle.newWindowNeedsUntitled(tabs: 0, isWorkspace: false, pendingOpens: 0, restored: true))
     }
 
     @Test func dockClickOpensAWindowOnlyWhenThereIsNone() {

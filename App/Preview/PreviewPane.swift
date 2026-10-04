@@ -121,6 +121,10 @@ final class PreviewModel {
     // Preview style as last chosen; (re)applied once the page has loaded and on every change.
     private var style: (light: String, dark: String?) = PreviewStyles.resolve(id: PreviewStyles.defaultID, followSystem: false)
     private var pageLoaded = false
+    /// The Block remote images setting the current page was loaded with (it is part of the page's CSP); nil before the first load.
+    private var loadedBlockingImages: Bool?
+    /// Bumped by `clear()`: a render that started before it must not publish its metadata.
+    private var clearEpoch = 0
 
     init(options: RenderOptions = RenderSettings.current) {
         self.options = options
@@ -208,14 +212,31 @@ final class PreviewModel {
     }
 
     /// A setting that lives in the page's own CSP changed (Block remote images): the page is read again with the new policy.
-    func reloadForPolicyChange() { Task { await reloadPage() } }
+    /// Compared with the policy the page was loaded with, so it also catches a change made while no preview pane was around
+    /// (the window showed no document) and does nothing when the page already has the current one.
+    func reloadForPolicyChange() {
+        guard let loaded = loadedBlockingImages, loaded != RemoteContent.blocksImages(in: AppDefaults.store) else { return }
+        Task { await reloadPage() }
+    }
+
+    /// The window shows no document any more: what the page last reported (the sidebar's outline, the counts) goes, and nothing
+    /// still on its way (a debounced or running render) brings it back. The page keeps its old content out of sight until the
+    /// next document's text replaces it.
+    func clear() {
+        clearEpoch += 1
+        debounce?.cancel()
+        pending = nil
+        lastMarkdown = nil
+        shown = nil
+        metadata = nil
+    }
 
     private func reloadPage() async {
         let line = lastLine
         pageLoaded = false
         loading = nil
         needsRebuild = true
-        guard let markdown = lastMarkdown, await ensureLoaded() else { return }
+        guard await ensureLoaded(), let markdown = lastMarkdown else { return }  // the text as it is after the load, not before
         await push(markdown)
         scroll(toLine: line)
     }
@@ -271,6 +292,7 @@ final class PreviewModel {
 
     private func ensureLoaded() async -> Bool {
         if let loading { return await loading.value }
+        loadedBlockingImages = RemoteContent.blocksImages(in: AppDefaults.store)
         let task = Task { [page] () -> Bool in
             do {
                 for try await event in page.load(PreviewAssetHandler.previewURL) where event == .finished {
@@ -323,6 +345,7 @@ final class PreviewModel {
             renderCount += 1
             let version = renderCount
             let before = shown
+            let epoch = clearEpoch
             shown = (version, next, nil)
             do {
                 // A chunk that fails to load is reported by `update` itself (the flavor is then unknown).
@@ -335,7 +358,7 @@ final class PreviewModel {
                 let meta = (result as? String).flatMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any] }
                 if meta?["error"] != nil { shown = before }  // the old content stays on the page
                 if meta?["error"] == nil {
-                    if let decoded = try? JSONDecoder().decode(PreviewMetadata.self, from: Data((result as? String ?? "").utf8)) {
+                    if epoch == clearEpoch, let decoded = try? JSONDecoder().decode(PreviewMetadata.self, from: Data((result as? String ?? "").utf8)) {
                         if decoded != metadata { metadata = decoded }
                         if shown?.version == version { shown?.tasks = decoded.tasks }
                     }
@@ -374,10 +397,11 @@ struct PreviewPane: View {
         WebView(model.page)
             .webViewContentBackground(.hidden)
             .overlay(alignment: .top) { PreviewNotices(badge: flavor?.badge, hint: AppExtensions.disabledHint(for: documentURL)) }
-            .onChange(of: renderSettings.options) { _, options in model.setOptions(options) }
+            // `initial`: the pane is gone while the window shows no document, and settings changed meanwhile must still arrive.
+            .onChange(of: renderSettings.options, initial: true) { _, options in model.setOptions(options) }
             .onChange(of: "\(style)|\(followsSystem)", initial: true) { model.setStyle(id: style, followSystem: followsSystem) }
             .onChange(of: flavor?.id, initial: true) { model.setFlavor(flavor) }
-            .onChange(of: blockRemoteImages) { model.reloadForPolicyChange() }
+            .onChange(of: blockRemoteImages, initial: true) { model.reloadForPolicyChange() }
             // Restarts with the document: the page stays, the text it renders is the active tab's.
             .task(id: ObjectIdentifier(document)) {
                 for await text in document.$text.values { model.schedule(text) }

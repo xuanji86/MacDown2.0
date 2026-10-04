@@ -5,9 +5,10 @@ import Foundation
 public enum WindowLifecycle {
     /// A window that comes up with nothing in it (a launch with nothing to restore or open, Cmd-Option-N, the Dock icon with no
     /// window) gets a blank untitled tab, as the original MacDown does. A workspace window stays as it is (its tree is the way in),
-    /// and so does one that is about to receive files that were asked for.
-    public static func newWindowNeedsUntitled(tabs: Int, isWorkspace: Bool, pendingOpens: Int) -> Bool {
-        tabs == 0 && !isWorkspace && pendingOpens == 0
+    /// and so does one that is about to receive files that were asked for, and a window restored from the last session without
+    /// a tab (untitled tabs are not restored): that one shows the empty state, as it did when it was last seen.
+    public static func newWindowNeedsUntitled(tabs: Int, isWorkspace: Bool, pendingOpens: Int, restored: Bool = false) -> Bool {
+        tabs == 0 && !isWorkspace && pendingOpens == 0 && !restored
     }
 
     /// The Dock icon was clicked (or the app was opened again) and the system asks whether to do its default: a new window is
