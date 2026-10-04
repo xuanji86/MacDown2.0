@@ -123,18 +123,21 @@ public struct QuickLookPage: Sendable {
     /// attributes that could hold a CSS `url()`. The renderer escapes raw HTML, so none of these should be here; this is the
     /// second line behind that and the CSP. A style is judged by its text: `url(`, `image-set`, `@import`, a backslash escape
     /// or an HTML entity (which the parser decodes before the CSS sees it) is enough to drop it.
+    ///
+    /// Only real tags are touched: text and code never contain a literal `<` (the renderer escapes it), so `<…>` is exactly
+    /// a tag, and inside one the attributes are walked one by one, so a quoted value (`alt="use srcset=x"`) is not rescanned.
     static func removeNetworkReferences(_ html: String) -> String {
-        var out = html
-        for pattern in [
-            #"\s(?:srcset|poster)\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)"#,
-            #"<(?:source|link)\b[^>]*>"#,
-        ] {
-            out = out.replacingOccurrences(of: pattern, with: "", options: [.regularExpression, .caseInsensitive])
-        }
-        return replacing(#"\sstyle\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)"#, in: out) { m in
-            let value = m[0].lowercased()
-            let risky = ["url(", "image-set", "@import", "\\", "&", "src(", "expression"].contains { value.contains($0) }
-            return risky ? "" : m[0]
+        replacing(#"<[A-Za-z][^>]*>"#, in: html) { tag in
+            let tag = tag[0]
+            if tag.range(of: #"^<(?:source|link)\b"#, options: [.regularExpression, .caseInsensitive]) != nil { return "" }
+            return replacing(#"\s+([^\s=/>"']+)(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+))?"#, in: tag) { attribute in
+                let name = attribute[1].lowercased()
+                if name == "srcset" || name == "poster" { return "" }
+                guard name == "style" else { return attribute[0] }
+                let value = attribute[0].lowercased()
+                let risky = ["url(", "image-set", "@import", "\\", "&", "src(", "expression"].contains { value.contains($0) }
+                return risky ? "" : attribute[0]
+            }
         }
     }
 

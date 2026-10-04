@@ -112,6 +112,36 @@ private func networkReferences(in page: String) -> [String] {
     #expect(clean.contains(#"<p style="text-align:center">kept</p>"#))
 }
 
+@Test func textAndCodeAboutTheseAttributesAreNotTouched() async throws {
+    let p = try await page("""
+    Use srcset=foo.png for responsive images, poster=x.png for video, and style="background:url(a.png)" for fun.
+
+    Inline `srcset=foo.png poster=x.png` code and an escaped <img srcset="a.png 1x"> tag.
+
+    ```
+    <img src="a.png" srcset="a.png 1x" poster=p style="background:url(a.png)">
+    srcset=foo.png
+    ```
+
+    ```html
+    <source srcset="a.png"><link href="x.css">
+    ```
+    """)
+    for text in [
+        "Use srcset=foo.png for responsive images, poster=x.png for video, and style=&quot;background:url(a.png)&quot; for fun.",
+        "<code>srcset=foo.png poster=x.png</code>",
+        "&lt;img srcset=&quot;a.png 1x&quot;&gt;",
+    ] {
+        #expect(p.html.contains(text), "lost: \(text)")
+    }
+    #expect(p.html.contains("srcset=foo.png\n"))  // fenced block
+    #expect(p.html.contains("srcset=&quot;a.png 1x&quot; poster=p style=&quot;background:url(a.png)&quot;"))
+    #expect(p.html.contains("x.css"))  // the highlighted block keeps its text
+    // the sanitiser itself: text nodes and quoted attribute values are identity, only attributes of real tags go
+    let text = "<p>Use srcset=foo.png, poster=x, style=\"a:url(b)\" &lt;img srcset=x&gt;</p><img alt=\"use srcset=x poster=y\" srcset=\"z 1x\" src=\"cid:a\">"
+    #expect(QuickLookPage.removeNetworkReferences(text) == "<p>Use srcset=foo.png, poster=x, style=\"a:url(b)\" &lt;img srcset=x&gt;</p><img alt=\"use srcset=x poster=y\" src=\"cid:a\">")
+}
+
 @Test func onlyHTTPMailtoAndInPageLinksStayLive() async throws {
     let p = try await page("""
     [ssh](ssh://attacker.example) [vnc](vnc://attacker.example) [file](file:///Applications/Calculator.app) [custom](x-apple.systempreferences:com.apple.preference.security)
