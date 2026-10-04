@@ -32,6 +32,8 @@ import WorkspaceKit
 ///   MACDOWN2_TEST_CLOSE_ACTIVE_TAB=<secs> the first window closes its active tab after this many seconds, as ⌘W does
 ///   MACDOWN2_TEST_CLOSE_WINDOW=<secs>     the first window closes, as the red button / ⇧⌘W does (`performClose`)
 ///   MACDOWN2_TEST_REOPEN=<secs>           the Dock icon is "clicked" (`applicationShouldHandleReopen`) after this many seconds
+///   MACDOWN2_TEST_ACTIVATE=<secs>         the app activates itself and brings its windows to the front after this many seconds, so a
+///                                         background launch is photographed with live traffic lights and a painted preview
 ///   MACDOWN2_TEST_DUMP_MENUS=<secs>       after this many seconds, the app's language and every title in the main menu bar go to the
 ///                                         log (menus cannot be photographed window-only): category "menu-dump"
 ///                                         (the language itself is chosen with MACDOWN2_LANGUAGE in `Scripts/run-isolated.sh`)
@@ -150,6 +152,10 @@ enum IsolatedTestHooks {
         after("MACDOWN2_TEST_CLOSE_ACTIVE_TAB") { WorkspaceRegistry.shared.orderedModels().first?.closeActiveTab() }
         after("MACDOWN2_TEST_CLOSE_WINDOW") { WorkspaceRegistry.shared.orderedModels().first?.closeWindow() }
         after("MACDOWN2_TEST_REOPEN") { _ = NSApp.delegate?.applicationShouldHandleReopen?(NSApp, hasVisibleWindows: false) }
+        after("MACDOWN2_TEST_ACTIVATE") {
+            NSApp.activate(ignoringOtherApps: true)  // deprecated, but the plain activate() is refused while another app is in front
+            for window in NSApp.windows where window.isVisible && window.canBecomeKey { window.makeKeyAndOrderFront(nil) }
+        }
         after("MACDOWN2_TEST_DUMP_MENUS") { dumpMenus() }
         #endif
     }
