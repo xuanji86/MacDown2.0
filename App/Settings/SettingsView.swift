@@ -156,7 +156,7 @@ private struct MarkdownPage: View {
         (.tables, "表格"), (.autolink, "自动链接"), (.strikethrough, "删除线 ~~x~~"), (.mark, "高亮 ==x=="),
         (.sup, "上标 x^2^"), (.sub, "下标 H~2~O"), (.underline, "下划线 _x_"), (.footnotes, "脚注"),
         (.taskLists, "任务列表"), (.smartPunctuation, "智能标点(弯引号、破折号)"), (.toc, "[TOC] 目录"),
-        (.cjkEmphasis, "CJK 友好强调"),
+        (.cjkEmphasis, "CJK 友好强调"), (.emoji, "Emoji 短码 :smile:"),
     ]
 
     var body: some View {
@@ -165,7 +165,7 @@ private struct MarkdownPage: View {
                 ForEach(Self.syntax, id: \.0) { ext, label in Toggle(label, isOn: render.binding(ext)) }
             }
             Section("Front matter") {
-                Toggle("识别开头的 YAML front matter", isOn: render.binding(.frontMatter))
+                Toggle("识别开头的 front matter(YAML ---、TOML +++)", isOn: render.binding(.frontMatter))
                 Picker("预览中显示为", selection: $render.preferences.frontMatterDisplay) {
                     Text("隐藏").tag(FrontMatterDisplay.hidden)
                     Text("表格").tag(FrontMatterDisplay.table)

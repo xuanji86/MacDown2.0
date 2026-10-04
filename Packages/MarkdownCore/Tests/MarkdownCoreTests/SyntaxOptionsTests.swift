@@ -44,6 +44,7 @@ private let probes: [(MarkdownExtension, source: String, marker: String)] = [
     (.toc, "[TOC]\n\n# A", "<nav class=\"toc\""),
     (.frontMatter, "---\na: 1\n---\n", "class=\"front-matter\""),
     (.cjkEmphasis, "**「重点」**的", "<strong>"),
+    (.emoji, "Hi :smile:", "😄"),
 ]
 
 @Test func everyExtensionCaseIsUnderstoodByTheBundle() async throws {
@@ -54,6 +55,34 @@ private let probes: [(MarkdownExtension, source: String, marker: String)] = [
         let off = try await render(source) { $0.extensions = [] }
         #expect(!off.html.contains(marker), "\(ext): \(marker) must need the extension")
     }
+}
+
+@Test func emojiShortCodesAreOffByDefault() async throws {
+    #expect(!RenderOptions().extensions.contains(.emoji))
+    #expect(try await render("Hi :smile:").html.contains(":smile:"))
+}
+
+@Test func githubAlertsNeedNoSwitch() async throws {
+    let html = try await render("> [!WARNING]\n> careful") { $0.extensions = [] }.html
+    #expect(html.contains("class=\"markdown-alert markdown-alert-warning\""))
+    #expect(html.contains("<p class=\"markdown-alert-title\">Warning</p>"))
+}
+
+@Test func uppercaseTaskMarkerIsChecked() async throws {
+    let html = try await render("- [X] done\n- [ ] open").html
+    #expect(html.components(separatedBy: "checked=").count - 1 == 1)
+}
+
+@Test func hugoTomlFrontMatterIsRecognisedHiddenOrAsATable() async throws {
+    let source = "+++\ntitle = \"Hi\"\ndraft = true\n+++\n\n# Body\n"
+    let hidden = try await render(source)
+    #expect(hidden.frontMatter == "title = \"Hi\"\ndraft = true")
+    #expect(hidden.html.contains("<div class=\"front-matter\" hidden"))
+    #expect(!hidden.html.contains("Hi"))
+    #expect(hidden.blocks.first?.lineStart == 0 && hidden.blocks.first?.lineEnd == 4)
+    let table = try await render(source) { $0.frontMatterDisplay = .table }
+    #expect(table.html.contains("<tr><th>title</th><td>Hi</td></tr><tr><th>draft</th><td>true</td></tr>"))
+    #expect(try await render(source) { $0.extensions.remove(.frontMatter) }.frontMatter == nil)
 }
 
 @Test func cjkFriendlyEmphasisIsOnByDefault() async throws {

@@ -59,6 +59,12 @@ func macdown3000Snapshot(name: String) async throws {
     try check(html: result.html, snapshot: "own/syntax-showcase.html")
 }
 
+@Test func hugoTomlFrontMatterSnapshot() async throws {
+    let source = try String(contentsOf: fixturesDir("own").appending(path: "hugo-toml.md"), encoding: .utf8)
+    let result = try await JSCRenderer().render(source, options: everything)
+    try check(html: result.html, snapshot: "own/hugo-toml.html")
+}
+
 @Test func cjkEmphasisSnapshot() async throws {
     let source = try String(contentsOf: fixturesDir("own").appending(path: "cjk-emphasis.md"), encoding: .utf8)
     let result = try await JSCRenderer().render(source, options: RenderOptions())

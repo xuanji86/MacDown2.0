@@ -81,6 +81,44 @@ export function pageYToLine(blocks: BlockHandle[], y: number): number {
   return yToLine(y, leaves.length, (i) => leafAnchor(leaves, i));
 }
 
+// Scroll anchoring. WebKit has none (and the preview style switches Chrome's off), so when the layout moves under a
+// still viewport (an image or a Mermaid diagram above it arrives, KaTeX fonts change a formula's size, the window is
+// resized) the content that was at the top would drift away from the line the editor shows. The anchor is the element
+// at the top of the viewport and how far into it the viewport top lies; a ResizeObserver puts it back after the layout
+// settled. It is recorded on every scroll and after each render (main.ts), never in between, so a render that
+// inserts or removes blocks does not move the page by itself, only late layout changes do.
+interface ScrollAnchor {
+  el: HTMLElement;
+  offset: number;
+}
+let anchor: ScrollAnchor | null = null;
+
+export function recordAnchor(blocks: BlockHandle[]): void {
+  const y = scrollY;
+  const n = blocks.length;
+  const hit = lastLE(n, (i) => blockAnchor(blocks, i).top, y);
+  if (hit < 0) {
+    anchor = null;
+    return;
+  }
+  const leaves = leavesOf(blocks[hit]);
+  const k = lastLE(leaves.length, (i) => leafAnchor(leaves, i).top, y);
+  const el = k >= 0 ? leaves[k] : elements(blocks[hit])[0];
+  anchor = el ? { el, offset: y - boxOf(el).top } : null;
+}
+
+function reanchor(): void {
+  if (!anchor?.el.isConnected) return; // replaced by a render: the next recordAnchor picks a new one
+  const want = Math.max(0, Math.round(boxOf(anchor.el).top + anchor.offset));
+  if (Math.abs(want - scrollY) < 1) return;
+  scrollTo({ top: want, behavior: 'instant' });
+  programmaticY = scrollY; // the page moved itself: not a user scroll, nothing to report
+}
+
+export function startAnchoring(article: HTMLElement): void {
+  new ResizeObserver(reanchor).observe(article);
+}
+
 // Scroll the page so source line `line` is at the top. Instant (no animation); the scroll event it causes is
 // not reported back, so the native side can drive the preview without echo.
 let programmaticY: number | null = null;
@@ -89,6 +127,7 @@ export function scrollToLine(blocks: BlockHandle[], line: number): void {
   if (Math.abs(y - scrollY) < 1) return;
   scrollTo({ top: y, behavior: 'instant' });
   programmaticY = scrollY;
+  recordAnchor(blocks);
 }
 
 // Reports the top visible line to Swift on user scrolling: at most once per animation frame, only when it moved.
@@ -104,6 +143,7 @@ export function startScrollReporting(getBlocks: () => BlockHandle[]): void {
         queued = false;
         const echo = programmaticY !== null && Math.abs(scrollY - programmaticY) < 1;
         programmaticY = null;
+        if (!echo) recordAnchor(getBlocks()); // a programmatic scroll recorded its own anchor when it happened, before any layout shift
         if (echo) {
           last = -1; // the native side moved us; the next user scroll reports even if it lands on an old value
           return;

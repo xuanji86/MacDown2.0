@@ -15,6 +15,7 @@ draft: false
 Smart "quotes" -- dashes... <https://example.com> and www.example.org.
 
 - [x] done
+- [X] done in capitals
 - [ ] open
   - [x] nested
 
@@ -23,6 +24,28 @@ Smart "quotes" -- dashes... <https://example.com> and www.example.org.
 | a    | b     |
 
 [^note]: The footnote text, with `code`.
+
+## Alerts and emoji
+
+> [!NOTE]
+> A note with *inline* markup.
+
+> [!TIP]
+> - a list
+> - inside a tip
+
+> [!IMPORTANT]
+> Read this.
+
+> [!WARNING]
+> Careful.
+
+> [!CAUTION]
+> Dangerous.
+
+> An ordinary quote, and `:smile:` in code stays as written.
+
+Short codes: :smile: :+1: :tada: :not_an_emoji:
 
 ## Math
 

@@ -17,6 +17,11 @@
   --heading-weight: 300;
   --heading-rule: none;
   --page-padding: 32px 36px 72px;
+  --alert-note: #6cb3f5;
+  --alert-tip: #5cc77a;
+  --alert-important: #b58cf0;
+  --alert-warning: #e0a93d;
+  --alert-caution: #ff7b72;
 }
 h1 { font-size: 2.3em; letter-spacing: -0.01em; }
 h2 { font-size: 1.7em; }

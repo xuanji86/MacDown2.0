@@ -12,5 +12,10 @@
   --err-bg: #4a1a1a;
   --err-fg: #ff9d8f;
   --code-fg: #e0a24a;
+  --alert-note: #4aa3df;
+  --alert-tip: #9cb524;
+  --alert-important: #9a8be0;
+  --alert-warning: #d9a728;
+  --alert-caution: #ff7f70;
 }
 h1, h2, h3, h4, h5 { color: #eee8d5; }

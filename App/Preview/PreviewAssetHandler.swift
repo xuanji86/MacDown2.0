@@ -9,9 +9,15 @@ import WebKit
 final class DocumentRoot: @unchecked Sendable {
     private let lock = NSLock()
     private var directory: URL?
+    private var roots: [URL] = []
     var url: URL? {
         get { lock.withLock { directory } }
         set { lock.withLock { directory = newValue } }
+    }
+    /// Open workspace folders: besides the document's own folder, a link to a Markdown file under one of these opens in the app.
+    var workspaceRoots: [URL] {
+        get { lock.withLock { roots } }
+        set { lock.withLock { roots = newValue } }
     }
 }
 
