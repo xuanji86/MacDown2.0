@@ -51,9 +51,10 @@ struct WorkspaceView: View {
         // The system draws a window title leading-aligned inside the detail column; the original MacDown centres it over
         // the whole title bar. So the system one is hidden (the window keeps its title for the Window menu and
         // accessibility) and this one is drawn in its place.
-        .overlay(alignment: .top) { CenteredTitle(title: title) }
+        .overlay(alignment: .top) { CenteredTitle(title: title, edited: model.activeDocument?.editedFlag.value ?? false) }
         .background(WindowAccessor { window in
             titleGuard.hideTitle(of: window)
+            IsolatedTestHooks.applyWindowFrame(window)
             WorkspaceRegistry.shared.attach(window, to: model)
         })
         .focusedSceneValue(\.workspace, model)
@@ -90,12 +91,17 @@ struct WorkspaceView: View {
     }
 }
 
-/// The window title in the title bar row, centred between the traffic lights and the window's right edge.
+/// The window title in the title bar row, centred between the traffic lights and the window's right edge. An unsaved
+/// document gets the system's dimmer "— Edited" after its name, as AppKit's own title does.
 private struct CenteredTitle: View {
     let title: String
+    let edited: Bool
+
+    /// AppKit's own (localized) word, so it follows the system language like the titles of other apps' windows do.
+    private static let editedWord = Bundle(for: NSWindow.self).localizedString(forKey: "Edited", value: "Edited", table: "AutosaveButton")
 
     var body: some View {
-        Text(title)
+        (Text(title) + (edited ? Text(" — \(Self.editedWord)").fontWeight(.regular).foregroundStyle(.tertiary) : Text("")))
             .font(.system(size: 13, weight: .semibold))
             .foregroundStyle(.secondary)
             .lineLimit(1)
