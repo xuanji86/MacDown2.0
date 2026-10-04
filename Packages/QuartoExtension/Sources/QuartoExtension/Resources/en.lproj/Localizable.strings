@@ -1,0 +1,8 @@
+"Approximate Preview" = "Approximate Preview";
+"Code was not run and the project configuration was not applied" = "Code was not run and the project configuration was not applied";
+"Opens .qmd documents and previews callouts, cross-references, code cells and includes approximately; code is never run." = "Opens .qmd documents and previews callouts, cross-references, code cells and includes approximately; code is never run.";
+"Quarto" = "Quarto";
+"Quarto · Approximate Preview" = "Quarto · Approximate Preview";
+"Supports callouts, divs, spans, citations and cross-references, figure and table captions, grid tables, equations, inert shortcode markers, ```{python}``` / ```{r}``` code cells (highlighted only, never run) and {{< include >}} (limited to the document’s folder, at most 5 levels deep)." = "Supports callouts, divs, spans, citations and cross-references, figure and table captions, grid tables, equations, inert shortcode markers, ```{python}``` / ```{r}``` code cells (highlighted only, never run) and {{< include >}} (limited to the document’s folder, at most 5 levels deep).";
+"Turn on the Quarto extension to preview callouts and cross-references" = "Turn on the Quarto extension to preview callouts and cross-references";
+"_quarto.yml, _extensions and .bib files are not read, and cross-reference numbers show as “?”. Real rendering with your local Quarto will come in a later version." = "_quarto.yml, _extensions and .bib files are not read, and cross-reference numbers show as “?”. Real rendering with your local Quarto will come in a later version.";

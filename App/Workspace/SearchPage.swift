@@ -27,7 +27,7 @@ struct SearchPage: View {
             search.revalidate()
         }
         .onChange(of: search.focusTick) { focus = .field }
-        // The folders or the file filter changed while this page is up (a different folder with the same name, "全部"):
+        // The folders or the file filter changed while this page is up (a different folder with the same name, "All"):
         // the old results would be misleading. While another page is up, `revalidate` catches up when this one returns.
         .onChange(of: search.scopeSnapshot) { search.start() }
     }
@@ -63,7 +63,7 @@ struct SearchPage: View {
             return .handled
         }
         .onExitCommand { focus = .field }
-        .accessibilityLabel("搜索结果")
+        .accessibilityLabel("Search Results")
     }
 
     /// Return in the field: the selected result, else the first one.
@@ -85,7 +85,7 @@ private struct SearchField: View {
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
                 .accessibilityHidden(true)
-            TextField("在文件中搜索", text: $search.query)
+            TextField("Search in Files", text: $search.query)
                 .textFieldStyle(.plain)
                 .font(.system(size: 12))
                 .focused(focus, equals: .field)
@@ -96,17 +96,17 @@ private struct SearchField: View {
                     focus.wrappedValue = .list
                     return .handled
                 }
-                .accessibilityLabel("在文件中搜索")
-                .accessibilityHint("输入后自动搜索。双引号括起短语，减号开头排除，打开正则开关用正则表达式。按下箭头进入结果")
+                .accessibilityLabel("Search in Files")
+                .accessibilityHint("Searches as you type. Put a phrase in double quotes, start a word with a minus sign to exclude it, and turn the regular expression switch on to use one. Press the down arrow to go to the results")
             if !search.query.isEmpty {
                 Button { search.clearQuery() } label: {
                     Image(systemName: "xmark.circle.fill").font(.system(size: 11)).foregroundStyle(.tertiary)
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("清除搜索")
+                .accessibilityLabel("Clear Search")
             }
             Button { search.isRegex.toggle() } label: {
-                Text(".*")
+                Text(verbatim: ".*")
                     .font(.system(size: 10, weight: .semibold, design: .monospaced))
                     .foregroundStyle(search.isRegex ? Color.white : Color.secondary)
                     .padding(.horizontal, 6)
@@ -114,9 +114,9 @@ private struct SearchField: View {
                     .background(Capsule().fill(search.isRegex ? Color.accentColor : Color.primary.opacity(0.08)))
             }
             .buttonStyle(.plain)
-            .help("正则表达式（不区分大小写，按行匹配）")
-            .accessibilityLabel("正则表达式")
-            .accessibilityValue(search.isRegex ? "开" : "关")
+            .help("Regular expression (case-insensitive, matched line by line)")
+            .accessibilityLabel("Regular Expression")
+            .accessibilityValue(.onOff(search.isRegex))
             .accessibilityAddTraits(.isToggle)
             AllFilesToggle(sidebar: sidebar)
         }
@@ -128,7 +128,7 @@ private struct SearchField: View {
     }
 }
 
-/// "42 处匹配 · 7 个文件", or why there is nothing.
+/// "42 matches in 7 files", or why there is nothing.
 private struct SearchStatusLine: View {
     let search: SearchModel
 
@@ -137,25 +137,27 @@ private struct SearchStatusLine: View {
             switch search.status {
             case .idle:
                 line(search.scopeTitle.isEmpty
-                    ? "先打开一个文件夹，或打开一个文档，再搜索它所在的文件夹"
-                    : "搜索「\(search.scopeTitle)」里的文件内容。\"短语\"、-排除词")
+                    ? String(localized: "Open a folder, or open a document, then search the folder it is in")
+                    : String(localized: "Search the contents of the files in “\(search.scopeTitle)”. \"phrase\", -excluded"))
             case .noScope:
-                line("没有可搜索的文件夹：先打开一个文件夹，或打开一个文档")
+                line(String(localized: "No folder to search: open a folder or a document first"))
             case .searching:
                 HStack(spacing: 6) {
                     ProgressView().controlSize(.mini)
-                    Text(search.hitCount == 0 ? "正在搜索…" : "正在搜索… 已找到 \(search.hitCount) 处")
+                    Text(searchingLine)
                 }
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
                 .accessibilityElement(children: .combine)
             case .finished:
-                line(search.hitCount == 0 ? "没有匹配项" : "\(search.hitCount) 处匹配 · \(search.groups.count) 个文件")
+                line(search.hitCount == 0
+                    ? String(localized: "No matches")
+                    : String(localized: "\(search.hitCount) matches in \(search.groups.count) files"))
             case .failed(let message):
                 Label(message, systemImage: "exclamationmark.triangle.fill")
                     .font(.system(size: 11))
                     .foregroundStyle(.red)
-                    .accessibilityLabel("搜索出错：\(message)")
+                    .accessibilityLabel("Search error: \(message)")
             }
             if let limit = search.truncation {
                 line(SearchError.truncated(limit).errorDescription ?? "")
@@ -164,6 +166,10 @@ private struct SearchStatusLine: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 14)
         .padding(.bottom, 4)
+    }
+
+    private var searchingLine: LocalizedStringKey {
+        search.hitCount == 0 ? "Searching…" : "Searching… \(search.hitCount) found so far"
     }
 
     private func line(_ text: String) -> some View {
@@ -175,6 +181,13 @@ private struct SearchGroupHeader: View {
     let group: SearchGroup
     let badge: String
 
+    private var groupLabel: String {
+        let name = group.file.lastPathComponent, count = group.hits.count
+        return badge.isEmpty
+            ? String(localized: "\(name), \(count) matches")
+            : String(localized: "\(name), \(count) matches, from \(badge)")
+    }
+
     var body: some View {
         HStack(spacing: 6) {
             Image(systemName: "doc.text").font(.system(size: 11)).foregroundStyle(.secondary).accessibilityHidden(true)
@@ -185,7 +198,7 @@ private struct SearchGroupHeader: View {
                 }
             }
             Spacer(minLength: 4)
-            Text("\(group.hits.count)").font(.system(size: 10, design: .monospaced)).foregroundStyle(.secondary)
+            Text(verbatim: "\(group.hits.count)").font(.system(size: 10, design: .monospaced)).foregroundStyle(.secondary)
             if !badge.isEmpty {
                 // Where the result came from (the built-in search; other providers show their own name).
                 Text(badge)
@@ -198,7 +211,7 @@ private struct SearchGroupHeader: View {
         }
         .padding(.vertical, 3)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(group.file.lastPathComponent)，\(group.hits.count) 处匹配" + (badge.isEmpty ? "" : "，来源\(badge)"))
+        .accessibilityLabel(groupLabel)
         .accessibilityAddTraits(.isHeader)
     }
 }
@@ -209,7 +222,7 @@ private struct SearchHitRow: View {
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
             if let line = hit.line {
-                Text("\(line)")
+                Text(verbatim: "\(line)")
                     .font(.system(size: 10, design: .monospaced))
                     .foregroundStyle(.tertiary)
                     .frame(minWidth: 24, alignment: .trailing)
@@ -221,8 +234,8 @@ private struct SearchHitRow: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel((hit.line.map { "第 \($0) 行：" } ?? "") + hit.snippet)
-        .accessibilityHint("按回车打开并定位")
+        .accessibilityLabel((hit.line.map { String(localized: "Line \($0): ") } ?? "") + hit.snippet)
+        .accessibilityHint("Press Return to open the file and select the match")
         .accessibilityAddTraits(.isButton)
     }
 

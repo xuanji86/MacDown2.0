@@ -70,8 +70,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 registry.beginTermination()
                 return .terminateNow
             }
-            registry.reviewForTermination { proceed in sender.reply(toApplicationShouldTerminate: proceed) }
+            registry.reviewForTermination { proceed in
+                if !proceed { AppRelauncher.cancel() }
+                sender.reply(toApplicationShouldTerminate: proceed)
+            }
             return .terminateLater
         }
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        MainActor.assumeIsolated { AppRelauncher.launchNewInstanceIfRequested() }
     }
 }

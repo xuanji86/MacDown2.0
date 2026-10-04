@@ -59,7 +59,7 @@ struct FileTable: NSViewRepresentable {
         table.action = #selector(FileTableCoordinator.clicked(_:))
         table.registerForDraggedTypes([.fileURL])
         table.setDraggingSourceOperationMask(.copy, forLocal: false)
-        table.setAccessibilityLabel("文件")
+        table.setAccessibilityLabel(String(localized: "Files"))
         coordinator.table = table
 
         let scroll = NSScrollView()
@@ -245,7 +245,7 @@ final class FileTableCoordinator: NSObject, NSTableViewDataSource, NSTableViewDe
             return cell
         case .unreadable(let depth, _):
             let cell = reuse(NoticeCellView.identifier, as: NoticeCellView.self)
-            cell.configure(text: "无法读取这个文件夹（可能没有权限）", depth: depth, skeletonIndex: nil)
+            cell.configure(text: String(localized: "Can’t read this folder (you may not have permission)"), depth: depth, skeletonIndex: nil)
             return cell
         case .placeholder(_, let text):
             let cell = reuse(NoticeCellView.identifier, as: NoticeCellView.self)
@@ -421,14 +421,14 @@ final class FileTableCoordinator: NSObject, NSTableViewDataSource, NSTableViewDe
 
     private static func title(_ action: FileAction) -> String {
         switch action {
-        case .revealInFinder: return "在 Finder 中显示"
-        case .copyPath: return "拷贝路径"
-        case .newFile: return "新建文件"
-        case .newFolder: return "新建文件夹"
-        case .rename: return "重命名"
-        case .moveToTrash: return "移到废纸篓"
-        case .addToFavorites: return "添加到收藏"
-        case .removeFromFavorites: return "从收藏移除"
+        case .revealInFinder: return String(localized: "Reveal in Finder")
+        case .copyPath: return String(localized: "Copy Path")
+        case .newFile: return String(localized: "New File")
+        case .newFolder: return String(localized: "New Folder")
+        case .rename: return String(localized: "Rename")
+        case .moveToTrash: return String(localized: "Move to Trash")
+        case .addToFavorites: return String(localized: "Add to Favorites")
+        case .removeFromFavorites: return String(localized: "Remove from Favorites")
         }
     }
 
@@ -460,7 +460,7 @@ final class FileTableCoordinator: NSObject, NSTableViewDataSource, NSTableViewDe
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = true
-        panel.prompt = String(localized: "添加")
+        panel.prompt = String(localized: "Add")
         let done: (NSApplication.ModalResponse) -> Void = { [weak self] response in
             guard response == .OK else { return }
             for url in panel.urls { self?.model.addFavorite(url) }

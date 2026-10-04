@@ -351,8 +351,8 @@ final class SidebarModel {
         if stores.isFavorite(url) { return }
         if !stores.addFavorite(url, at: index) {
             let alert = NSAlert()
-            alert.messageText = stores.favoritesAreFull ? String(localized: "收藏已满") : String(localized: "无法添加到收藏")
-            alert.informativeText = stores.favoritesAreFull ? String(localized: "先移除一个收藏再添加。") : url.path
+            alert.messageText = stores.favoritesAreFull ? String(localized: "Favorites are full") : String(localized: "Could not add to favorites")
+            alert.informativeText = stores.favoritesAreFull ? String(localized: "Remove a favorite first, then add this one.") : url.path
             present(alert)
         }
     }
@@ -380,7 +380,7 @@ final class SidebarModel {
                 }
             }
         } catch {
-            present(error, title: String(localized: "无法新建"))
+            present(error, title: String(localized: "Could not create the item"))
         }
     }
 
@@ -394,7 +394,7 @@ final class SidebarModel {
                 do {
                     final = try await WorkspaceRegistry.shared.rename(url, to: name)
                 } catch {
-                    present(error, title: String(localized: "无法重命名“\(url.lastPathComponent)”"))
+                    present(error, title: String(localized: "Could not rename “\(url.lastPathComponent)”"))
                 }
             }
             reread([url.deletingLastPathComponent()]) { [self] in
@@ -408,13 +408,13 @@ final class SidebarModel {
     /// first, asking about unsaved changes; cancelling the prompt cancels the trashing.
     func trash(_ url: URL) {
         do { try FileOperations.requireUnprotected(url) } catch {  // also when the menu was bypassed or the path leads through a symlink
-            present(error, title: String(localized: "无法移到废纸篓"))
+            present(error, title: String(localized: "Could not move to the Trash"))
             return
         }
         Task {
             guard await WorkspaceRegistry.shared.closeTabs(under: url) else { return }
             do { _ = try await NSWorkspace.shared.recycle([url]) } catch {
-                present(error, title: String(localized: "无法移到废纸篓"))
+                present(error, title: String(localized: "Could not move to the Trash"))
             }
             stores.refresh()
             reread([url.deletingLastPathComponent()])
@@ -437,9 +437,9 @@ extension NSAlert {
         alert.messageText = title
         if let failure = error as? FileOperations.Failure {
             switch failure {
-            case .invalidName: alert.informativeText = String(localized: "这个名字不能用。")
-            case .exists(let name): alert.informativeText = String(localized: "“\(name)”已经存在。")
-            case .protected(let name): alert.informativeText = String(localized: "“\(name)”是受保护的文件夹，不能在这里重命名或移到废纸篓。")
+            case .invalidName: alert.informativeText = String(localized: "That name can’t be used.")
+            case .exists(let name): alert.informativeText = String(localized: "“\(name)” already exists.")
+            case .protected(let name): alert.informativeText = String(localized: "“\(name)” is a protected folder and can’t be renamed or moved to the Trash here.")
             }
         }
         return alert

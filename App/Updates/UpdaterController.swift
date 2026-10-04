@@ -17,7 +17,7 @@ final class UpdaterController: NSObject, SPUUpdaterDelegate {
 
     /// Offered in the settings picker; Sparkle's minimum is one hour.
     static let intervals: [(label: String, seconds: TimeInterval)] = [
-        ("每天", 86_400), ("每周", 604_800), ("每月", 2_592_000),
+        (String(localized: "Daily"), 86_400), (String(localized: "Weekly"), 604_800), (String(localized: "Monthly"), 2_592_000),
     ]
 
     /// False while `SUPublicEDKey` is still the placeholder (or missing): a valid key is 32 bytes of base64.

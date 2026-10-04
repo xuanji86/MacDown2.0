@@ -76,7 +76,7 @@ final class SearchModel {
     var hits: [SearchHit] { groups.flatMap(\.hits) }
     var selectedHit: SearchHit? { selection.flatMap { id in hits.first { $0.id == id } } }
 
-    /// The badge of the provider that found `hit` ("内置").
+    /// The badge of the provider that found `hit` ("Built-in").
     func badge(for hit: SearchHit) -> String { providers.first { $0.id == hit.source }?.badge ?? "" }
 
     func requestFocus() { focusTick += 1 }
@@ -177,7 +177,7 @@ final class SearchModel {
         status = failure.map(SearchStatus.failed) ?? .finished
         if failure == nil {
             let n = hitCount
-            AccessibilityNotification.Announcement(n == 0 ? "没有匹配项" : "找到 \(n) 处匹配").post()
+            AccessibilityNotification.Announcement(n == 0 ? String(localized: "No matches") : String(localized: "Found \(n) matches")).post()
         }
     }
 

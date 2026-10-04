@@ -61,7 +61,7 @@ struct FileCommands: Commands {
             }
             .disabled(workspace?.activeDocument == nil)
             // The same menu as the status bar's encoding label, which stays reachable when the bar is hidden.
-            Menu("编码") {
+            Menu("Encoding") {
                 if let document = workspace?.activeDocument { EncodingMenuItems(document: document) }
             }
             .disabled(workspace?.activeDocument == nil)
@@ -86,7 +86,8 @@ struct TabCommands: Commands {
                 .keyboardShortcut(.tab, modifiers: [.control, .shift])
             Menu("Go to Tab") {
                 ForEach(1...9, id: \.self) { number in
-                    Button(number == 9 ? "Last Tab" : "Tab \(number)") { workspace?.controller.select(number: number) }
+                    let title: LocalizedStringKey = number == 9 ? "Last Tab" : "Tab \(number)"
+                    Button(title) { workspace?.controller.select(number: number) }
                         .keyboardShortcut(KeyEquivalent(Character("\(number)")), modifiers: .control)
                 }
             }

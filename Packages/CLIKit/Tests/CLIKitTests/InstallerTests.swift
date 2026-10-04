@@ -26,7 +26,7 @@ private func app(in s: Scratch) throws -> (app: URL, helper: URL) {
     let bin = s.root.appending(path: "bin")
     try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
     try FileManager.default.createSymbolicLink(at: bin.appending(path: "macdown2"), withDestinationURL: other)
-    #expect(CLIInstaller.state(link: bin.appending(path: "macdown2"), helper: helper) == .elsewhere("a link to \(other.path)"))
+    #expect(CLIInstaller.state(link: bin.appending(path: "macdown2"), helper: helper) == .elsewhere(.link(to: other.path)))
     // Without replace the existing link is an error from the OS, not silently replaced…
     #expect(throws: (any Error).self) { try CLIInstaller.install(helper: helper, into: bin, replace: false) }
     // …with it, the link now points here.
@@ -39,21 +39,20 @@ private func app(in s: Scratch) throws -> (app: URL, helper: URL) {
     let (_, helper) = try app(in: s)
     let file = try s.write("bin/macdown2", "something else")
     let state = CLIInstaller.state(link: file, helper: helper)
-    #expect(state == .foreign("an existing file"))
+    #expect(state == .foreign(.file))
     // Even when the caller says "replace" (the old prompt would have deleted it): the file stays, byte for byte.
     #expect(throws: CLIInstaller.InstallError.self) { try CLIInstaller.install(helper: helper, into: file.deletingLastPathComponent(), replace: true) }
     #expect(try String(contentsOf: file, encoding: .utf8) == "something else")
     #expect(CLIInstaller.state(link: file, helper: helper) == state)
-    // The message the app shows names the path and says it was left alone.
+    // The error names the path and what is there; the app words it.
     do { try CLIInstaller.install(helper: helper, into: file.deletingLastPathComponent(), replace: true) } catch {
-        #expect(error.localizedDescription == CLIInstaller.foreignMessage(link: file, what: "an existing file"))
-        #expect(error.localizedDescription.contains(file.path) && error.localizedDescription.contains("left alone"))
+        #expect(error as? CLIInstaller.InstallError == .foreign(link: file, .file))
     }
 
     let folder = s.root.appending(path: "bin2/macdown2")
     try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
     try Data("keep".utf8).write(to: folder.appending(path: "keep.txt"))
-    #expect(CLIInstaller.state(link: folder, helper: helper) == .foreign("an existing file"))
+    #expect(CLIInstaller.state(link: folder, helper: helper) == .foreign(.file))
     #expect(throws: (any Error).self) { try CLIInstaller.install(helper: helper, into: folder.deletingLastPathComponent(), replace: true) }
     #expect(FileManager.default.fileExists(atPath: folder.appending(path: "keep.txt").path))
 }
@@ -66,7 +65,7 @@ private func app(in s: Scratch) throws -> (app: URL, helper: URL) {
     try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
     let link = bin.appending(path: "macdown2")
     try FileManager.default.createSymbolicLink(at: link, withDestinationURL: other)
-    #expect(CLIInstaller.state(link: link, helper: helper) == .foreign("a link to \(other.path)"))
+    #expect(CLIInstaller.state(link: link, helper: helper) == .foreign(.link(to: other.path)))
     #expect(throws: CLIInstaller.InstallError.self) { try CLIInstaller.install(helper: helper, into: bin, replace: true) }
     #expect(try FileManager.default.destinationOfSymbolicLink(atPath: link.path) == other.path)
     // A look-alike path that is not a MacDown2 bundle's helper does not count either.
@@ -82,7 +81,7 @@ private func app(in s: Scratch) throws -> (app: URL, helper: URL) {
     try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
     let link = bin.appending(path: "macdown2")
     try FileManager.default.createSymbolicLink(atPath: link.path, withDestinationPath: "/gone/MacDown2.app/Contents/Helpers/macdown2")  // that copy was deleted
-    #expect(CLIInstaller.state(link: link, helper: helper) == .elsewhere("a link to /gone/MacDown2.app/Contents/Helpers/macdown2"))
+    #expect(CLIInstaller.state(link: link, helper: helper) == .elsewhere(.link(to: "/gone/MacDown2.app/Contents/Helpers/macdown2")))
     try CLIInstaller.install(helper: helper, into: bin, replace: true)
     #expect(CLIInstaller.state(link: link, helper: helper) == .installed)
 }
@@ -93,14 +92,15 @@ private func app(in s: Scratch) throws -> (app: URL, helper: URL) {
     let bin = s.root.appending(path: "bin")
     try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
     try FileManager.default.createSymbolicLink(atPath: bin.appending(path: "macdown2").path, withDestinationPath: "/nonexistent/macdown2")
-    #expect(CLIInstaller.state(link: bin.appending(path: "macdown2"), helper: helper) == .foreign("a link to /nonexistent/macdown2"))
+    #expect(CLIInstaller.state(link: bin.appending(path: "macdown2"), helper: helper) == .foreign(.link(to: "/nonexistent/macdown2")))
     #expect(throws: (any Error).self) { try CLIInstaller.install(helper: helper, into: bin, replace: true) }
     #expect(try FileManager.default.destinationOfSymbolicLink(atPath: bin.appending(path: "macdown2").path) == "/nonexistent/macdown2")
 }
 
 @Test func installWithoutTheToolInTheBundleFails() throws {
     let s = try Scratch(); defer { s.remove() }
-    #expect(throws: (any Error).self) { try CLIInstaller.install(helper: s.root.appending(path: "none"), into: s.root.appending(path: "bin"), replace: false) }
+    let missing = s.root.appending(path: "none")
+    #expect(throws: CLIInstaller.InstallError.helperMissing(missing)) { try CLIInstaller.install(helper: missing, into: s.root.appending(path: "bin"), replace: false) }
 }
 
 @Test func directoryPrefersAWritableHomebrewBin() throws {
@@ -115,7 +115,7 @@ private func app(in s: Scratch) throws -> (app: URL, helper: URL) {
     #expect(CLIInstaller.directory(home: home, homebrew: brew) == home.appending(path: ".local/bin", directoryHint: .isDirectory))  // not writable
 }
 
-@Test func pathHintMentionsTheFolder() {
-    #expect(CLIInstaller.pathHint(directory: URL(fileURLWithPath: "/Users/x/.local/bin")).contains("/Users/x/.local/bin"))
-    #expect(CLIInstaller.pathHint(directory: URL(fileURLWithPath: "/opt/homebrew/bin")).contains("Homebrew"))
+@Test func onlyHomebrewBinIsKnownToBeOnThePath() {
+    #expect(CLIInstaller.isOnHomebrewPath(URL(fileURLWithPath: "/opt/homebrew/bin")))
+    #expect(!CLIInstaller.isOnHomebrewPath(URL(fileURLWithPath: "/Users/x/.local/bin")))
 }

@@ -357,7 +357,7 @@ final class WorkspaceRegistry: DocumentBackend {
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = true
-        panel.prompt = String(localized: "打开")
+        panel.prompt = String(localized: "Open")
         let done: (NSApplication.ModalResponse) -> Void = { [self] response in
             guard response == .OK else { return }
             if let front = orderedModels().first {

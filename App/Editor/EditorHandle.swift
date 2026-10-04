@@ -50,7 +50,7 @@ final class EditorHandle {
     func toggleTask(_ task: TaskItem, checked: Bool, renderedText: String) -> String? {
         guard let textView, textView.string == renderedText,
               let edit = TaskToggle.edit(in: renderedText, task: task, checked: checked),
-              textView.replaceUndoably(edit.range, with: edit.replacement, actionName: "切换任务")
+              textView.replaceUndoably(edit.range, with: edit.replacement, actionName: String(localized: "Toggle Task"))
         else { return nil }
         return textView.string
     }

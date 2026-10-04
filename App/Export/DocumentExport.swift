@@ -22,7 +22,7 @@ enum DocumentExport {
             let page = try await page(markdown, fileURL: fileURL, options: options, embedImages: embed.isOn)
             try page.write(to: url, atomically: true, encoding: .utf8)
         } catch {
-            fail("Could not export HTML", error, window: window)
+            fail(String(localized: "Could not export HTML"), error, window: window)
         }
     }
 
@@ -33,7 +33,7 @@ enum DocumentExport {
             let html = try await page(markdown, fileURL: fileURL, options: options, embedImages: true)
             try await PrintPage.pdf(html: html, setup: PageSetup(defaults: AppDefaults.store)).write(to: url, options: .atomic)
         } catch {
-            fail("Could not export PDF", error, window: window)
+            fail(String(localized: "Could not export PDF"), error, window: window)
         }
     }
 
@@ -44,7 +44,7 @@ enum DocumentExport {
             try await printable.load(html: try await page(markdown, fileURL: fileURL, options: options, embedImages: true))
             _ = await printable.run(info: PrintPage.printInfo(PageSetup(defaults: AppDefaults.store)), panel: true, sheetWindow: window)
         } catch {
-            fail("Could not print", error, window: window)
+            fail(String(localized: "Could not print"), error, window: window)
         }
     }
 
@@ -102,7 +102,7 @@ private final class EmbedImagesAccessory: NSObject {
     var isOn: Bool { checkbox.state == .on }
 
     override init() {
-        checkbox = NSButton(checkboxWithTitle: "Embed images in the file (otherwise keep their relative paths)", target: nil, action: nil)
+        checkbox = NSButton(checkboxWithTitle: String(localized: "Embed images in the file (otherwise keep their relative paths)"), target: nil, action: nil)
         checkbox.state = AppDefaults.store.bool(forKey: DocumentExport.embedImagesKey) ? .on : .off
         let box = NSView(frame: NSRect(x: 0, y: 0, width: 420, height: 36))
         checkbox.frame = NSRect(x: 12, y: 8, width: 400, height: 20)

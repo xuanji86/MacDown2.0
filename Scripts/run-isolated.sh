@@ -17,6 +17,8 @@
 #   MACDOWN2_ALLOWED_ROOT     the temp dir; the app refuses (and logs) any file outside it
 # Only copies of your files are opened, so the originals are never edited. (A folder is copied whole: keep it small.)
 #
+# Language: MACDOWN2_LANGUAGE=en or zh-Hans launches the instance in that language whatever the system's is.
+#
 # Screenshot just that window (never the whole screen):  screencapture -x -l <window id> shot.png
 # App log of an isolated launch:  log show --last 2m --predicate 'subsystem == "io.github.xuanji86.MacDown2"'
 #
@@ -109,10 +111,14 @@ done
 
 before="$(app_pids)"
 extra=()
-for name in MACDOWN2_TEST_UNTITLED_TEXT MACDOWN2_TEST_TERMINATE_AFTER MACDOWN2_TEST_WINDOW_FRAME MACDOWN2_TEST_EDIT_TEXT MACDOWN2_TEST_EDIT_AFTER MACDOWN2_TEST_PROMPT_ANSWER MACDOWN2_TEST_PROMPT_DELAY MACDOWN2_TEST_OPEN_SETTINGS MACDOWN2_TEST_TOOL_ENV_REREAD MACDOWN2_TEST_SEARCH MACDOWN2_TEST_SEARCH_REGEX MACDOWN2_TEST_SEARCH_OPEN MACDOWN2_TEST_TOGGLE_TASK_LINE MACDOWN2_TEST_TOGGLE_TASK_DELAY MACDOWN2_TEST_TOGGLE_TASK_LAYOUT MACDOWN2_TEST_TOGGLE_TASK_UNDO MACDOWN2_TEST_TOGGLE_TASK_SAVE MACDOWN2_TEST_SHOW_OUTLINE MACDOWN2_TEST_CLOSE_ACTIVE_TAB MACDOWN2_TEST_CLOSE_WINDOW MACDOWN2_TEST_REOPEN; do  # Debug-only drivers (App/IsolatedTestHooks.swift)
+for name in MACDOWN2_TEST_UNTITLED_TEXT MACDOWN2_TEST_TERMINATE_AFTER MACDOWN2_TEST_WINDOW_FRAME MACDOWN2_TEST_EDIT_TEXT MACDOWN2_TEST_EDIT_AFTER MACDOWN2_TEST_PROMPT_ANSWER MACDOWN2_TEST_PROMPT_DELAY MACDOWN2_TEST_OPEN_SETTINGS MACDOWN2_TEST_OPEN_SETTINGS_AFTER MACDOWN2_TEST_STATUS_BAR MACDOWN2_TEST_TOOL_ENV_REREAD MACDOWN2_TEST_SEARCH MACDOWN2_TEST_SEARCH_REGEX MACDOWN2_TEST_SEARCH_OPEN MACDOWN2_TEST_TOGGLE_TASK_LINE MACDOWN2_TEST_TOGGLE_TASK_DELAY MACDOWN2_TEST_TOGGLE_TASK_LAYOUT MACDOWN2_TEST_TOGGLE_TASK_UNDO MACDOWN2_TEST_TOGGLE_TASK_SAVE MACDOWN2_TEST_SHOW_OUTLINE MACDOWN2_TEST_CLOSE_ACTIVE_TAB MACDOWN2_TEST_CLOSE_WINDOW MACDOWN2_TEST_REOPEN MACDOWN2_TEST_DUMP_MENUS; do  # Debug-only drivers (App/IsolatedTestHooks.swift)
   [ -n "${!name:-}" ] && extra+=(--env "$name=${!name}")
 done
-open -n -a "$APP" --env "MACDOWN2_DEFAULTS_SUITE=$suite" --env "MACDOWN2_ALLOWED_ROOT=$root" ${extra[@]+"${extra[@]}"} ${copies[@]+"${copies[@]}"}
+# MACDOWN2_LANGUAGE=en|zh-Hans runs this instance in that language (the standard -AppleLanguages launch argument: it reaches this process
+# only, and writes nothing to any preferences domain).
+lang=()
+[ -z "${MACDOWN2_LANGUAGE:-}" ] || lang=(--args -AppleLanguages "($MACDOWN2_LANGUAGE)")
+open -n -a "$APP" --env "MACDOWN2_DEFAULTS_SUITE=$suite" --env "MACDOWN2_ALLOWED_ROOT=$root" ${extra[@]+"${extra[@]}"} ${copies[@]+"${copies[@]}"} ${lang[@]+"${lang[@]}"}
 
 pid=""
 for _ in $(seq 1 100); do

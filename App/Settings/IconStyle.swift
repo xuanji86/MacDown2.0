@@ -3,7 +3,7 @@ import OSLog
 
 private let log = Logger(subsystem: "io.github.xuanji86.MacDown2", category: "app-icon")
 
-/// Settings > General > "App 图标". The icon itself is the Icon Composer document `AppIcon.icon`, which the system already
+/// Settings > General > "App Icon". The icon itself is the Icon Composer document `AppIcon.icon`, which the system already
 /// renders in all four appearances (System Settings > Appearance > Icon & widget style); `.system` leaves that alone.
 /// Any other choice is a runtime override: `NSApp.applicationIconImage` with the matching rendering from `App/IconStyles/`
 /// (made from the real icon by `Scripts/render-icon-variants.sh`). It changes the Dock tile and the app's own UI (About
@@ -17,15 +17,15 @@ enum IconStyle: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .system: "跟随系统"
-        case .light: "Light"
-        case .dark: "Dark"
-        case .clear: "Clear"
-        case .tinted: "Tinted"
+        case .system: String(localized: "Follow System")
+        case .light: String(localized: "Light")
+        case .dark: String(localized: "Dark")
+        case .clear: String(localized: "Clear")
+        case .tinted: String(localized: "Tinted")
         }
     }
 
-    /// The saved choice; an unknown value (a newer version's, say) means 跟随系统.
+    /// The saved choice; an unknown value (a newer version's, say) means Follow System.
     static var current: IconStyle { IconStyle(rawValue: AppDefaults.store.string(forKey: key) ?? "") ?? .system }
 
     /// The icon as the Dock draws it: the rendering on a 1024 canvas with the standard 100 pt margin of a macOS icon (the

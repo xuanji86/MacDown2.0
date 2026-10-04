@@ -95,7 +95,7 @@ struct SearchMatcherTests {
     @Test func anInvalidRegexIsAClearErrorNotACrash() {
         #expect(throws: SearchError.invalidRegex) { try SearchMatcher(SearchQuery(text: "(unclosed", isRegex: true)) }
         #expect(throws: SearchError.invalidRegex) { try SearchMatcher(SearchQuery(text: "[a-", isRegex: true)) }
-        #expect(SearchError.invalidRegex.errorDescription == "正则表达式无效")
+        #expect(SearchError.invalidRegex.errorDescription == L10n.invalidRegex)
     }
 
     @Test func fileQuickRejectUsesEveryRequiredTerm() throws {
@@ -176,7 +176,7 @@ struct SearchScopeTests {
         let ws = WorkspaceFolders(roots: [URL(filePath: "/p/a", directoryHint: .isDirectory), URL(filePath: "/p/b", directoryHint: .isDirectory)])
         let roots = SearchScope.roots(workspace: ws, location: URL(filePath: "/q/c", directoryHint: .isDirectory))
         #expect(roots.map(\.path) == ["/p/a", "/p/b"])
-        #expect(SearchScope.title(of: roots) == "2 个文件夹")
+        #expect(SearchScope.title(of: roots) == L10n.folders(2))
     }
 
     @Test func nestedWorkspaceFoldersAreSearchedOnce() {

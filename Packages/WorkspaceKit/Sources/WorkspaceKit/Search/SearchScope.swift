@@ -27,12 +27,12 @@ public enum SearchScope {
 
     public static func isTooBroad(_ url: URL) -> Bool { url.standardizedFileURL.pathComponents.count <= 2 }
 
-    /// "MyBook" / "2 个文件夹" / the location's name: what the panel says it is searching in.
+    /// "MyBook" / "2 folders" / the location's name: what the panel says it is searching in.
     public static func title(of roots: [URL]) -> String {
         switch roots.count {
         case 0: return ""
         case 1: return roots[0].lastPathComponent
-        default: return "\(roots.count) 个文件夹"
+        default: return L10n.folders(roots.count)
         }
     }
 }

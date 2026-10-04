@@ -14,7 +14,7 @@ struct OutlineList: View {
         let current = outline.currentIndex(forLine: status.line)
         let base = outline.map(\.level).min() ?? 1  // a document that starts at ## is not indented
         if outline.isEmpty {
-            Text("没有标题").foregroundStyle(.secondary).frame(maxWidth: .infinity, maxHeight: .infinity)
+            Text("No Headings").foregroundStyle(.secondary).frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             ScrollViewReader { proxy in
                 List {

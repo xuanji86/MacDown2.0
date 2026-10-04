@@ -114,7 +114,7 @@ private struct CenteredTitle: View {
     private static let editedWord = Bundle(for: NSWindow.self).localizedString(forKey: "Edited", value: "Edited", table: "AutosaveButton")
 
     var body: some View {
-        (Text(title) + (edited ? Text(" — \(Self.editedWord)").fontWeight(.regular).foregroundStyle(.tertiary) : Text("")))
+        (Text(title) + (edited ? Text(verbatim: " — \(Self.editedWord)").fontWeight(.regular).foregroundStyle(.tertiary) : Text(verbatim: "")))
             .font(.system(size: 13, weight: .semibold))
             .foregroundStyle(.secondary)
             .lineLimit(1)
@@ -149,10 +149,10 @@ private struct EmptyWorkspaceView: View {
         let ink = Color(nsColor: theme.text)
         VStack(spacing: 14) {
             Image(systemName: "doc.text").font(.system(size: 40)).foregroundStyle(ink.opacity(0.3))
-            Text("没有打开的文件").font(.title3).foregroundStyle(ink.opacity(0.55))
+            Text("No Open Files").font(.title3).foregroundStyle(ink.opacity(0.55))
             HStack(spacing: 10) {
-                Button("打开…") { WorkspaceRegistry.shared.showOpenPanel() }
-                Button("新建 Markdown") { WorkspaceRegistry.shared.newUntitled() }
+                Button("Open…") { WorkspaceRegistry.shared.showOpenPanel() }
+                Button("New Markdown Document") { WorkspaceRegistry.shared.newUntitled() }
             }
             .buttonStyle(QuietButtonStyle(ink: ink))
         }

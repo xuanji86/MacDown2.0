@@ -107,7 +107,7 @@ private final class SpawnCounter: ProcessSpawner, @unchecked Sendable {
     #expect(QuartoExtension.enabledByDefault)
     #expect(QuartoExtension.disabledHint != nil)
     #expect(QuartoExtension().settingsPane() != nil)
-    #expect(QuartoFlavor().badge == FlavorBadge(title: "Quarto · 近似预览", help: "未执行代码、未应用项目配置"))
+    #expect(QuartoFlavor().badge == FlavorBadge(title: L10n.badgeTitle, help: L10n.badgeHelp))
 }
 
 @Test @MainActor func enabledByDefaultActivatesAndOnlyRegistersAFlavor() async throws {

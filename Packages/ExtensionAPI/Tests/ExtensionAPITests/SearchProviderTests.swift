@@ -6,7 +6,7 @@ import WorkspaceKit
 struct SearchProviderTests {
     @Test func theBuiltinBackendIsAKeywordProviderThatIsAlwaysReady() async throws {
         let provider: any SearchProvider = BuiltinSearchBackend()
-        #expect(provider.id == "builtin" && provider.badge == "内置")
+        #expect(provider.id == "builtin" && provider.badge == L10n.builtinBadge)
         #expect(provider.capabilities == .keyword)
         #expect(try await provider.prepare(workspace: URL(filePath: "/")) == .ready)
     }

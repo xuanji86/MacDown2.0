@@ -142,7 +142,7 @@ struct WorkspaceFoldersTests {
         #expect(ws.isActive && ws.title == "MyBook")
         let again = ws.add(URL(filePath: "/p/MyBook/")); #expect(!again)  // same folder, other spelling
         let second = ws.add(u("/p/Notes")); #expect(second)
-        #expect(ws.title == "2 个文件夹")
+        #expect(ws.title == L10n.folders(2))
         ws.remove(u("/p/MyBook"))
         #expect(ws.roots.map(\.lastPathComponent) == ["Notes"])
         ws.remove(u("/p/Notes"))
@@ -371,7 +371,7 @@ struct SidebarContentTests {
         let snap = SidebarContent.browse(
             favorites: [fav("/Users/me/Desktop"), fav("/Users/me/Documents")], location: location, tree: tree,
             recents: [URL(filePath: "/x/weekly.md")], query: "", skeletons: [])
-        #expect(kinds(snap.items) == ["H:收藏", "F:Desktop", "F:Documents", "H:当前位置", "path", "N:sub@0", "N:a.md@0", "H:最近", "R:weekly.md"])
+        #expect(kinds(snap.items) == ["H:\(L10n.favorites)", "F:Desktop", "F:Documents", "H:\(L10n.currentLocation)", "path", "N:sub@0", "N:a.md@0", "H:\(L10n.recents)", "R:weekly.md"])
         #expect(snap.matchCount == nil)
     }
 
@@ -381,16 +381,16 @@ struct SidebarContentTests {
         let snap = SidebarContent.browse(
             favorites: [fav("/Users/me/Desktop")], location: CurrentLocation(directory: t.url), tree: FileTreeModel(roots: [t.url]),
             recents: [URL(filePath: "/x/setup-old.md"), URL(filePath: "/x/zzz.md")], query: "setup", skeletons: [])
-        #expect(kinds(snap.items) == ["H:当前位置", "path", "N:setup.md@0", "H:最近", "R:setup-old.md"])
+        #expect(kinds(snap.items) == ["H:\(L10n.currentLocation)", "path", "N:setup.md@0", "H:\(L10n.recents)", "R:setup-old.md"])
         #expect(snap.matchCount == 2)
         let none = SidebarContent.browse(
             favorites: [], location: CurrentLocation(directory: t.url), tree: FileTreeModel(roots: [t.url]), recents: [], query: "qqq", skeletons: [])
-        #expect(kinds(none.items) == ["H:当前位置", "path", "P:没有匹配", ] && none.matchCount == 0)
+        #expect(kinds(none.items) == ["H:\(L10n.currentLocation)", "path", "P:\(L10n.noMatches.prefix(4))"] && none.matchCount == 0)
     }
 
     @Test func emptyStatesSayWhatWillFillThem() {
         let snap = SidebarContent.browse(favorites: [], location: CurrentLocation(), tree: FileTreeModel(), recents: [], query: "", skeletons: [])
-        #expect(kinds(snap.items) == ["H:收藏", "P:把文件夹", "H:当前位置", "P:还没有打", "H:最近", "P:最近没有"])
+        #expect(kinds(snap.items) == ["H:\(L10n.favorites)", "P:\(L10n.dragFoldersHere.prefix(4))", "H:\(L10n.currentLocation)", "P:\(L10n.noDocumentOpen.prefix(4))", "H:\(L10n.recents)", "P:\(L10n.noRecents.prefix(4))"])
     }
 
     @Test func aFolderStillBeingReadShowsSkeletonOnlyAfterTheDelay() throws {
@@ -402,7 +402,7 @@ struct SidebarContentTests {
         #expect(!kinds(early.items).contains("skeleton"))
         let late = SidebarContent.browse(favorites: [], location: location, tree: tree, recents: [], query: "", skeletons: [t.url.fileKey])
         #expect(kinds(late.items).filter { $0 == "skeleton" }.count == 3)
-        #expect(late.items.contains(.header(.location, title: "当前位置", trailing: .loading)))
+        #expect(late.items.contains(.header(.location, title: L10n.currentLocation, trailing: .loading)))
     }
 
     @Test func anUnreadableFolderGetsAHintNotACrash() throws {

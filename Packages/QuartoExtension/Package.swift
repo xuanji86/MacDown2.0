@@ -5,6 +5,7 @@ import PackageDescription
 // from importing it). It needs the protocols and the renderer types, never EditorKit or the app.
 let package = Package(
     name: "QuartoExtension",
+    defaultLocalization: "en",
     platforms: [.macOS(.v26)],
     products: [.library(name: "QuartoExtension", targets: ["QuartoExtension"])],
     dependencies: [
@@ -13,7 +14,7 @@ let package = Package(
         .package(path: "../WebAssets"),
     ],
     targets: [
-        .target(name: "QuartoExtension", dependencies: ["ExtensionAPI", "MarkdownCore"]),
+        .target(name: "QuartoExtension", dependencies: ["ExtensionAPI", "MarkdownCore"], resources: [.process("Resources")]),
         .testTarget(name: "QuartoExtensionTests", dependencies: ["QuartoExtension", "ExtensionAPI", "MarkdownCore", "WebAssets"]),
     ]
 )

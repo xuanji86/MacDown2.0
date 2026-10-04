@@ -13,10 +13,10 @@ struct SidebarView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Picker("侧栏", selection: $model.sidebarSection) {
-                Text("文件").tag(SidebarSection.files)
-                Text("搜索").tag(SidebarSection.search)
-                Text("大纲").tag(SidebarSection.outline)
+            Picker("Sidebar", selection: $model.sidebarSection) {
+                Text("Files").tag(SidebarSection.files)
+                Text("Search").tag(SidebarSection.search)
+                Text("Outline").tag(SidebarSection.outline)
             }
             .pickerStyle(.segmented)
             .labelsHidden()
@@ -46,7 +46,7 @@ private struct FilesPage: View {
             if sidebar.isWorkspace { WorkspaceChip(model: model) }
             FilterField(sidebar: sidebar)
             if let count = snapshot.matchCount {
-                Text(sidebar.showAllFiles ? "\(count) 项匹配" : "\(count) 项匹配 · 显示所有文件请点「全部」")
+                Text(matchLine(count, showsAll: sidebar.showAllFiles))
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -56,6 +56,10 @@ private struct FilesPage: View {
             FileTable(model: sidebar, items: snapshot.items, tableContext: tableContext)
         }
         .onChange(of: quartoOn, initial: true) { _, on in sidebar.quartoEnabled = on }
+    }
+
+    private func matchLine(_ count: Int, showsAll: Bool) -> LocalizedStringKey {
+        showsAll ? "\(count) matches" : "\(count) matches · Click “All” to show every file type"
     }
 
     private var quartoOn: Bool { AppExtensions.host.flavors.contains { $0.id == "quarto" } }
@@ -79,10 +83,10 @@ private struct WorkspaceChip: View {
 
     var body: some View {
         Menu {
-            Button("添加文件夹到工作区…") { model.addWorkspaceFolders() }
-            Button("在 Finder 中显示") { model.revealWorkspaceInFinder() }
+            Button("Add Folder to Workspace…") { model.addWorkspaceFolders() }
+            Button("Reveal in Finder") { model.revealWorkspaceInFinder() }
             Divider()
-            Button("关闭工作区") { model.sidebar.closeWorkspace() }
+            Button("Close Workspace") { model.sidebar.closeWorkspace() }
         } label: {
             HStack(spacing: 8) {
                 Text(model.sidebar.folders.title)
@@ -110,9 +114,14 @@ private struct WorkspaceChip: View {
         .menuIndicator(.hidden)
         .padding(.horizontal, 10)
         .padding(.bottom, 6)
-        .accessibilityLabel("工作区 \(model.sidebar.folders.title)")
+        .accessibilityLabel("Workspace \(model.sidebar.folders.title)")
         .help(model.sidebar.folders.roots.map(\.path).joined(separator: "\n"))
     }
+}
+
+extension LocalizedStringKey {
+    /// The spoken value of a switch.
+    static func onOff(_ on: Bool) -> LocalizedStringKey { on ? "On" : "Off" }
 }
 
 /// Filter box with the "All" switch (every file type, non-Markdown dimmed and opened in their own app).
@@ -124,7 +133,7 @@ private struct FilterField: View {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
-            TextField("筛选", text: $sidebar.filter)
+            TextField("Filter", text: $sidebar.filter)
                 .textFieldStyle(.plain)
                 .font(.system(size: 12))
                 .onExitCommand { sidebar.filter = "" }
@@ -133,7 +142,7 @@ private struct FilterField: View {
                     Image(systemName: "xmark.circle.fill").font(.system(size: 11)).foregroundStyle(.tertiary)
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("清除筛选")
+                .accessibilityLabel("Clear Filter")
             }
             AllFilesToggle(sidebar: sidebar)
         }
@@ -152,7 +161,7 @@ struct AllFilesToggle: View {
 
     var body: some View {
         Button { sidebar.showAllFiles.toggle() } label: {
-            Text("全部")
+            Text("All")
                 .font(.system(size: 10, weight: .semibold))
                 .foregroundStyle(sidebar.showAllFiles ? Color.white : Color.secondary)
                 .padding(.horizontal, 7)
@@ -160,9 +169,9 @@ struct AllFilesToggle: View {
                 .background(Capsule().fill(sidebar.showAllFiles ? Color.accentColor : Color.primary.opacity(0.08)))
         }
         .buttonStyle(.plain)
-        .help("所有文件类型：树里非 Markdown 文件半透明、单击用默认 App 打开；搜索也会包含它们")
-        .accessibilityLabel("显示所有文件")
-        .accessibilityValue(sidebar.showAllFiles ? "开" : "关")
+        .help("All file types: files that are not Markdown are dimmed in the tree and open in their default app when clicked; search includes them too")
+        .accessibilityLabel("Show All Files")
+        .accessibilityValue(.onOff(sidebar.showAllFiles))
         .accessibilityAddTraits(.isToggle)
     }
 }

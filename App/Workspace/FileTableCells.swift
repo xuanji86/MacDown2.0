@@ -84,13 +84,13 @@ final class FileCellView: NSTableCellView, NSTextFieldDelegate {
         badge.layer?.cornerRadius = 4
         badge.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([badge.widthAnchor.constraint(equalToConstant: 16), badge.heightAnchor.constraint(equalToConstant: 14)])
-        badge.toolTip = "Quarto 项目（含 _quarto.yml）"
+        badge.toolTip = String(localized: "Quarto project (contains _quarto.yml)")
 
         dot.wantsLayer = true
         dot.layer?.cornerRadius = 3.5
         dot.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([dot.widthAnchor.constraint(equalToConstant: 7), dot.heightAnchor.constraint(equalToConstant: 7)])
-        dot.toolTip = "有未保存的修改"
+        dot.toolTip = String(localized: "Has unsaved changes")
 
         trailing.orientation = .horizontal
         trailing.spacing = 6
@@ -157,7 +157,7 @@ final class FileCellView: NSTableCellView, NSTextFieldDelegate {
         dot.layer?.backgroundColor = NSColor.controlAccentColor.cgColor
         alphaValue = c.isDimmed ? 0.5 : 1
         toolTip = c.help
-        setAccessibilityLabel(c.isDirty ? "\(c.name)，有未保存的修改" : c.name)
+        setAccessibilityLabel(c.isDirty ? String(localized: "\(c.name), has unsaved changes") : c.name)
 
         var font = NSFont.systemFont(ofSize: 13)
         if c.isPreview { font = NSFontManager.shared.convert(font, toHaveTrait: .italicFontMask) }  // preview tab = italic, as in the tab bar
@@ -212,7 +212,7 @@ final class FileCellView: NSTableCellView, NSTextFieldDelegate {
     }
 }
 
-/// Section title with its trailing control (+ / 清除 / 正在读取…).
+/// Section title with its trailing control (+ / Clear / Reading…).
 final class HeaderCellView: NSTableCellView {
     static let identifier = NSUserInterfaceItemIdentifier("header")
     private let title = NSTextField(labelWithString: "")
@@ -248,26 +248,26 @@ final class HeaderCellView: NSTableCellView {
         setAccessibilityLabel(text)
         button.isHidden = trailing != .add && trailing != .clear
         status.isHidden = trailing != .loading
-        status.stringValue = "正在读取…"
+        status.stringValue = String(localized: "Reading…")
         switch trailing {
         case .add:
             button.image = SidebarStyle.symbol("plus", size: 11)
             button.imagePosition = .imageOnly
             button.title = ""
-            button.toolTip = "添加文件夹到收藏…"
-            button.setAccessibilityLabel("添加文件夹到收藏")
+            button.toolTip = String(localized: "Add Folder to Favorites…")
+            button.setAccessibilityLabel(String(localized: "Add Folder to Favorites"))
         case .clear:
             button.image = nil
             button.imagePosition = .noImage
-            button.attributedTitle = NSAttributedString(string: "清除", attributes: [.font: NSFont.systemFont(ofSize: 11), .foregroundColor: NSColor.secondaryLabelColor])
-            button.toolTip = "清除最近打开的文件"
+            button.attributedTitle = NSAttributedString(string: String(localized: "Clear Recents"), attributes: [.font: NSFont.systemFont(ofSize: 11), .foregroundColor: NSColor.secondaryLabelColor])
+            button.toolTip = String(localized: "Clear Recent Files")
         default: break
         }
         button.onClick = action
     }
 }
 
-/// "↑ 文稿 › Notes": one button per path segment, the last one (the folder shown) in bold.
+/// "↑ Documents › Notes": one button per path segment, the last one (the folder shown) in bold.
 final class PathBarCellView: NSTableCellView {
     static let identifier = NSUserInterfaceItemIdentifier("pathbar")
     private let bar = NSView()
@@ -305,8 +305,8 @@ final class PathBarCellView: NSTableCellView {
         for view in stack.arrangedSubviews { stack.removeArrangedSubview(view); view.removeFromSuperview() }
         let up = ActionButton(symbol: "arrow.up", onClick: goUp)
         up.isEnabled = canGoUp
-        up.toolTip = "上一级文件夹"
-        up.setAccessibilityLabel("上一级文件夹")
+        up.toolTip = String(localized: "Parent Folder")
+        up.setAccessibilityLabel(String(localized: "Parent Folder"))
         up.contentTintColor = canGoUp ? .secondaryLabelColor : .quaternaryLabelColor
         stack.addArrangedSubview(up)
         // lazy: only the last two segments are shown; the "…" stands for the rest and the ↑ button walks further up
@@ -325,7 +325,7 @@ final class PathBarCellView: NSTableCellView {
             stack.addArrangedSubview(button)
             if !isLast { stack.addArrangedSubview(Self.text("›", color: .tertiaryLabelColor)) }
         }
-        setAccessibilityLabel("当前位置：" + (segments.last?.title ?? ""))
+        setAccessibilityLabel(String(localized: "Current location: \(segments.last?.title ?? "")"))
     }
 
     private static func text(_ s: String, color: NSColor) -> NSTextField {

@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 import WorkspaceKit
 
 /// Which panes of a document window show and how the width is divided. Persisted per window (`@SceneStorage`) as
@@ -33,7 +34,7 @@ enum SplitPreset: CaseIterable, Identifiable {
 
     var id: Self { self }
 
-    var title: String {
+    var title: LocalizedStringKey {
         switch self {
         case .equal: "Editor and Preview, Equal"
         case .editorQuarter: "Editor 1/4, Preview 3/4"

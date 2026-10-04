@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// `@AppStorage` keys of the two optional bits of window chrome (View menu, Settings ▸ Editor ▸ 布局). Both default to
+/// `@AppStorage` keys of the two optional bits of window chrome (View menu, Settings ▸ Editor ▸ Layout). Both default to
 /// hidden, like the original MacDown's bare window.
 enum WindowChromeKey {
     static let statusBar = "window.showStatusBar"

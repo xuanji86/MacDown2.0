@@ -16,7 +16,7 @@ struct SettingsView: View {
             Tab("Markdown", systemImage: "text.badge.checkmark") { MarkdownPage() }
             Tab("Rendering", systemImage: "eye") { RenderingPage() }
             Tab("Export", systemImage: "square.and.arrow.up") { ExportPage() }
-            Tab("扩展", systemImage: "puzzlepiece.extension") { ExtensionsPage() }
+            Tab("Extensions", systemImage: "puzzlepiece.extension") { ExtensionsPage() }
             Tab("Updates", systemImage: "arrow.triangle.2.circlepath") { UpdatesPage() }
         }
         .scenePadding()
@@ -29,15 +29,44 @@ struct SettingsView: View {
 private struct GeneralPage: View {
     var body: some View {
         Form {
+            LanguageSection()
             IconStyleSection()
             ToolEnvironmentSection()
-            Section { Text("更多通用设置将随后续功能加入。").foregroundStyle(.secondary) }
+            Section { Text("More general settings will arrive with later features.").foregroundStyle(.secondary) }
         }
         .formStyle(.grouped)
     }
 }
 
-/// "App 图标": 跟随系统 (the bundle's adaptive icon) or one of its four appearances. `IconStyle.start()` applies the choice.
+/// "Language / 语言": the app's own override of the system language (`AppLanguage`), applied at the next launch.
+private struct LanguageSection: View {
+    @State private var language = AppLanguage.current
+    @State private var asksToRelaunch = false
+
+    var body: some View {
+        Section {
+            Picker(selection: $language) {
+                ForEach(AppLanguage.allCases) { $0.title.tag($0) }
+            } label: {
+                Text(verbatim: "Language / 语言")  // l10n: native-name (the one label that must be findable in either language)
+            }
+            .onChange(of: language) { _, new in
+                new.save()
+                asksToRelaunch = true
+            }
+            .alert("Relaunch to change the language?", isPresented: $asksToRelaunch) {
+                Button("Relaunch Now") { AppRelauncher.relaunch() }
+                Button("Later", role: .cancel) {}
+            } message: {
+                Text("Menus and windows switch to the new language after MacDown2 relaunches.")
+            }
+        } footer: {
+            Text("Follow System uses the language set in System Settings. The choice takes effect when MacDown2 is relaunched.")
+        }
+    }
+}
+
+/// "App Icon": Follow System (the bundle's adaptive icon) or one of its four appearances. `IconStyle.start()` applies the choice.
 private struct IconStyleSection: View {
     @AppStorage(IconStyle.key) private var raw = IconStyle.system.rawValue
 
@@ -56,15 +85,15 @@ private struct IconStyleSection: View {
                         .overlay { if selected { RoundedRectangle(cornerRadius: 8).stroke(Color.accentColor, lineWidth: 1.5) } }
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel("App 图标:\(style.title)")
+                    .accessibilityLabel("App Icon: \(style.title)")
                     .accessibilityAddTraits(selected ? .isSelected : [])
                 }
             }
             .frame(maxWidth: .infinity)
         } header: {
-            Text("App 图标")
+            Text("App Icon")
         } footer: {
-            Text("运行时的 Dock 图标;Finder 中的图标跟随系统外观")
+            Text("The Dock icon while the app is running; the icon in Finder follows the system appearance")
         }
     }
 }
@@ -76,11 +105,11 @@ private struct ToolEnvironmentSection: View {
 
     var body: some View {
         Section {
-            LabeledContent("状态") { Text(summary).multilineTextAlignment(.trailing) }
+            LabeledContent("Status") { Text(summary).multilineTextAlignment(.trailing) }
             if case .ready(let snapshot) = state, case .fallback = snapshot.source {
-                Text("改用本 App 自身的环境,并追加 /opt/homebrew/bin、/usr/local/bin、~/.local/bin。").font(.caption).foregroundStyle(.secondary)
+                Text("Using this app’s own environment, with /opt/homebrew/bin, /usr/local/bin and ~/.local/bin added.").font(.caption).foregroundStyle(.secondary)
             }
-            Button("重新抓取") {
+            Button("Re-read") {
                 state = .loading
                 Task {
                     await AppExtensions.loginShell.reread()
@@ -89,27 +118,27 @@ private struct ToolEnvironmentSection: View {
             }
             .disabled(state == .loading)
         } header: {
-            Text("外部工具环境")
+            Text("External Tool Environment")
         } footer: {
-            Text("Quarto、qmd 等扩展会在登录 shell 的环境里启动外部程序(这样才找得到 Homebrew 的 PATH)。只有已启用的扩展真正用到工具时才会读取一次;你改过 shell 配置后可在此重新抓取。")
+            Text("Extensions such as Quarto and qmd start external programs in your login shell’s environment (so they can find Homebrew’s PATH). It is read once, only when an enabled extension actually needs a tool; after you change your shell configuration you can re-read it here.")
         }
         .task { state = await AppExtensions.loginShell.state() }
     }
 
     private var summary: String {
         switch state {
-        case .notNeeded: "尚未需要"
-        case .loading: "读取中…"
+        case .notNeeded: String(localized: "Not needed yet")
+        case .loading: String(localized: "Loading…")
         case .ready(let snapshot):
             switch snapshot.source {
-            case .loginShell(let path): "\(path) · \(String(format: "%.2f", snapshot.seconds)) s · PATH \(snapshot.path.count) 项"
-            case .fallback(let reason): "环境抓取失败(\(reason)) · PATH \(snapshot.path.count) 项"
+            case .loginShell(let path): String(localized: "\(path) · \(String(format: "%.2f", snapshot.seconds)) s · PATH has \(snapshot.path.count) entries")
+            case .fallback(let reason): String(localized: "Could not read the environment (\(reason)) · PATH has \(snapshot.path.count) entries")
             }
         }
     }
 }
 
-// MARK: 扩展
+// MARK: Extensions
 
 /// One row per built-in extension (PLAN 4.8 / 4.17): name, one line, a switch; an enabled extension's own settings fold out
 /// below. A switched-off extension shows no settings and none of its code runs (`settingsPane()` is not even called).
@@ -149,7 +178,7 @@ private struct ExtensionRow: View {
                 Task { await AppExtensions.registry.setEnabled(on, for: kind.id) }
             }
             if enabled, let pane = ext.settingsPane() {
-                DisclosureGroup("设置", isExpanded: $showsSettings) { pane }
+                DisclosureGroup("Settings", isExpanded: $showsSettings) { pane }
             }
         }
     }
@@ -174,70 +203,70 @@ private struct EditorPage: View {
 
     var body: some View {
         Form {
-            Section("外观") {
-                Picker("编辑器主题", selection: $theme) {
+            Section("Appearance") {
+                Picker("Editor Theme", selection: $theme) {
                     ForEach(ThemeLibrary.all, id: \.name) { Text($0.name).tag($0.name) }
                 }
-                Toggle("跟随系统", isOn: $themeFollows)
-                Picker("字体", selection: editor.$fontName) {
-                    Text("系统等宽").tag("")
+                Toggle("Follow System", isOn: $themeFollows)
+                Picker("Font", selection: editor.$fontName) {
+                    Text("System Monospaced").tag("")
                     ForEach(Self.monospacedFamilies, id: \.self) { Text($0).tag($0) }
                 }
-                Stepper(value: editor.$fontSize, in: 8...72, step: 1) { Text("字号:\(Int(editor.fontSize)) pt") }
+                Stepper(value: editor.$fontSize, in: 8...72, step: 1) { Text("Font size: \(Int(editor.fontSize)) pt") }
                 Stepper(value: editor.$lineSpacing, in: Double(EditorViewSettings.lineSpacingRange.lowerBound)...Double(EditorViewSettings.lineSpacingRange.upperBound), step: 1) {
-                    Text("行距:额外 \(Int(editor.lineSpacing)) pt")
+                    Text("Extra line spacing: \(Int(editor.lineSpacing)) pt")
                 }
-                Toggle("显示行号", isOn: editor.$lineNumbers)
-                Toggle("显示不可见字符(空格、Tab、换行)", isOn: editor.$showInvisibles)
-                Toggle("编辑器在右侧(预览在左)", isOn: editor.$editorOnRight)
-                Toggle("限制编辑区宽度并居中", isOn: editor.$limitWidth)
+                Toggle("Show Line Numbers", isOn: editor.$lineNumbers)
+                Toggle("Show invisible characters (spaces, tabs, line breaks)", isOn: editor.$showInvisibles)
+                Toggle("Editor on the right (preview on the left)", isOn: editor.$editorOnRight)
+                Toggle("Limit the editor width and center it", isOn: editor.$limitWidth)
                 Stepper(value: editor.$maxWidth, in: Double(EditorViewSettings.maxWidthRange.lowerBound)...Double(EditorViewSettings.maxWidthRange.upperBound), step: 20) {
-                    Text("最大宽度:\(Int(editor.maxWidth)) px")
+                    Text("Maximum width: \(Int(editor.maxWidth)) px")
                 }
                 .disabled(!editor.limitWidth)
             }
-            Section("布局") {
-                Picker("启动布局", selection: $newWindowLayout) {
-                    Text("双栏").tag(SplitMode.both)
-                    Text("仅编辑").tag(SplitMode.editorOnly)
-                    Text("仅预览").tag(SplitMode.previewOnly)
+            Section("Layout") {
+                Picker("Startup Layout", selection: $newWindowLayout) {
+                    Text("Two Panes").tag(SplitMode.both)
+                    Text("Editor Only").tag(SplitMode.editorOnly)
+                    Text("Preview Only").tag(SplitMode.previewOnly)
                 }
                 .pickerStyle(.segmented)
-                Text("新窗口以此布局开始。重新打开的窗口和曾调整过布局的文件夹沿用各自上次的布局;命令行的 --editor-only、--preview-only、--both 优先。")
+                Text("New windows start with this layout. Reopened windows and folders whose layout you changed keep their own last layout; --editor-only, --preview-only and --both on the command line take priority.")
                     .font(.caption).foregroundStyle(.secondary)
             }
-            Section("窗口") {
-                Toggle("显示编辑区与预览区之间的分隔线", isOn: $showsDivider)
-                Toggle("显示状态栏(行列、字数、编码)", isOn: $showsStatusBar)
-                Text("默认都隐藏,与原版 MacDown 一致。隐藏状态栏后,编码可在 文件 ▸ 编码 中更改;分隔线隐藏时仍可在两栏交界处拖动调整宽度。")
+            Section("Window") {
+                Toggle("Show a divider between the editor and the preview", isOn: $showsDivider)
+                Toggle("Show the status bar (line and column, word count, encoding)", isOn: $showsStatusBar)
+                Text("Both are hidden by default, as in the original MacDown. With the status bar hidden, the encoding can still be changed in File ▸ Encoding; with the divider hidden you can still drag the boundary between the two panes to resize them.")
                     .font(.caption).foregroundStyle(.secondary)
             }
-            Section("输入") {
-                Toggle("自动配对括号和引号", isOn: editor.$autoPair)
-                Toggle("回车续写列表和引用", isOn: editor.$continueLists)
-                Toggle("有序列表自动递增", isOn: editor.$autoNumberLists).disabled(!editor.continueLists)
-                Toggle("Tab 转为空格", isOn: editor.$tabInsertsSpaces)
-                Stepper(value: editor.$tabWidth, in: 1...8) { Text("Tab 宽度:\(editor.tabWidth)") }
-                Picker("无序列表标记", selection: editor.$listMarker) {
+            Section("Typing") {
+                Toggle("Auto-pair brackets and quotes", isOn: editor.$autoPair)
+                Toggle("Continue lists and quotes on Return", isOn: editor.$continueLists)
+                Toggle("Auto-increment ordered lists", isOn: editor.$autoNumberLists).disabled(!editor.continueLists)
+                Toggle("Insert spaces for Tab", isOn: editor.$tabInsertsSpaces)
+                Stepper(value: editor.$tabWidth, in: 1...8) { Text("Tab width: \(editor.tabWidth)") }
+                Picker("Unordered list marker", selection: editor.$listMarker) {
                     ForEach(EditorSettings.listMarkers, id: \.self) { Text($0).tag($0) }
                 }
                 .pickerStyle(.segmented)
-                Toggle("⌘← 先到行首第一个非空白字符", isOn: editor.$smartHome)
+                Toggle("⌘← goes to the first non-blank character of the line first", isOn: editor.$smartHome)
             }
             Section {
-                Toggle("智能引号(直引号变弯引号)", isOn: editor.$smartQuotes)
-                Toggle("智能破折号(-- 变成 —)", isOn: editor.$smartDashes)
-                Toggle("文本替换(系统设置里的替换表、双空格变句号)", isOn: editor.$textReplacement)
-                Toggle("拼写自动更正(系统把自动大写算在这一项里)", isOn: editor.$spellingCorrection)
-                Toggle("智能增删空格(粘贴、剪切时补空格)", isOn: editor.$smartInsertDelete)
+                Toggle("Smart quotes (straight quotes become curly)", isOn: editor.$smartQuotes)
+                Toggle("Smart dashes (-- becomes —)", isOn: editor.$smartDashes)
+                Toggle("Text replacement (the replacement list in System Settings, double space becomes a period)", isOn: editor.$textReplacement)
+                Toggle("Spelling correction (the system counts automatic capitalization here too)", isOn: editor.$spellingCorrection)
+                Toggle("Smart insert and delete (adds spaces when pasting and cutting)", isOn: editor.$smartInsertDelete)
             } header: {
-                Text("系统智能替换")
+                Text("System Text Substitutions")
             } footer: {
-                Text("这些会改写你输入的字符,写 Markdown 源码时默认全部关闭。")
+                Text("These rewrite the characters you type, so they are all off by default when writing Markdown source.")
             }
-            Section("滚动") {
-                Toggle("编辑器与预览同步滚动", isOn: $syncScrolling)
-                Toggle("预览跟随光标", isOn: $previewFollowsCaret)
+            Section("Scrolling") {
+                Toggle("Scroll the editor and preview together", isOn: $syncScrolling)
+                Toggle("Preview follows the caret", isOn: $previewFollowsCaret)
             }
         }
         .formStyle(.grouped)
@@ -249,29 +278,33 @@ private struct EditorPage: View {
 private struct MarkdownPage: View {
     @Bindable private var render = RenderSettings.shared
 
+    // Strings, not LocalizedStringKeys: several hold markup (~~x~~, _x_) that a LocalizedStringKey would render as Markdown.
     private static let syntax: [(MarkdownExtension, String)] = [
-        (.tables, "表格"), (.autolink, "自动链接"), (.strikethrough, "删除线 ~~x~~"), (.mark, "高亮 ==x=="),
-        (.sup, "上标 x^2^"), (.sub, "下标 H~2~O"), (.underline, "下划线 _x_"), (.footnotes, "脚注"),
-        (.taskLists, "任务列表"), (.smartPunctuation, "智能标点(弯引号、破折号)"), (.toc, "[TOC] 目录"),
-        (.cjkEmphasis, "CJK 友好强调"), (.emoji, "Emoji 短码 :smile:"),
+        (.tables, String(localized: "Tables")), (.autolink, String(localized: "Autolinks")),
+        (.strikethrough, String(localized: "Strikethrough ~~x~~")), (.mark, String(localized: "Highlight ==x==")),
+        (.sup, String(localized: "Superscript x^2^")), (.sub, String(localized: "Subscript H~2~O")),
+        (.underline, String(localized: "Underline _x_")), (.footnotes, String(localized: "Footnotes")),
+        (.taskLists, String(localized: "Task Lists")), (.smartPunctuation, String(localized: "Smart punctuation (curly quotes, dashes)")),
+        (.toc, String(localized: "[TOC] Table of Contents")), (.cjkEmphasis, String(localized: "CJK-friendly emphasis")),
+        (.emoji, String(localized: "Emoji shortcodes :smile:")),
     ]
 
     var body: some View {
         Form {
-            Section("语法") {
+            Section("Syntax") {
                 ForEach(Self.syntax, id: \.0) { ext, label in Toggle(label, isOn: render.binding(ext)) }
             }
             Section("Front matter") {
-                Toggle("识别开头的 front matter(YAML ---、TOML +++)", isOn: render.binding(.frontMatter))
-                Picker("预览中显示为", selection: $render.preferences.frontMatterDisplay) {
-                    Text("隐藏").tag(FrontMatterDisplay.hidden)
-                    Text("表格").tag(FrontMatterDisplay.table)
+                Toggle("Detect leading front matter (YAML ---, TOML +++)", isOn: render.binding(.frontMatter))
+                Picker("Show in preview as", selection: $render.preferences.frontMatterDisplay) {
+                    Text("Hidden").tag(FrontMatterDisplay.hidden)
+                    Text("Table").tag(FrontMatterDisplay.table)
                 }
                 .disabled(!render.preferences.extensions.contains(.frontMatter))
             }
-            Section("HTML 与换行") {
-                Toggle("渲染原生 HTML", isOn: $render.preferences.allowRawHTML)
-                Toggle("硬换行(回车即换行)", isOn: $render.preferences.hardBreaks)
+            Section("HTML and Line Breaks") {
+                Toggle("Render raw HTML", isOn: $render.preferences.allowRawHTML)
+                Toggle("Hard line breaks (Return makes a line break)", isOn: $render.preferences.hardBreaks)
             }
         }
         .formStyle(.grouped)
@@ -288,26 +321,26 @@ private struct RenderingPage: View {
 
     var body: some View {
         Form {
-            Section("预览") {
-                Picker("预览样式", selection: $style) {
+            Section("Preview") {
+                Picker("Preview Style", selection: $style) {
                     ForEach(PreviewStyles.all) { Text($0.name).tag($0.id) }
                 }
-                Toggle("跟随系统", isOn: $styleFollows)
+                Toggle("Follow System", isOn: $styleFollows)
             }
             Section {
-                Toggle("阻止远程图片", isOn: $blockRemoteImages)
+                Toggle("Block remote images", isOn: $blockRemoteImages)
             } header: {
-                Text("远程内容")
+                Text("Remote Content")
             } footer: {
-                Text("默认关闭:预览会从网络加载文档里的 https 图片。打开后预览不再联网取图,被挡住的图片不显示。快速预览(Quick Look)任何时候都不加载远程图片。")
+                Text("Off by default: the preview loads the https images in a document from the network. When on, the preview no longer fetches images, and blocked images are not shown. Quick Look never loads remote images.")
             }
-            Section("代码") {
-                Toggle("代码高亮", isOn: $render.preferences.codeHighlighting)
-                Toggle("显示行号", isOn: $render.preferences.codeLineNumbers)
+            Section("Code") {
+                Toggle("Syntax highlighting", isOn: $render.preferences.codeHighlighting)
+                Toggle("Show Line Numbers", isOn: $render.preferences.codeLineNumbers)
             }
-            Section("数学公式") {
-                Toggle("渲染数学公式(KaTeX)", isOn: render.binding(.math))
-                Toggle("行内 $…$ 也算公式", isOn: $render.preferences.inlineDollarMath)
+            Section("Math") {
+                Toggle("Render math (KaTeX)", isOn: render.binding(.math))
+                Toggle("Inline $…$ counts as math too", isOn: $render.preferences.inlineDollarMath)
                     .disabled(!render.preferences.extensions.contains(.math))
             }
         }
@@ -331,29 +364,29 @@ private struct ExportPage: View {
 
     var body: some View {
         Form {
-            Section("纸张") {
-                Picker("纸张大小", selection: $paper) {
+            Section("Paper") {
+                Picker("Paper Size", selection: $paper) {
                     ForEach(PageSetup.Paper.allCases, id: \.rawValue) { Text($0.title).tag($0.rawValue) }
                 }
-                Picker("方向", selection: $orientation) {
-                    Text("纵向").tag(PageSetup.Orientation.portrait.rawValue)
-                    Text("横向").tag(PageSetup.Orientation.landscape.rawValue)
+                Picker("Orientation", selection: $orientation) {
+                    Text("Portrait").tag(PageSetup.Orientation.portrait.rawValue)
+                    Text("Landscape").tag(PageSetup.Orientation.landscape.rawValue)
                 }
             }
-            Section("页边距(\(Self.usesInches ? "英寸" : "毫米"))") {
-                MarginField(label: "上", points: $top, inches: Self.usesInches)
-                MarginField(label: "下", points: $bottom, inches: Self.usesInches)
-                MarginField(label: "左", points: $left, inches: Self.usesInches)
-                MarginField(label: "右", points: $right, inches: Self.usesInches)
+            Section("Margins (\(Self.usesInches ? String(localized: "inches") : String(localized: "millimeters")))") {
+                MarginField(label: "Top", points: $top, inches: Self.usesInches)
+                MarginField(label: "Bottom", points: $bottom, inches: Self.usesInches)
+                MarginField(label: "Left", points: $left, inches: Self.usesInches)
+                MarginField(label: "Right", points: $right, inches: Self.usesInches)
             }
             Section {
-                Button("恢复默认") {
+                Button("Restore Defaults") {
                     let standard = PageSetup()
                     paper = standard.paper.rawValue
                     orientation = standard.orientation.rawValue
                     (top, right, bottom, left) = (standard.top, standard.right, standard.bottom, standard.left)
                 }
-                Text("用于「导出 PDF」「打印」和 macdown2 render --export pdf。单独一行的 \\newpage 或 <div style=\"page-break-after: always\"></div>(格式 ▸ 插入分页符)会另起一页;预览里显示为一条虚线。")
+                Text("Used for Export ▸ PDF and Print, and for macdown2 render --export pdf. A line containing only \\newpage or <div style=\"page-break-after: always\"></div> (Format ▸ Insert Page Break) starts a new page; the preview shows it as a dashed line.")
                     .font(.callout).foregroundStyle(.secondary)
             }
         }
@@ -363,7 +396,7 @@ private struct ExportPage: View {
 
 /// A margin kept in points, edited in the user's unit.
 private struct MarginField: View {
-    let label: String
+    let label: LocalizedStringKey
     @Binding var points: Double
     let inches: Bool
 
@@ -389,17 +422,17 @@ private struct UpdatesPage: View {
     var body: some View {
         Form {
             Section {
-                Toggle("自动检查更新", isOn: $updater.automaticallyChecks)
-                Picker("检查频率", selection: $updater.checkInterval) {
+                Toggle("Check for updates automatically", isOn: $updater.automaticallyChecks)
+                Picker("Check Frequency", selection: $updater.checkInterval) {
                     ForEach(UpdaterController.intervals, id: \.seconds) { Text($0.label).tag($0.seconds) }
                 }
                 .disabled(!updater.automaticallyChecks)
-                Button("立即检查") { updater.checkForUpdates() }
+                Button("Check Now") { updater.checkForUpdates() }
                     .disabled(!updater.canCheckForUpdates)
             }
             .disabled(!updater.isConfigured)
             if !updater.isConfigured {
-                Section { Text("此构建没有配置更新签名公钥(SUPublicEDKey),更新检查已停用。").foregroundStyle(.secondary) }
+                Section { Text("This build has no update signing public key (SUPublicEDKey), so update checks are turned off.").foregroundStyle(.secondary) }
             }
         }
         .formStyle(.grouped)

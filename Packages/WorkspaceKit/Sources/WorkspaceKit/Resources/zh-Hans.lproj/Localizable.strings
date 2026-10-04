@@ -1,0 +1,12 @@
+"%lld folders" = "%lld 个文件夹";
+"Current Location" = "当前位置";
+"Drag a folder here, or right-click and choose “Add to Favorites”" = "把文件夹拖到这里，或右键「添加到收藏」";
+"Favorites" = "收藏";
+"Invalid regular expression" = "正则表达式无效";
+"No document is open yet. Open or create one and its folder shows up here; you can also drag a folder in" = "还没有打开文档。打开或新建后，这里显示它所在的文件夹；也可以把文件夹拖进来";
+"No files opened recently" = "最近没有打开过文件";
+"No matches" = "没有匹配项";
+"Only the first %lld files were searched; narrow the search" = "只搜索了前 %lld 个文件，请缩小范围";
+"Only the first %lld matches are shown; narrow the search" = "只显示前 %lld 处匹配，请缩小范围";
+"Recents" = "最近";
+"There are no files to show in this folder" = "这个文件夹里没有可显示的文件";

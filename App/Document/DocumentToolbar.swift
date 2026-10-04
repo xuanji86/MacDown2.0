@@ -15,25 +15,25 @@ struct DocumentToolbar: ToolbarContent {
     }
 
     private func button<Label: View>(
-        _ title: String, _ command: MarkdownCommand, shortcut: String, @ViewBuilder label: () -> Label
+        _ title: LocalizedStringKey, _ command: MarkdownCommand, shortcut: String, @ViewBuilder label: () -> Label
     ) -> some View {
         Button { actions.editor.perform(command) } label: { label().frame(minWidth: 22) }
             .buttonStyle(ToolbarIconStyle())
-            .help("\(title) (\(shortcut))")
-            .accessibilityLabel(title)
+            .help(Text(title) + Text(verbatim: " (\(shortcut))"))
+            .accessibilityLabel(Text(title))
             .disabled(!actions.editorEnabled)
     }
 
-    private func symbol(_ title: String, _ name: String, _ command: MarkdownCommand, shortcut: String) -> some View {
+    private func symbol(_ title: LocalizedStringKey, _ name: String, _ command: MarkdownCommand, shortcut: String) -> some View {
         button(title, command, shortcut: shortcut) { Image(systemName: name).font(.system(size: 15)) }
     }
 
     private func heading(_ level: Int) -> some View {
         Button { actions.editor.perform(.heading(level)) } label: {
-            Text("H\(level)").font(.system(size: 14)).frame(minWidth: 26)
+            Text(verbatim: "H\(level)").font(.system(size: 14)).frame(minWidth: 26)
         }
         .buttonStyle(ToolbarIconStyle())
-        .help("Heading \(level) (⌘\(level))")
+        .help(Text("Heading \(level)") + Text(verbatim: " (⌘\(level))"))
         .accessibilityLabel("Heading \(level)")
         .disabled(!actions.editorEnabled)
     }
@@ -51,11 +51,11 @@ struct DocumentToolbar: ToolbarContent {
             symbol("Unindent", "decrease.indent", .outdent, shortcut: "⌘[")
             symbol("Indent", "increase.indent", .indent, shortcut: "⌘]")
             clusterGap
-            button("Bold", .bold, shortcut: "⌘B") { Text("B").font(.system(size: 17, weight: .bold)) }
+            button("Bold", .bold, shortcut: "⌘B") { Text(verbatim: "B").font(.system(size: 17, weight: .bold)) }
             divider
-            button("Italic", .italic, shortcut: "⌘I") { Text("I").font(.system(size: 17, design: .serif)).italic() }
+            button("Italic", .italic, shortcut: "⌘I") { Text(verbatim: "I").font(.system(size: 17, design: .serif)).italic() }
             divider
-            button("Underline", .underline, shortcut: "⌘U") { Text("U").font(.system(size: 17)).underline() }
+            button("Underline", .underline, shortcut: "⌘U") { Text(verbatim: "U").font(.system(size: 17)).underline() }
             clusterGap
             heading(1)
             divider
@@ -71,7 +71,7 @@ struct DocumentToolbar: ToolbarContent {
         ToolbarSpacer(.flexible)
         group {
             button("Blockquote", .blockquote, shortcut: "⇧⌘B") {
-                Text("\u{201C}\u{201D}").font(.system(size: 20, weight: .bold, design: .serif)).italic()
+                Text(verbatim: "\u{201C}\u{201D}").font(.system(size: 20, weight: .bold, design: .serif)).italic()
             }
             button("Code Block", .codeBlock, shortcut: "⌥⌘K") { AngleBrackets() }
         }
@@ -84,7 +84,7 @@ struct DocumentToolbar: ToolbarContent {
         group {
             Button { actions.copyHTML() } label: { CopyHTMLIcon().frame(minWidth: 22) }
                 .buttonStyle(ToolbarIconStyle())
-                .help("Copy HTML (⌥⌘C)")
+                .help(Text("Copy HTML") + Text(verbatim: " (⌥⌘C)"))
                 .accessibilityLabel("Copy HTML")
         }
         ToolbarSpacer(.flexible)
@@ -94,7 +94,7 @@ struct DocumentToolbar: ToolbarContent {
             HStack(spacing: 0) {
                 Button { actions.cycleLayout() } label: { Image(systemName: symbol).font(.system(size: 17)).frame(minWidth: 22) }
                     .buttonStyle(ToolbarIconStyle())
-                    .help("Cycle Editor and Preview (⌃⌘L)")
+                    .help(Text("Cycle Editor and Preview") + Text(verbatim: " (⌃⌘L)"))
                     .accessibilityLabel("Layout")
                 Menu {
                     SplitLayoutItems(actions: actions)

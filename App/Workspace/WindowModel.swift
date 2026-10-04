@@ -109,7 +109,7 @@ final class WindowModel {
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = true
-        panel.prompt = String(localized: "添加")
+        panel.prompt = String(localized: "Add")
         let done: (NSApplication.ModalResponse) -> Void = { [sidebar] response in
             if response == .OK { sidebar.openFolders(panel.urls) }
         }
