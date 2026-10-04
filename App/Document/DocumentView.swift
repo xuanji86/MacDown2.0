@@ -29,6 +29,7 @@ struct DocumentView: View {
     @AppStorage(EditorSettingKey.editorOnRight) private var editorOnRight = false
     @AppStorage(WindowChromeKey.statusBar) private var showsStatusBar = false
     @AppStorage(WindowChromeKey.divider) private var showsDivider = false
+    @AppStorage(ToolbarStyle.key) private var toolbarStyle = ToolbarStyle.default
 
     private var layout: SplitLayout { model.layout }
 
@@ -80,7 +81,7 @@ struct DocumentView: View {
             }
         }
         .frame(minWidth: 640, minHeight: 360)
-        .toolbar { DocumentToolbar(actions: actions) }
+        .toolbar { DocumentToolbar(actions: actions, style: toolbarStyle) }
         .focusedSceneValue(\.windowActions, actions)
         .task { await IsolatedTestHooks.toggleTaskThroughPage(model: model, preview: preview, editor: editor, document: document) }
         .task { await IsolatedTestHooks.tabSwitchUndo(model: model, editor: editor) }

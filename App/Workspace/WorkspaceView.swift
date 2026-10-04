@@ -12,6 +12,8 @@ struct WorkspaceView: View {
     @State private var editor = EditorHandle()
     @State private var status = EditorStatus()
     @State private var titleGuard = HiddenTitleGuard()
+    @State private var chrome = ToolbarStyleGuard()
+    @AppStorage(ToolbarStyle.key) private var toolbarStyle = ToolbarStyle.default
     @Environment(\.openWindow) private var openWindow
 
     private var visibility: Binding<NavigationSplitViewVisibility> {
@@ -51,10 +53,15 @@ struct WorkspaceView: View {
         .navigationTitle(title)
         // The system draws a window title leading-aligned inside the detail column; the original MacDown centres it over
         // the whole title bar. So the system one is hidden (the window keeps its title for the Window menu and
-        // accessibility) and this one is drawn in its place.
-        .overlay(alignment: .top) { CenteredTitle(title: title, edited: model.activeDocument?.editedFlag.value ?? false) }
+        // accessibility) and, in the Classic toolbar style, this one is drawn in its place. Minimal has no title text at all:
+        // the tab strip carries the file name.
+        .overlay(alignment: .top) {
+            if toolbarStyle == .classic { CenteredTitle(title: title, edited: model.activeDocument?.editedFlag.value ?? false) }
+        }
+        .onChange(of: toolbarStyle, initial: true) { _, style in chrome.style = style }
         .background(WindowAccessor { window in
             titleGuard.hideTitle(of: window)
+            chrome.attach(window)
             IsolatedTestHooks.applyWindowFrame(window)
             WorkspaceRegistry.shared.attach(window, to: model)
         })
@@ -100,6 +107,49 @@ struct WorkspaceView: View {
         window.titleVisibility = .hidden
         observation = window.observe(\.titleVisibility, options: .new) { window, _ in
             if window.titleVisibility != .hidden { MainActor.assumeIsolated { window.titleVisibility = .hidden } }
+        }
+    }
+}
+
+/// Applies `ToolbarStyle` to the window's own `toolbarStyle`, live, and puts it back whenever SwiftUI resets it (it re-applies
+/// the scene's `.windowToolbarStyle` when the toolbar's content changes). In Minimal it also adjusts what SwiftUI cannot:
+/// the layout toggle is the last item the system folds into its » menu (`NSToolbarItem.visibilityPriority`; SwiftUI has no
+/// overflow priority), and every » entry is named by its label ("Bold") instead of its glyph ("B"), without icons so the
+/// menu is uniform.
+@MainActor private final class ToolbarStyleGuard {
+    private weak var window: NSWindow?
+    private var styleObservation: NSKeyValueObservation?
+    private var updateObserver: NSObjectProtocol?
+    var style = ToolbarStyle.default { didSet { apply() } }
+
+    func attach(_ window: NSWindow) {
+        guard self.window !== window else { return }
+        self.window = window
+        apply()
+        styleObservation = window.observe(\.toolbarStyle, options: .new) { [weak self] _, _ in
+            MainActor.assumeIsolated { self?.apply() }
+        }
+        // SwiftUI creates, replaces and renames the toolbar's items on its own schedule and NSToolbar does not announce it;
+        // the check below is a few comparisons over ~20 items, so it simply runs on every window update.
+        // lazy: per-update polling; a KVO observer on `NSToolbar.items` did not fire reliably, an owned NSToolbar would replace this.
+        updateObserver = NotificationCenter.default.addObserver(forName: NSWindow.didUpdateNotification, object: window, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.apply() }
+        }
+    }
+
+    private func apply() {
+        guard let window else { return }
+        if window.toolbarStyle != style.windowStyle { window.toolbarStyle = style.windowStyle }
+        // SwiftUI's own items (the sidebar toggle) have system identifiers; ours are UUIDs, and the last two are the layout
+        // toggle and its presets arrow.
+        let ours = window.toolbar?.items.filter { $0.view != nil && !$0.itemIdentifier.rawValue.hasPrefix("com.apple.") } ?? []
+        for (index, item) in ours.enumerated() {
+            let priority: NSToolbarItem.VisibilityPriority = style == .minimal && index >= ours.count - 2 ? .high : .standard
+            if item.visibilityPriority != priority { item.visibilityPriority = priority }
+            if style == .minimal, !item.label.isEmpty, let entry = item.menuFormRepresentation {
+                if entry.title != item.label { entry.title = item.label }
+                if entry.image != nil { entry.image = nil }
+            }
         }
     }
 }

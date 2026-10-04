@@ -16,8 +16,10 @@ struct MacDown2App: App {
             WorkspaceView()
         }
         .defaultAppStorage(AppDefaults.store)
-        .defaultSize(width: 1100, height: 700)  // wide enough for the whole toolbar
-        .windowToolbarStyle(.expanded)  // title on top, the toolbar as its own row below
+        .defaultSize(width: 1100, height: 700)  // wide enough for the whole Classic toolbar
+        // The default (Minimal): one compact title-bar row. Classic (title on top, the toolbar as its own row below) is applied to
+        // the window itself by WorkspaceView, live (Settings ▸ Editor ▸ Window ▸ Toolbar style).
+        .windowToolbarStyle(.unifiedCompact)
         // Windows come back from WorkspaceRegistry's own record (tabs, sidebar, split), the same on every system setting;
         // SwiftUI must neither restore windows itself nor skip the first one when it thinks it restored "no windows".
         .handlesExternalEvents(matching: [])  // open-file events are the app delegate's (WorkspaceRegistry.open), not a new window each

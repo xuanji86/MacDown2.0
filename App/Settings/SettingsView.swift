@@ -194,6 +194,7 @@ private struct EditorPage: View {
     @AppStorage(SplitMode.settingKey) private var newWindowLayout = SplitMode.both
     @AppStorage(WindowChromeKey.statusBar) private var showsStatusBar = false
     @AppStorage(WindowChromeKey.divider) private var showsDivider = false
+    @AppStorage(ToolbarStyle.key) private var toolbarStyle = ToolbarStyle.default
     private var editor = EditorSettings()
 
     // lazy: scanned once per launch on first use (a few hundred families, ~ms); cache invalidation on font install not handled.
@@ -236,6 +237,11 @@ private struct EditorPage: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section("Window") {
+                Picker("Toolbar Style", selection: $toolbarStyle) {
+                    ForEach(ToolbarStyle.allCases) { Text($0.title).tag($0) }
+                }
+                Text("Minimal: one compact title-bar row with the file name on the tab. Classic: the original two rows, a centred title and a toolbar below it. Changes apply at once.")
+                    .font(.caption).foregroundStyle(.secondary)
                 Toggle("Show a divider between the editor and the preview", isOn: $showsDivider)
                 Toggle("Show the status bar (line and column, word count, encoding)", isOn: $showsStatusBar)
                 Text("Both are hidden by default, as in the original MacDown. With the status bar hidden, the encoding can still be changed in File ▸ Encoding; with the divider hidden you can still drag the boundary between the two panes to resize them.")

@@ -34,6 +34,11 @@ import WorkspaceKit
 ///   MACDOWN2_TEST_REOPEN=<secs>           the Dock icon is "clicked" (`applicationShouldHandleReopen`) after this many seconds
 ///   MACDOWN2_TEST_ACTIVATE=<secs>         the app activates itself and brings its windows to the front after this many seconds, so a
 ///                                         background launch is photographed with live traffic lights and a painted preview
+///   MACDOWN2_TEST_TOOLBAR_STYLE=minimal|classic  the launch's own defaults suite starts with this toolbar style (Settings ▸ Editor ▸ Window)
+///   MACDOWN2_TEST_TOOLBAR_STYLE_FLIP=<secs>  after this many seconds the style switches to the other one, as the Settings picker does
+///                                         (the live switch, photographed before / after)
+///   MACDOWN2_TEST_DUMP_TOOLBAR=<secs>     after this many seconds, every window's toolbar style, items, visibility priorities and overflow-menu
+///                                         forms go to the log (category "toolbar-dump")
 ///   MACDOWN2_TEST_DUMP_MENUS=<secs>       after this many seconds, the app's language and every title in the main menu bar go to the
 ///                                         log (menus cannot be photographed window-only): category "menu-dump"
 ///                                         (the language itself is chosen with MACDOWN2_LANGUAGE in `Scripts/run-isolated.sh`)
@@ -50,6 +55,7 @@ enum IsolatedTestHooks {
     private nonisolated(unsafe) static var tabUndoRan = false
     private static let tabLog = Logger(subsystem: "io.github.xuanji86.MacDown2", category: "tab-undo-hook")
     private static let hookLog = Logger(subsystem: "io.github.xuanji86.MacDown2", category: "task-toggle-hook")
+    private static let toolbarLog = Logger(subsystem: "io.github.xuanji86.MacDown2", category: "toolbar-dump")
     private static let menuLog = Logger(subsystem: "io.github.xuanji86.MacDown2", category: "menu-dump")
     #endif
 
@@ -125,6 +131,13 @@ enum IsolatedTestHooks {
     @MainActor static func scheduleSettings() {
         #if DEBUG
         if value("MACDOWN2_TEST_STATUS_BAR") == "1" { AppDefaults.store.set(true, forKey: WindowChromeKey.statusBar) }
+        if let style = value("MACDOWN2_TEST_TOOLBAR_STYLE").flatMap(ToolbarStyle.init(rawValue:)) { AppDefaults.store.set(style.rawValue, forKey: ToolbarStyle.key) }
+        if let seconds = value("MACDOWN2_TEST_TOOLBAR_STYLE_FLIP").flatMap(Double.init) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + seconds) {
+                let current = AppDefaults.store.string(forKey: ToolbarStyle.key).flatMap(ToolbarStyle.init(rawValue:)) ?? .default
+                AppDefaults.store.set((current == .minimal ? ToolbarStyle.classic : .minimal).rawValue, forKey: ToolbarStyle.key)
+            }
+        }
         guard value("MACDOWN2_TEST_OPEN_SETTINGS") == "1" else { return }
         let reread = value("MACDOWN2_TEST_TOOL_ENV_REREAD") == "1"
         let delay = value("MACDOWN2_TEST_OPEN_SETTINGS_AFTER").flatMap(Double.init) ?? 1.5
@@ -157,11 +170,26 @@ enum IsolatedTestHooks {
             for window in NSApp.windows where window.isVisible && window.canBecomeKey { window.makeKeyAndOrderFront(nil) }
         }
         after("MACDOWN2_TEST_DUMP_MENUS") { dumpMenus() }
+        after("MACDOWN2_TEST_DUMP_TOOLBAR") { dumpToolbar() }
         #endif
     }
 
     #if DEBUG
     /// Logs the language the app runs in and the title of every main-menu item ("File > Open Recent > Clear Menu").
+    @MainActor private static func dumpToolbar() {
+        for window in NSApp.windows {
+            guard let toolbar = window.toolbar else { continue }
+            toolbarLog.info("toolbar: style \(window.toolbarStyle.rawValue, privacy: .public), \(toolbar.items.count, privacy: .public) items, title bar height \(window.frame.height - window.contentLayoutRect.height, privacy: .public)")
+            for item in toolbar.items {
+                let menu = item.menuFormRepresentation?.title ?? "-"
+                let rep = item.menuFormRepresentation.map { "\(type(of: $0)) action=\($0.action.map(NSStringFromSelector) ?? "nil") target=\($0.target.map { String(describing: type(of: $0)) } ?? "nil") image=\($0.image != nil) enabled=\($0.isEnabled)" } ?? "-"
+                toolbarLog.info("  rep \(rep, privacy: .public)")
+                let submenu = item.menuFormRepresentation?.submenu?.items.map(\.title).joined(separator: "|") ?? "-"
+                toolbarLog.info("item \(item.itemIdentifier.rawValue, privacy: .public) label=\(item.label, privacy: .public) priority=\(item.visibilityPriority.rawValue, privacy: .public) view=\(item.view.map { String(describing: type(of: $0)) } ?? "-", privacy: .public) width=\(item.view?.frame.width ?? 0, privacy: .public) menu=\(menu, privacy: .public) sub=\(submenu, privacy: .public)")
+            }
+        }
+    }
+
     @MainActor private static func dumpMenus() {
         menuLog.info("language: \(Bundle.main.preferredLocalizations.joined(separator: ","), privacy: .public); AppleLanguages: \(UserDefaults.standard.stringArray(forKey: "AppleLanguages")?.joined(separator: ",") ?? "-", privacy: .public)")
         func walk(_ menu: NSMenu, _ path: String) {

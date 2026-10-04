@@ -12,10 +12,12 @@ struct TabDragItem: Codable, Transferable {
 }
 
 /// The tab strip (design 03 (b)): 34 pt under the toolbar, sharing the toolbar's glass (it has none of its own), the
-/// active tab grows out of the editor's background. Driven by `TabSession`: the preview tab is italic and secondary,
+/// active tab grows out of the editor's background. Minimal toolbar style (design "P3 Minimal"): 28 pt, 24 pt tabs, a hairline
+/// under the strip; the tab strip is the only place the file name is shown. Driven by `TabSession`: the preview tab is italic and secondary,
 /// double click / drag pins it, an unsaved document shows a dot that turns into the close button on hover.
 struct TabBar: View {
     let model: WindowModel
+    @AppStorage(ToolbarStyle.key) private var toolbarStyle = ToolbarStyle.default
     @AppStorage(AppearanceKey.editorTheme) private var themeName = AppearanceDefault.editorTheme
     @AppStorage(AppearanceKey.editorThemeFollowsSystem) private var followsSystem = false
     @Environment(\.colorScheme) private var colorScheme
@@ -32,11 +34,13 @@ struct TabBar: View {
 
     var body: some View {
         let session = model.controller.session
+        let compact = toolbarStyle == .minimal
+        let height = toolbarStyle.tabBarHeight
         ScrollView(.horizontal) {
             HStack(spacing: 2) {
                 ForEach(session.tabs) { tab in
                     TabItem(
-                        tab: tab, title: Self.title(of: tab), isActive: tab.id == session.activeID, fill: activeFill,
+                        tab: tab, title: Self.title(of: tab), isActive: tab.id == session.activeID, fill: activeFill, compact: compact,
                         edited: WorkspaceRegistry.shared.document(for: tab.url)?.editedFlag,
                         isDropTarget: dropTarget == tab.id,
                         select: { model.controller.activate(tab.url) },
@@ -53,10 +57,11 @@ struct TabBar: View {
                 }
             }
             .padding(.horizontal, 10)
-            .frame(height: 34, alignment: .bottom)
+            .frame(height: height, alignment: .bottom)
         }
         .scrollIndicators(.hidden)
-        .frame(height: 34)
+        .frame(height: height)
+        .overlay(alignment: .bottom) { if compact { Rectangle().fill(.primary.opacity(0.07)).frame(height: 1) } }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Tabs")
         .accessibilityAddTraits(.isTabBar)
@@ -68,6 +73,7 @@ private struct TabItem: View {
     let title: String
     let isActive: Bool
     let fill: Color
+    let compact: Bool
     let edited: EditedFlag?
     let isDropTarget: Bool
     let select: () -> Void
@@ -85,7 +91,7 @@ private struct TabItem: View {
                     .help("The file was deleted or moved on disk. Your text is still here; saving will recreate the file.")
             }
             Text(title)
-                .font(.system(size: 12.5))
+                .font(.system(size: compact ? 12 : 12.5))
                 .italic(tab.isPreview)
                 .foregroundStyle(tab.isPreview ? .secondary : .primary)
                 .lineLimit(1)
@@ -103,10 +109,10 @@ private struct TabItem: View {
             }
             .frame(width: 14, height: 14)
         }
-        .padding(.leading, 12)
-        .padding(.trailing, 8)
+        .padding(.leading, compact ? 14 : 12)
+        .padding(.trailing, compact ? 9 : 8)
         .frame(minWidth: 60, maxWidth: 200)
-        .frame(height: 28)
+        .frame(height: compact ? 24 : 28)
         .background {
             if isActive {
                 UnevenRoundedRectangle(topLeadingRadius: 9, topTrailingRadius: 9).fill(fill)
