@@ -6,6 +6,9 @@ import TreeSitterMarkdownInline
 /// Semantic token names (PLAN 4.5). Query capture names are these raw values.
 public enum TokenKind: String, CaseIterable, Sendable {
     case heading, headingMarker
+    /// Whole heading line per level (ATX or setext): carries only size/weight (`fontScale`, `bold`), so a theme can scale
+    /// H1..H6 differently; colour stays with `heading` / `headingMarker`. Themes that do not mention them are unaffected.
+    case heading1, heading2, heading3, heading4, heading5, heading6
     case emphasis, strong, strikethrough
     case code, codeBlock, codeFence
     case link, linkURL, linkLabel, image
@@ -31,6 +34,14 @@ enum Grammar {
         let source = """
         (atx_heading (inline) @heading)
         (setext_heading (paragraph) @heading)
+        (atx_heading (atx_h1_marker)) @heading1
+        (atx_heading (atx_h2_marker)) @heading2
+        (atx_heading (atx_h3_marker)) @heading3
+        (atx_heading (atx_h4_marker)) @heading4
+        (atx_heading (atx_h5_marker)) @heading5
+        (atx_heading (atx_h6_marker)) @heading6
+        (setext_heading (setext_h1_underline)) @heading1
+        (setext_heading (setext_h2_underline)) @heading2
         [(atx_h1_marker) (atx_h2_marker) (atx_h3_marker) (atx_h4_marker) (atx_h5_marker) (atx_h6_marker)
          (setext_h1_underline) (setext_h2_underline)] @headingMarker
         (block_quote) @quote

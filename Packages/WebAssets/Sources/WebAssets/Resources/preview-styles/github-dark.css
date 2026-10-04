@@ -114,6 +114,10 @@ hr.footnotes-sep { margin-top: 2em; }
 /* GitHub Dark */
 :root {
   color-scheme: dark;
+  --font-body: Helvetica, Arial, "PingFang SC", "Hiragino Sans GB", sans-serif;  /* same fonts as GitHub (light) */
+  --font-mono: Menlo, monospace;
+  --font-size: 14px;
+  --line-height: 1.6;
   --fg: #e6edf3;
   --fg-muted: #9198a1;
   --bg: #0d1117;

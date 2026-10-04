@@ -201,10 +201,12 @@ final class MarkdownHighlighter {
         if let color = style.color { storage.addAttribute(.foregroundColor, value: color, range: range) }
         if style.underline { storage.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: range) }
         if style.strikethrough { storage.addAttribute(.strikethroughStyle, value: NSUnderlineStyle.single.rawValue, range: range) }
-        if style.bold || style.italic {
+        if style.bold || style.italic || style.fontScale != nil {
             // Traits accumulate over nested tokens (emphasis inside strong), so derive from the current font per run.
+            // The size is absolute (body size x scale), not compounded, so restyling a chunk twice gives the same font.
             storage.enumerateAttribute(.font, in: range) { value, run, _ in
-                let font = (value as? NSFont) ?? theme.font
+                var font = (value as? NSFont) ?? theme.font
+                if let scale = style.fontScale { font = NSFont(descriptor: font.fontDescriptor, size: theme.font.pointSize * scale) ?? font }
                 storage.addAttribute(.font, value: font.adding(bold: style.bold, italic: style.italic), range: run)
             }
         }

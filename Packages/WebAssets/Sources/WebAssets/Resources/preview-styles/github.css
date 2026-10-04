@@ -111,5 +111,11 @@ hr.footnotes-sep { margin-top: 2em; }
   h1, h2, h3, h4, h5, h6 { break-after: avoid; }
 }
 
-/* GitHub (default): white page, system sans. The base values are this style. */
-:root { color-scheme: light; }
+/* GitHub (default): white page, fonts as in the original MacDown's GitHub2 (Helvetica 14px; the CJK fallbacks are ours). */
+:root {
+  color-scheme: light;
+  --font-body: Helvetica, Arial, "PingFang SC", "Hiragino Sans GB", sans-serif;
+  --font-mono: Menlo, monospace;
+  --font-size: 14px;
+  --line-height: 1.6;
+}

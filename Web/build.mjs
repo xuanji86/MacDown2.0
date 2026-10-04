@@ -113,4 +113,5 @@ const notices = [...packages].sort().map((name) => {
 });
 notices.push(readFileSync(join(here, 'src/render/katex-fonts-license.txt'), 'utf8').trim() + '\n');
 notices.push(readFileSync(join(here, 'src/quarto/vendored/LICENSE.txt'), 'utf8').trim() + '\n');
+notices.push(readFileSync(join(here, 'src/render/tomorrow-theme-license.txt'), 'utf8').trim() + '\n');
 writeFileSync(join(outDir, 'THIRD_PARTY_LICENSES.txt'), notices.join(`\n${'-'.repeat(72)}\n\n`));
