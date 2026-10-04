@@ -23,7 +23,7 @@
 
 ## 为什么是 MacDown2.0
 
-2012 年，Mou（Chen Luo）定下了 Mac 上写 Markdown 的样子：左边写源码，右边看预览，中间什么都不挡。MacDown（Tzu-ping Chung）把这个样子以开源的方式延续下来，成了一代 Mac 用户顺手就打开的那个 Markdown 编辑器。MacDown2.0 是它们的精神续作——同样的两栏，同样的快捷键肌肉记忆，同样不做所见即所得，也不想变成笔记应用。
+十多年前，Mou（Chen Luo）定下了 Mac 上写 Markdown 的样子：左边写源码，右边看预览，中间什么都不挡。MacDown（Tzu-ping Chung）把这个样子以开源的方式延续下来，成了一代 Mac 用户顺手就打开的那个 Markdown 编辑器。MacDown2.0 是它们的精神续作——同样的两栏，同样的快捷键肌肉记忆，同样不做所见即所得，也不想变成笔记应用。
 
 它同时也是一次彻底的告别。没有移植任何旧代码：MacDown2.0 从一个空文件开始，用 Swift 6 和 SwiftUI 写成，只面向 macOS 26 与 Apple Silicon，底下是 Liquid Glass、TextKit 2、tree-sitter 和 markdown-it。没有兼容层，没有从上个十年留下来的框架，只有一个 Markdown 编辑器在今天的 Mac 上本该有的手感。
 

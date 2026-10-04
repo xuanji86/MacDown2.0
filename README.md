@@ -23,7 +23,7 @@
 
 ## Why MacDown2.0
 
-In 2012, Mou (Chen Luo) set the shape of Markdown writing on the Mac: source on the left, a live preview on the right, nothing in between. MacDown (Tzu-ping Chung) carried that shape forward as open source and became the Markdown editor a generation of Mac users reached for. MacDown2.0 is its spiritual successor — the same two panes, the same keyboard muscle memory, the same refusal to become a WYSIWYG editor or a notes app.
+Over a decade ago, Mou (Chen Luo) set the shape of Markdown writing on the Mac: source on the left, a live preview on the right, nothing in between. MacDown (Tzu-ping Chung) carried that shape forward as open source and became the Markdown editor a generation of Mac users reached for. MacDown2.0 is its spiritual successor — the same two panes, the same keyboard muscle memory, the same refusal to become a WYSIWYG editor or a notes app.
 
 It is also a clean break. Nothing was ported. MacDown2.0 is written from a blank file in Swift 6 and SwiftUI for macOS 26 and Apple Silicon only, with Liquid Glass, TextKit 2, tree-sitter and markdown-it underneath. No compatibility shims, no framework held over from another decade — just what a Markdown editor should feel like on a current Mac.
 
