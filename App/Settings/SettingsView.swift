@@ -103,6 +103,16 @@ private struct EditorPage: View {
                     ForEach(Self.monospacedFamilies, id: \.self) { Text($0).tag($0) }
                 }
                 Stepper(value: editor.$fontSize, in: 8...72, step: 1) { Text("字号:\(Int(editor.fontSize)) pt") }
+                Stepper(value: editor.$lineSpacing, in: Double(EditorViewSettings.lineSpacingRange.lowerBound)...Double(EditorViewSettings.lineSpacingRange.upperBound), step: 1) {
+                    Text("行距:额外 \(Int(editor.lineSpacing)) pt")
+                }
+                Toggle("显示行号", isOn: editor.$lineNumbers)
+                Toggle("显示不可见字符(空格、Tab、换行)", isOn: editor.$showInvisibles)
+                Toggle("限制编辑区宽度并居中", isOn: editor.$limitWidth)
+                Stepper(value: editor.$maxWidth, in: Double(EditorViewSettings.maxWidthRange.lowerBound)...Double(EditorViewSettings.maxWidthRange.upperBound), step: 20) {
+                    Text("最大宽度:\(Int(editor.maxWidth)) px")
+                }
+                .disabled(!editor.limitWidth)
             }
             Section("输入") {
                 Toggle("自动配对括号和引号", isOn: editor.$autoPair)
@@ -114,6 +124,7 @@ private struct EditorPage: View {
                     ForEach(EditorSettings.listMarkers, id: \.self) { Text($0).tag($0) }
                 }
                 .pickerStyle(.segmented)
+                Toggle("⌘← 先到行首第一个非空白字符", isOn: editor.$smartHome)
             }
             Section("滚动") {
                 Toggle("编辑器与预览同步滚动", isOn: $syncScrolling)

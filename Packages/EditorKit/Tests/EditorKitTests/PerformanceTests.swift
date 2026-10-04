@@ -137,4 +137,50 @@ struct PerformanceTests {
         print("PERF 1MB doc, our main-thread work per keystroke (snapshot + points + tree-sitter hand-off): median \(f(Self.median(samples))) ms, max \(f(samples.max()!)) ms")
         #expect(Self.median(samples) < Self.budgetMs)
     }
+
+    /// Line numbers while scrolling a 1 MB document: only the visible fragments are enumerated, and the first one's
+    /// number is a newline count. "marks" = what each scroll step costs once the viewport is laid out (the text view
+    /// does that anyway), "paint" = the whole gutter drawn into a bitmap.
+    @Test func lineNumbersForAViewportOfAOneMegabyteDocument() async throws {
+        let view = ViewTests.makeSizedView(Self.megabyteDocument())
+        var settings = EditorViewSettings()
+        settings.showsLineNumbers = true
+        view.apply(settings: settings)
+        let gutter = try #require(view.gutter)
+        let countStart = ContinuousClock.now
+        let lines = view.lineCount
+        let countMs = ms(ContinuousClock.now - countStart)
+
+        var warm: [Double] = [], paint: [Double] = []
+        var marks = 0
+        for fraction in [0.0, 0.2, 0.4, 0.6, 0.8, 0.95] {
+            view.scroll(toLine: Double(lines) * fraction)
+            for _ in 0..<10 {
+                var t = ContinuousClock.now
+                marks = view.lineMarks(in: view.visibleRect).count
+                warm.append(ms(ContinuousClock.now - t))
+                gutter.frame.size.height = view.visibleRect.height
+                let rep = try #require(gutter.bitmapImageRepForCachingDisplay(in: gutter.bounds))
+                t = ContinuousClock.now
+                gutter.cacheDisplay(in: gutter.bounds, to: rep)
+                paint.append(ms(ContinuousClock.now - t))
+            }
+        }
+        #expect(marks > 10 && marks < 200)
+        print("PERF 1MB doc (\(lines) lines), line numbers: newline count \(f(countMs)) ms; marks for a viewport (\(marks) lines) median \(f(Self.median(warm))) ms, max \(f(warm.max()!)) ms; gutter paint median \(f(Self.median(paint))) ms, max \(f(paint.max()!)) ms")
+        #expect(Self.median(warm) < Self.budgetMs)
+        #expect(Self.median(paint) < Self.budgetMs * 2)
+    }
+
+    /// Switching the line spacing rewrites the paragraph style of the whole text once.
+    @Test func changingTheLineSpacingInAOneMegabyteDocument() async throws {
+        let view = ViewTests.makeSizedView(Self.megabyteDocument())
+        var settings = EditorViewSettings()
+        settings.lineSpacing = 6
+        let t = ContinuousClock.now
+        view.apply(settings: settings)
+        let took = ms(ContinuousClock.now - t)
+        print("PERF 1MB doc, line spacing change (whole-text paragraph style + viewport restyle request): \(f(took)) ms")
+        #expect(took < 1000)
+    }
 }
