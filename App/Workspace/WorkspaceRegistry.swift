@@ -62,6 +62,7 @@ final class WorkspaceRegistry: DocumentBackend {
         IsolatedTestHooks.scheduleTermination()
         IsolatedTestHooks.scheduleEdit()
         IsolatedTestHooks.scheduleSettings()
+        IsolatedTestHooks.scheduleCloses()
         Task {
             try? await Task.sleep(for: Self.launchGrace)
             launchGraceOver = true
@@ -206,21 +207,31 @@ final class WorkspaceRegistry: DocumentBackend {
         guard !model.isRegistered else { return }
         model.isRegistered = true
         models[model.controller.id] = model
-        if let saved = restoreQueue.popLast() { model.apply(saved) }
+        let restored = restoreQueue.popLast()
+        if let restored { model.apply(restored) }
         sync(model)
         persist()
         DispatchQueue.main.async { [self] in
             if !restoreQueue.isEmpty { requestWindow() } else { drainPending(into: model) }
-            blankWindowGetsUntitled(model)
+            blankWindowGetsUntitled(model, restored: restored != nil)
         }
     }
 
     /// A window with nothing in it (a launch with nothing to restore or open, Cmd-Option-N, the Dock icon with no window) gets an
     /// untitled tab, as the original MacDown does. A workspace window stays as it is: its tree is the way in.
-    private func blankWindowGetsUntitled(_ model: WindowModel) {
-        guard model.controller.session.tabs.isEmpty, !model.sidebar.isWorkspace, pendingURLs.isEmpty, models[model.controller.id] != nil else { return }
+    private func blankWindowGetsUntitled(_ model: WindowModel, restored: Bool) {
+        guard WindowLifecycle.newWindowNeedsUntitled(tabs: model.controller.session.tabs.count, isWorkspace: model.sidebar.isWorkspace, pendingOpens: pendingURLs.count, restored: restored),
+              models[model.controller.id] != nil else { return }
         model.controller.newUntitled()
         IsolatedTestHooks.typeIntoUntitled(model)
+    }
+
+    /// The Dock icon was clicked with no window open: a new one, which comes with a blank untitled tab. false = the system's
+    /// own handling (bringing a minimized window back) is what is wanted; true here means a window was asked for instead.
+    func reopen() -> Bool {
+        guard WindowLifecycle.reopenNeedsWindow(workspaceWindows: models.count, launching: !launchGraceOver) else { return false }
+        requestWindow()
+        return true
     }
 
     /// The hosting `NSWindow` exists: give it its window controller and its close review.

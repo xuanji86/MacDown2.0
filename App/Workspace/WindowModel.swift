@@ -135,17 +135,15 @@ final class WindowModel {
         search.requestFocus()
     }
 
-    /// ⌘W: closes the active tab; with no tab left it closes the window.
+    /// ⌘W: closes the active tab; the window stays with its last tab gone (the empty state), and ⌘W on that closes the window.
     func closeActiveTab() {
         guard let url = controller.activeURL else { window?.performClose(nil); return }
         closeTab(url)
     }
 
-    /// Closes a tab after the save prompt; the window goes with its last tab (design: closing the last tab closes the window).
+    /// Closes a tab after the save prompt. The window stays even when it was the last tab: it shows the empty state (open / new).
     func closeTab(_ url: URL) {
-        Task {
-            if await controller.close(url), controller.session.tabs.isEmpty { window?.close() }
-        }
+        Task { await controller.close(url) }
     }
 
     func closeWindow() { window?.performClose(nil) }

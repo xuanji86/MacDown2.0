@@ -47,6 +47,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// There is no untitled document.
     func applicationShouldOpenUntitledFile(_ sender: NSApplication) -> Bool { false }
 
+    /// Closing the last tab or window never quits: the app stays in the Dock until Cmd-Q.
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
+
+    /// Dock icon with no window open: a new window (with a blank untitled tab). With windows left (a minimized one) the system's
+    /// default brings them back.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        !MainActor.assumeIsolated { WorkspaceRegistry.shared.reopen() }
+    }
+
     func application(_ application: NSApplication, open urls: [URL]) {
         MainActor.assumeIsolated { WorkspaceRegistry.shared.open(urls) }
     }
