@@ -139,7 +139,9 @@ PREV=$(git describe --tags --abbrev=0 --match 'v*' 2>/dev/null || true)
 {
   echo "## MacDown2 $VERSION"
   echo
-  git log -n 50 --no-merges --pretty='- %s' ${PREV:+"$PREV..HEAD"}
+  # Hand-written notes in docs/release-notes/<version>.md win; otherwise the commit subjects since the last tag.
+  if [ -f "docs/release-notes/$VERSION.md" ]; then cat "docs/release-notes/$VERSION.md"
+  else git log -n 50 --no-merges --pretty='- %s' ${PREV:+"$PREV..HEAD"}; fi
   echo
   echo "Install: brew install --cask xuanji86/tap/macdown2, or download the dmg below. The app is not notarized, so a manual download needs the one-time \"Open Anyway\" step (see the README)."
   echo

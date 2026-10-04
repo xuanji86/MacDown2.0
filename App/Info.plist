@@ -136,11 +136,10 @@
 	<string>MacDown2 shows the Markdown files on removable drives in its file tree.</string>
 	<key>NSNetworkVolumesUsageDescription</key>
 	<string>MacDown2 shows the Markdown files on network volumes in its file tree.</string>
-	<!-- Sparkle. Feed URL: UpdaterController.feedURL. SUPublicEDKey is a PLACEHOLDER until the maintainer runs
-	     Sparkle's `generate_keys` (private key goes into the login keychain; back it up offline, losing it strands
-	     every installed copy) and pastes the printed public key here. While it is a placeholder, update checks are off. -->
+	<!-- Sparkle. Feed URL: UpdaterController.feedURL. SUPublicEDKey is the public half of the key Sparkle's `generate_keys`
+	     put in the maintainer's login keychain (back it up offline: losing it strands every installed copy). -->
 	<key>SUPublicEDKey</key>
-	<string>REPLACE_WITH_PUBLIC_KEY_FROM_generate_keys</string>
+	<string>+y7JpXGR++zxFaM5fuXiL6A5aMUL6IKj0sp2asWgpKc=</string>
 	<key>SUEnableAutomaticChecks</key>
 	<true/>
 	<!-- "YES" only in the Debug configuration (build setting MACDOWN2_ISOLATION_SUPPORTED), empty in Release. Only a Debug build

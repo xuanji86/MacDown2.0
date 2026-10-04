@@ -54,17 +54,17 @@
 
 ## 安装
 
-MacDown2.0 还没有发布正式版本。发版后将提供两种方式：
+用 Homebrew 安装：
 
 ```sh
-brew install --cask xuanji86/tap/macdown2    # 即将推出
+brew install --cask xuanji86/tap/macdown2
 ```
 
 或从 [GitHub Releases](https://github.com/xuanji86/MacDown2.0/releases) 下载 `.dmg`。
 
 应用只做了 ad-hoc 签名、未经公证，而 Homebrew 官方的 `homebrew/cask` 不收未公证的应用，所以用项目自己的 tap，它安装后会顺便清掉隔离标记。手动下载的话，第一次打开 macOS 会拒绝：到「系统设置 › 隐私与安全性」里点「仍要打开」即可，之后的更新由 Sparkle 接手。
 
-在首个版本发布之前，可以自己构建，一条命令的事。
+也可以自己构建，一条命令的事。
 
 ## 命令行
 

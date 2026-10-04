@@ -167,7 +167,7 @@ public enum Arguments {
     STDIN
       cat notes.md | macdown2     text piped in (or `macdown2 -`) is saved to
                                   ~/Library/Caches/io.github.xuanji86.MacDown2/stdin/<timestamp>.md
-                                  and that file is opened, because MacDown2.0 has no untitled documents.
+                                  and that file is opened (an app instance cannot be handed text directly).
                                   Use Save As… in the app to keep it; the cache folder is not a place to keep things.
 
     OPTIONS
