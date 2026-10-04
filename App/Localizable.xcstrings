@@ -785,6 +785,16 @@
         }
       }
     },
+    "Classic" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "经典"
+          }
+        }
+      }
+    },
     "Clear" : {
       "localizations" : {
         "zh-Hans" : {
@@ -1903,6 +1913,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "MacDown2 重新启动后，菜单和窗口会切换到新语言。"
+          }
+        }
+      }
+    },
+    "Minimal" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "极简"
+          }
+        }
+      }
+    },
+    "Minimal: one compact title-bar row with the file name on the tab. Classic: the original two rows, a centred title and a toolbar below it. Changes apply at once." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "极简:标题栏只有一行紧凑工具栏,文件名显示在标签上。经典:原版的两行,居中标题加其下的工具栏。更改立即生效。"
           }
         }
       }
@@ -3183,6 +3213,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "切换任务"
+          }
+        }
+      }
+    },
+    "Toolbar Style" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "工具栏样式"
           }
         }
       }
