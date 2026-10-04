@@ -237,6 +237,7 @@ final class SidebarModel {
     /// children, which are too busy to watch, and everything opened below them).
     /// lazy: the first 200 loaded directories per root; upgrade: watch the expanded directories individually.
     func refreshUnwatched() {
+        FileIcons.shared.invalidateAll()  // nobody watched these (and favorites): a custom icon may have changed meanwhile
         for root in unwatchedRoots { reread(Array(tree.loadedDirectories(under: root).prefix(200))) }
     }
 
@@ -286,6 +287,7 @@ final class SidebarModel {
         var targets = Array(batch.directories)
         // Events were coalesced or dropped, or a root moved: every listing below those paths may be stale.
         for subtree in batch.subtrees { targets += tree.loadedDirectories(under: subtree) }
+        FileIcons.shared.invalidate(directories: targets)
         reread(targets)
         if batch.rootChanged { restartWatcher() }  // the stream does not follow a moved root
     }
