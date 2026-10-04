@@ -11,6 +11,6 @@ let package = Package(
     dependencies: [.package(path: "../MarkdownCore"), .package(path: "../WebAssets"), .package(path: "../WorkspaceKit")],
     targets: [
         .target(name: "CLIKit", dependencies: ["MarkdownCore", "WebAssets", "WorkspaceKit"]),
-        .testTarget(name: "CLIKitTests", dependencies: ["CLIKit"], resources: [.copy("Fixtures")]),
+        .testTarget(name: "CLIKitTests", dependencies: ["CLIKit", "WebAssets"], resources: [.copy("Fixtures")]),
     ]
 )

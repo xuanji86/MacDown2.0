@@ -11,6 +11,6 @@ let package = Package(
     dependencies: [.package(path: "../MarkdownCore"), .package(path: "../WebAssets")],
     targets: [
         .target(name: "PrintKit", dependencies: ["MarkdownCore", "WebAssets"]),
-        .testTarget(name: "PrintKitTests", dependencies: ["PrintKit", "MarkdownCore"]),
+        .testTarget(name: "PrintKitTests", dependencies: ["PrintKit", "MarkdownCore", "WebAssets"]),
     ]
 )

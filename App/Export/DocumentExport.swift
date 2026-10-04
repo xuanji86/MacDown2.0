@@ -63,12 +63,11 @@ enum DocumentExport {
         let body = try await CopyHTML.render(markdown, options: options, fileURL: fileURL)  // sanitized: this leaves the app
         let flavor = AppExtensions.flavor(for: fileURL)
         let defaults = AppDefaults.store
-        let style = PreviewStyles.resolve(
-            id: defaults.string(forKey: AppearanceKey.previewStyle) ?? AppearanceDefault.previewStyle,
-            followSystem: defaults.bool(forKey: AppearanceKey.previewStyleFollowsSystem)
-        )
+        // "Block remote images" (Settings > Rendering) is in `defaults`; with it on the page's CSP has no network origin and no file
+        // path either, so the images of the document travel inside the page whatever the Export HTML checkbox says.
+        let embedImages = embedImages || RemoteContent.blocksImages(in: defaults)
         return HTMLExporter.document(
-            body: body, title: fileURL?.deletingPathExtension().lastPathComponent ?? "Untitled", style: style,
+            body: body, title: fileURL?.deletingPathExtension().lastPathComponent ?? "Untitled", defaults: defaults,
             inlineImages: embedImages ? HTMLExporter.imageSource(directory: fileURL?.deletingLastPathComponent()) : nil,
             flavor: flavor?.id.rawValue ?? "markdown", stylesheets: flavor?.previewStylesheets ?? []
         )

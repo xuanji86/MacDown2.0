@@ -57,11 +57,11 @@ private func liveMarkup(in html: String) -> [String] {
     for tag in ["<script", "<iframe", "<frame", "<object", "<embed", "<applet", "<meta", "<base", "<link", "<noscript", "<animate", "<set "] where html.range(of: tag, options: .caseInsensitive) != nil {
         found.append(tag)
     }
-    for tag in html.matches(of: /<[a-zA-Z][^>]*>/) {
+    for tag in html.matches(of: /<[a-zA-Z][^>]*>/) {  // real tags only: the escaped text of an attack in a paragraph is just text
         let unquoted = String(tag.output).replacing(/"[^"]*"/, with: "\"\"")
         if unquoted.range(of: #"\son[a-z]+\s*="#, options: [.regularExpression, .caseInsensitive]) != nil { found.append("handler in \(tag.output)") }
+        if String(tag.output).range(of: #"(?:href|src|data|action)="\s*(?:javascript|vbscript|data:text|file|blob):"#, options: [.regularExpression, .caseInsensitive]) != nil { found.append("script or file URL in \(tag.output)") }
     }
-    if html.range(of: #"(?:href|src|data|action)="\s*(?:javascript|vbscript|data:text|file|blob):"#, options: [.regularExpression, .caseInsensitive]) != nil { found.append("script or file URL") }
     return found
 }
 

@@ -1,5 +1,6 @@
 import Foundation
 import MarkdownCore
+import WebAssets
 import PDFKit
 import Testing
 
@@ -63,6 +64,15 @@ private func text(of pdf: Data) throws -> String { try #require(PDFDocument(data
         let pdf = try await PrintPage.pdf(html: HTMLExporter.document(body: body, title: "hostile"), setup: us, removingAutoNavigation: true, settle: .seconds(1))
         let text = try text(of: pdf)
         #expect(text.contains("Hostile document") && text.contains("Parser stress"))  // the whole document, from its first heading to its last
+    }
+
+    @Test func blockingRemoteImagesStillPrintsTheTextAndTheDiagrams() async throws {
+        PrintPage.becomeHeadless()
+        let body = try await JSCRenderer().render("# Title\n\n![r](https://127.0.0.1:9/never.png)\n\n```mermaid\ngraph TD\n  A[Alpha node] --> B[Beta node]\n```\n", options: RenderOptions().forExport).html
+        let page = HTMLExporter.document(body: body, title: "m", blockRemoteImages: true)
+        #expect(page.contains(RemoteContent.printContentSecurityPolicy))
+        let text = try text(of: try await PrintPage.pdf(html: page, setup: us))
+        #expect(text.contains("Title") && text.contains("Alpha node") && !text.contains("graph TD"))
     }
 
     @Test func mermaidStillDrawsUnderTheExportCSP() async throws {

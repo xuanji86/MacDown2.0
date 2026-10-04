@@ -40,14 +40,12 @@ enum Render {
         let userCSS = try args.css.map { try stylesheet($0, host: host) }
         let text: String
         if args.isPage {
-            let style = PreviewStyles.resolve(
-                id: defaults?.string(forKey: PreviewStyles.styleKey) ?? PreviewStyles.defaultID,
-                followSystem: defaults?.bool(forKey: PreviewStyles.followsSystemKey) ?? false
-            )
-            // A PDF is laid out from the page alone (no document folder behind it), so its images always travel inside it.
-            let images = args.embedImages || args.export == .pdf ? HTMLExporter.imageSource(directory: input.deletingLastPathComponent()) : nil
+            // A PDF is laid out from the page alone (no document folder behind it), so its images always travel inside it; so do
+            // they when "Block remote images" is on in the app (the page's CSP then allows no path either).
+            let blocks = defaults.map(RemoteContent.blocksImages(in:)) ?? false
+            let images = args.embedImages || args.export == .pdf || blocks ? HTMLExporter.imageSource(directory: input.deletingLastPathComponent()) : nil
             text = HTMLExporter.document(
-                body: result.html, title: input.deletingPathExtension().lastPathComponent, style: style, inlineImages: images,
+                body: result.html, title: input.deletingPathExtension().lastPathComponent, defaults: defaults, inlineImages: images,
                 flavor: flavor.rawValue, stylesheets: stylesheets, userCSS: userCSS
             )
         } else {

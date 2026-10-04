@@ -59,6 +59,23 @@ public enum HTMLExporter {
     /// print page, or stays a code block), so a browser or viewer that opens the file is told to run none, whatever got into it.
     static let contentSecurityPolicy = "script-src 'none'; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'"
 
+    /// The same page with everything the user's settings decide read from `defaults` (the app's own preferences; nil = defaults):
+    /// the preview style (and whether it follows the system) and "Block remote images". The one call File > Export, Print, PDF and
+    /// `macdown2 render` make, so a switch in Settings reaches all of them.
+    public static func document(
+        body: String, title: String, defaults: UserDefaults?, inlineImages: ImageSource? = nil, flavor: String = "markdown",
+        stylesheets: [String] = [], userCSS: String? = nil
+    ) -> String {
+        let style = PreviewStyles.resolve(
+            id: defaults?.string(forKey: PreviewStyles.styleKey) ?? PreviewStyles.defaultID,
+            followSystem: defaults?.bool(forKey: PreviewStyles.followsSystemKey) ?? false
+        )
+        return document(
+            body: body, title: title, style: style, inlineImages: inlineImages, flavor: flavor, stylesheets: stylesheets,
+            blockRemoteImages: defaults.map(RemoteContent.blocksImages(in:)) ?? false, userCSS: userCSS
+        )
+    }
+
     // MARK: Style
 
     /// CSS as the content of a `<style>` element: nothing in it may end the element early.

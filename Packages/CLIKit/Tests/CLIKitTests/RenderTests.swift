@@ -2,6 +2,7 @@ import Foundation
 import Testing
 @testable import CLIKit
 import MarkdownCore
+import WebAssets
 
 // End to end through `CLI.run`: the real bundle in JavaScriptCore, a fixture file in, HTML out.
 // Goldens are this renderer's output, reviewed by hand. Regenerate with `SNAPSHOT_UPDATE=1 swift test`.
@@ -204,4 +205,23 @@ private final class Locked<T>: @unchecked Sendable {
         }
         #expect(article.range(of: #"href="\s*javascript:"#, options: [.regularExpression, .caseInsensitive]) == nil)
     }
+}
+
+@Test func theAppsBlockRemoteImagesSwitchReachesTheExportedPageAndEmbedsTheLocalImages() async throws {
+    let s = try Scratch(); defer { s.remove() }
+    try s.write("a.md", "![x](pic.png) ![y](https://example.com/remote.png)\n")
+    try s.write("pic.png", "PNGDATA")
+    let off = Scratch.emptyDefaults()
+    #expect(await CLI.run(["render", "a.md", "--standalone"], host: s.host(defaults: off)) == 0)
+    #expect(!s.recorder.out.contains(RemoteContent.printContentSecurityPolicy) && s.recorder.out.contains(#"src="pic.png""#))
+
+    let on = Scratch.emptyDefaults()
+    on.set(true, forKey: RemoteContent.blockImagesKey)
+    let blocked = try Scratch(); defer { blocked.remove() }
+    try blocked.write("a.md", "![x](pic.png) ![y](https://example.com/remote.png)\n")
+    try blocked.write("pic.png", "PNGDATA")
+    #expect(await CLI.run(["render", "a.md", "--standalone"], host: blocked.host(defaults: on)) == 0)
+    #expect(blocked.recorder.out.contains(RemoteContent.printContentSecurityPolicy))  // no network origin in the page
+    #expect(blocked.recorder.out.contains("data:image/png;base64,"))  // and no path either, so the local image is inside
+    #expect(blocked.recorder.out.contains(#"src="https://example.com/remote.png""#))  // the remote one is left to the CSP to refuse
 }
