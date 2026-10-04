@@ -1,7 +1,8 @@
 #!/bin/bash
 # Launch the Debug build as a throwaway instance that cannot touch the user's real MacDown2 state.
 #
-#   Scripts/run-isolated.sh <file.md...>   copy the files into a fresh temp dir, launch the app on them, print
+#   Scripts/run-isolated.sh <file.md|dir...>  copy the files / folders into a fresh temp dir, launch the app on them (a folder
+#                                          opens as a workspace), print
 #                                          PID / SUITE / ROOT / FILE / WINDOW lines (WINDOW <id> <w> <h>)
 #   Scripts/run-isolated.sh --stop <pid>   quit that instance, delete its defaults suite and its temp dir
 #
@@ -12,7 +13,7 @@
 #                             suite itself recorded it; window/split-view frame autosave and the system's recent
 #                             documents are off; Sparkle is not started
 #   MACDOWN2_ALLOWED_ROOT     the temp dir; the app refuses (and logs) any file outside it
-# Only copies of your files are opened, so the originals are never edited.
+# Only copies of your files are opened, so the originals are never edited. (A folder is copied whole: keep it small.)
 #
 # Screenshot just that window (never the whole screen):  screencapture -x -l <window id> shot.png
 # App log of an isolated launch:  log show --last 2m --predicate 'subsystem == "io.github.xuanji86.MacDown2"'
@@ -73,9 +74,10 @@ root="$(cd "$root" && pwd -P)"  # the app compares resolved paths; hand it the r
 
 copies=()
 for f in "$@"; do
-  [ -f "$f" ] || { rm -rf "$root"; die "not a file: $f"; }
-  cp "$f" "$root/"
-  copies+=("$root/$(basename "$f")")
+  [ -f "$f" ] || [ -d "$f" ] || { rm -rf "$root"; die "not a file or folder: $f"; }
+  if [ -d "$f" ]; then name="$(basename "$(cd "$f" && pwd)")"; else name="$(basename "$f")"; fi  # "." has a name too
+  cp -R "$f" "$root/$name"
+  copies+=("$root/$name")
 done
 
 before="$(app_pids)"

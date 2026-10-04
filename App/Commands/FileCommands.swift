@@ -15,6 +15,8 @@ struct FileCommands: Commands {
                 .keyboardShortcut("n", modifiers: [.command, .shift])
             Button("Open…") { WorkspaceRegistry.shared.showOpenPanel() }
                 .keyboardShortcut("o")
+            Button("Open Folder…") { WorkspaceRegistry.shared.showOpenFolderPanel() }
+                .keyboardShortcut("o", modifiers: [.command, .shift])
             Menu("Open Recent") {
                 ForEach(recents.urls, id: \.self) { url in
                     Button(url.lastPathComponent) { WorkspaceRegistry.shared.open([url]) }
@@ -27,9 +29,15 @@ struct FileCommands: Commands {
             Button("Close Tab") { workspace?.closeActiveTab() }
                 .keyboardShortcut("w")
                 .disabled(workspace == nil)
-            Button("Close Window") { workspace?.closeWindow() }
-                .keyboardShortcut("w", modifiers: [.command, .shift])
-                .disabled(workspace == nil)
+            // Cmd-Shift-W leaves workspace mode (back to browsing); outside a workspace it is the usual Close Window.
+            if workspace?.sidebar.isWorkspace == true {
+                Button("Close Workspace") { workspace?.sidebar.closeWorkspace() }
+                    .keyboardShortcut("w", modifiers: [.command, .shift])
+            } else {
+                Button("Close Window") { workspace?.closeWindow() }
+                    .keyboardShortcut("w", modifiers: [.command, .shift])
+                    .disabled(workspace == nil)
+            }
             Divider()
             Button("Save") { workspace?.save() }
                 .keyboardShortcut("s")

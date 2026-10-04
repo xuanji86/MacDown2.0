@@ -9,6 +9,7 @@ import WorkspaceKit
 @MainActor @Observable
 final class WindowModel {
     let controller: WorkspaceController
+    let sidebar: SidebarModel
     var sidebarSection = SidebarSection.files
     var sidebarVisible = true
     var splitMode = SplitLayout.Mode.both.rawValue
@@ -25,7 +26,15 @@ final class WindowModel {
 
     init(registry: WorkspaceRegistry = .shared) {
         // Deliberately free of side effects: SwiftUI may build this more than once before it keeps one (`register` does the rest).
-        controller = WorkspaceController(ledger: registry.ledger, backend: registry)
+        let controller = WorkspaceController(ledger: registry.ledger, backend: registry)
+        self.controller = controller
+        sidebar = SidebarModel(controller: controller)
+        sidebar.window = { [weak self] in self?.window }
+    }
+
+    /// What `OpenRouter` needs to route an open request.
+    var snapshot: WindowSnapshot {
+        WindowSnapshot(id: controller.id, openKeys: controller.openKeys, rootKeys: sidebar.folders.rootKeys)
     }
 
     var layout: SplitLayout {
@@ -39,7 +48,8 @@ final class WindowModel {
     var state: WorkspaceWindowState {
         WorkspaceWindowState(
             id: controller.id, session: controller.session, sidebarSection: sidebarSection,
-            sidebarVisible: sidebarVisible, splitMode: splitMode, editorFraction: editorFraction
+            sidebarVisible: sidebarVisible, splitMode: splitMode, editorFraction: editorFraction,
+            workspaceRoots: sidebar.folders.roots, showAllFiles: sidebar.showAllFiles
         )
     }
 
@@ -49,6 +59,25 @@ final class WindowModel {
         splitMode = SplitLayout.Mode(rawValue: saved.splitMode)?.rawValue ?? SplitLayout.Mode.both.rawValue
         editorFraction = min(max(saved.editorFraction, SplitLayout.minFraction), SplitLayout.maxFraction)
         controller.restore(saved.session)
+        sidebar.restore(roots: saved.workspaceRoots, showAll: saved.showAllFiles)
+        sidebar.follow(controller.activeURL, immediately: true)
+    }
+
+    /// Workspace chip > Add Folder…
+    func addWorkspaceFolders() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = true
+        panel.prompt = String(localized: "添加")
+        let done: (NSApplication.ModalResponse) -> Void = { [sidebar] response in
+            if response == .OK { sidebar.openFolders(panel.urls) }
+        }
+        if let window { panel.beginSheetModal(for: window, completionHandler: done) } else { panel.begin(completionHandler: done) }
+    }
+
+    func revealWorkspaceInFinder() {
+        NSWorkspace.shared.activateFileViewerSelecting(sidebar.folders.roots)
     }
 
     var activeDocument: MarkdownDocument? { controller.activeURL.flatMap { WorkspaceRegistry.shared.document(for: $0) } }

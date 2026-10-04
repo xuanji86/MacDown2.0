@@ -41,6 +41,11 @@ struct WorkspaceView: View {
             .safeAreaBar(edge: .top, spacing: 0) {
                 if !model.controller.session.tabs.isEmpty { TabBar(model: model) }
             }
+            // Folders dropped on the window enter workspace mode; Markdown files open as tabs.
+            .dropDestination(for: URL.self) { urls, _ in
+                model.sidebar.drop(urls)
+                return !urls.isEmpty
+            }
         }
         .navigationTitle(title)
         // The system draws a window title leading-aligned inside the detail column; the original MacDown centres it over
@@ -61,6 +66,7 @@ struct WorkspaceView: View {
             model.isRestoring = false
         }
         .onChange(of: model.state) { WorkspaceRegistry.shared.persist() }
+        .onChange(of: model.controller.activeURL) { _, url in model.sidebar.follow(url) }
     }
 
     /// Outline click: the caret and both panes go to the heading's line, whatever the scroll sync settings.
