@@ -4,7 +4,7 @@ import Foundation
 /// User themes (`~/Library/Application Support/MacDown2/Themes/`) are M2: they would join `all` and nothing else changes.
 public enum ThemeLibrary {
     /// Display order. A test checks this against the files in `Resources/Themes`.
-    static let builtInFiles = ["default-dark", "default-light", "solarized-dark", "solarized-light", "github-dark", "github-light"]
+    static let builtInFiles = ["macdown-classic", "default-dark", "default-light", "solarized-dark", "solarized-light", "github-dark", "github-light"]
 
     public static let all: [EditorTheme] = builtInFiles.map { file in
         do {

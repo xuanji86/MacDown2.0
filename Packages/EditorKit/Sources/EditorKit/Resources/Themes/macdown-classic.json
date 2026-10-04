@@ -1,0 +1,130 @@
+{
+  "name": "MacDown Classic",
+  "appearance": "dark",
+  "counterpart": "Default Light",
+  "_comment": "Palette: Tomorrow Night Eighties by Chris Kempson (MIT), https://github.com/chriskempson/tomorrow-theme. Colour mapping modelled on the original MacDown default theme (Tomorrow+); written fresh for this app. Heading fontScale = original pt size / 14 (the original body size).",
+  "colors": {
+    "background": "#2D2D2D",
+    "text": "#CCCCCC",
+    "caret": "#CC99CC",
+    "selection": "#515151",
+    "lineNumber": "#999999",
+    "currentLine": "#393939"
+  },
+  "tokens": {
+    "heading": {
+      "fg": "#66CCCC"
+    },
+    "headingMarker": {
+      "fg": "#66CCCC"
+    },
+    "heading1": {
+      "fontScale": 1.7143,
+      "bold": true
+    },
+    "heading2": {
+      "fontScale": 1.4286,
+      "bold": true
+    },
+    "heading3": {
+      "fontScale": 1.2143
+    },
+    "heading4": {
+      "fontScale": 1.0714
+    },
+    "heading5": {
+      "fontScale": 0.9286
+    },
+    "heading6": {
+      "fontScale": 0.7857
+    },
+    "emphasis": {
+      "fg": "#FFCC66",
+      "italic": true
+    },
+    "strong": {
+      "fg": "#F99157",
+      "bold": true
+    },
+    "strikethrough": {
+      "fg": "#999999",
+      "strikethrough": true
+    },
+    "code": {
+      "fg": "#999999"
+    },
+    "codeBlock": {
+      "fg": "#999999"
+    },
+    "codeFence": {
+      "fg": "#6699CC"
+    },
+    "link": {
+      "fg": "#99CC99"
+    },
+    "linkURL": {
+      "fg": "#99CC99"
+    },
+    "linkLabel": {
+      "fg": "#66CCCC"
+    },
+    "image": {
+      "fg": "#CC99CC"
+    },
+    "quote": {
+      "fg": "#F2777A"
+    },
+    "quoteMarker": {
+      "fg": "#F2777A"
+    },
+    "listMarker": {
+      "fg": "#6699CC"
+    },
+    "taskMarker": {
+      "fg": "#FFCC66"
+    },
+    "hr": {
+      "fg": "#999999"
+    },
+    "html": {
+      "fg": "#CC99CC"
+    },
+    "frontMatter": {
+      "fg": "#999999",
+      "italic": true
+    },
+    "math": {
+      "fg": "#F99157"
+    },
+    "escape": {
+      "fg": "#CC99CC"
+    },
+    "delimiter": {},
+    "tableHeader": {
+      "fg": "#FFCC66",
+      "bold": true
+    },
+    "tableDelimiter": {
+      "fg": "#999999"
+    },
+    "quartoCell": {
+      "fg": "#CC99CC",
+      "bold": true
+    },
+    "quartoOption": {
+      "fg": "#999999",
+      "italic": true
+    },
+    "quartoDiv": {
+      "fg": "#99CC99",
+      "bold": true
+    },
+    "quartoShortcode": {
+      "fg": "#99CC99",
+      "italic": true
+    },
+    "quartoRef": {
+      "fg": "#6699CC"
+    }
+  }
+}

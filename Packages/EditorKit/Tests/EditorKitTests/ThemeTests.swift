@@ -13,6 +13,8 @@ struct ThemeJSONTests {
         "heading": { "fg": "#0000FF", "bold": true },
         "link": { "fg": "#00FF00", "underline": true },
         "strikethrough": { "strikethrough": true, "italic": true },
+        "heading1": { "fontScale": 1.5 },
+        "heading2": { "fontScale": 99 },
         "somethingFromTheFuture": { "fg": "#FF0000" }
       }
     }
@@ -37,7 +39,10 @@ struct ThemeJSONTests {
         #expect(theme.tokens[.strikethrough]?.italic == true)
         #expect(theme.tokens[.strikethrough]?.color == nil)
         #expect(theme.tokens[.code] == nil)  // not mentioned: unstyled, not an error
-        #expect(theme.tokens.count == 3)  // the unknown key is ignored
+        #expect(theme.tokens[.heading1]?.fontScale == 1.5)
+        #expect(theme.tokens[.heading2]?.fontScale == 4)  // clamped
+        #expect(theme.tokens[.heading]?.fontScale == nil)
+        #expect(theme.tokens.count == 5)  // the unknown key is ignored
     }
 
     /// A valid minimal theme as a dictionary, so each test changes only what it is about.
@@ -114,24 +119,45 @@ struct BuiltInThemeTests {
         }
     }
 
-    @Test func defaultIsDark() {
-        #expect(EditorTheme.default.name == "Default Dark")
+    @Test func defaultIsMacDownClassic() {
+        #expect(EditorTheme.default.name == "MacDown Classic")
         #expect(EditorTheme.default.appearance == .dark)
+        #expect(EditorTheme.dark.name == "Default Dark")
         #expect(EditorTheme.light.name == "Default Light")
+    }
+
+    @Test func macDownClassicFollowsTheOriginalPalette() throws {
+        let t = EditorTheme.classic
+        #expect(t.background == NSColor(hex: 0x2D2D2D) && t.text == NSColor(hex: 0xCCCCCC) && t.caret == NSColor(hex: 0xCC99CC))
+        #expect(t.selection == NSColor(hex: 0x515151))
+        #expect(t.tokens[.heading]?.color == NSColor(hex: 0x66CCCC) && t.tokens[.headingMarker]?.color == NSColor(hex: 0x66CCCC))
+        #expect(t.tokens[.emphasis]?.color == NSColor(hex: 0xFFCC66) && t.tokens[.strong]?.color == NSColor(hex: 0xF99157))
+        #expect(t.tokens[.quote]?.color == NSColor(hex: 0xF2777A) && t.tokens[.link]?.color == NSColor(hex: 0x99CC99))
+        // Original sizes in pt at the original 14 pt body; H1/H2 bold, H3-H6 not.
+        let sizes: [(TokenKind, CGFloat, Bool)] = [(.heading1, 24, true), (.heading2, 20, true), (.heading3, 17, false),
+                                                  (.heading4, 15, false), (.heading5, 13, false), (.heading6, 11, false)]
+        for (kind, pt, bold) in sizes {
+            let style = try #require(t.tokens[kind])
+            #expect(abs(try #require(style.fontScale) * 14 - pt) < 0.02, "\(kind)")
+            #expect(style.bold == bold, "\(kind)")
+        }
     }
 
     @Test func counterpartsPairALightWithADarkTheme() throws {
         for theme in ThemeLibrary.all {
             let name = try #require(theme.counterpart, "\(theme.name) has no counterpart")
             let other = try #require(ThemeLibrary.theme(named: name), "\(theme.name): counterpart \(name) does not exist")
-            #expect(other.counterpart == theme.name)
+            // MacDown Classic shares Default Light with Default Dark; Default Light itself points back at Default Dark.
+            if theme.name != "MacDown Classic" { #expect(other.counterpart == theme.name) }
             #expect(other.appearance != theme.appearance)
         }
     }
 
     @Test func everyThemeStylesEveryTokenKind() {
         for theme in ThemeLibrary.all {
-            for kind in TokenKind.allCases { #expect(theme.tokens[kind] != nil, "\(theme.name) has no style for \(kind)") }
+            // heading1...6 only carry size/weight; themes that do not scale headings leave them out.
+            let carriers: Set<TokenKind> = [.heading1, .heading2, .heading3, .heading4, .heading5, .heading6]
+            for kind in TokenKind.allCases where !carriers.contains(kind) { #expect(theme.tokens[kind] != nil, "\(theme.name) has no style for \(kind)") }
         }
     }
 
@@ -160,6 +186,7 @@ struct ThemeSelectionTests {
     @Test func aFixedChoiceIgnoresTheSystem() {
         #expect(name("Solarized Light", follow: false, dark: true) == "Solarized Light")
         #expect(name("Default Dark", follow: false, dark: false) == "Default Dark")
+        #expect(name("MacDown Classic", follow: false, dark: false) == "MacDown Classic")
     }
 
     @Test func followingTheSystemPicksTheMatchingMemberOfThePair() {
@@ -167,10 +194,12 @@ struct ThemeSelectionTests {
         #expect(name("Solarized Light", follow: true, dark: true) == "Solarized Dark")
         #expect(name("GitHub Light", follow: true, dark: false) == "GitHub Light")
         #expect(name("GitHub Dark", follow: true, dark: true) == "GitHub Dark")
+        #expect(name("MacDown Classic", follow: true, dark: false) == "Default Light")  // the light partner is Default Light
+        #expect(name("MacDown Classic", follow: true, dark: true) == "MacDown Classic")
     }
 
     @Test func anUnknownNameIsTheDefault() {
-        #expect(name("Deleted Theme", follow: false, dark: false) == "Default Dark")
+        #expect(name("Deleted Theme", follow: false, dark: false) == "MacDown Classic")
         #expect(name("Deleted Theme", follow: true, dark: false) == "Default Light")  // default's pair
     }
 

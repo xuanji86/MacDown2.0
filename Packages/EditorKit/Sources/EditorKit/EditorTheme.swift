@@ -1,18 +1,21 @@
 import AppKit
 
-/// Attributes a token may carry (PLAN 4.3.2): colour, bold/italic traits, underline, strikethrough. Never the point size.
+/// Attributes a token may carry (PLAN 4.3.2): colour, bold/italic traits, underline, strikethrough, and a point-size
+/// multiplier of the theme's body font (`fontScale`, used for headings; nil = body size).
 public struct TokenStyle {
     public var color: NSColor?
     public var bold = false
     public var italic = false
     public var underline = false
     public var strikethrough = false
-    public init(color: NSColor? = nil, bold: Bool = false, italic: Bool = false, underline: Bool = false, strikethrough: Bool = false) {
+    public var fontScale: CGFloat?
+    public init(color: NSColor? = nil, bold: Bool = false, italic: Bool = false, underline: Bool = false, strikethrough: Bool = false, fontScale: CGFloat? = nil) {
         self.color = color
         self.bold = bold
         self.italic = italic
         self.underline = underline
         self.strikethrough = strikethrough
+        self.fontScale = fontScale
     }
 }
 
@@ -81,8 +84,9 @@ public struct EditorTheme: @unchecked Sendable {
 
     // MARK: Built-ins (Resources/Themes/*.json, listed in `ThemeLibrary`)
 
-    /// The default (dark editor next to the white preview, like the original MacDown).
-    public static let `default` = dark
+    /// The default: the original MacDown look (Tomorrow Night Eighties palette), a dark editor next to the white preview.
+    public static let `default` = classic
+    public static let classic = ThemeLibrary.builtIn(named: "MacDown Classic")
     public static let dark = ThemeLibrary.builtIn(named: "Default Dark")
     public static let light = ThemeLibrary.builtIn(named: "Default Light")
 }
@@ -95,7 +99,8 @@ extension EditorTheme {
     /// { "name": "…", "appearance": "light|dark|auto", "counterpart": "other-appearance theme (optional)",
     ///   "font": { "name": "…", "size": 13 },                       // optional; name absent = system monospaced
     ///   "colors": { "background", "text", "caret", "selection", "lineNumber", "currentLine" },   // "#RRGGBB" or "#RRGGBBAA"
-    ///   "tokens": { "<TokenKind>": { "fg": "#RRGGBB", "bold": true, "italic": …, "underline": …, "strikethrough": … } } }
+    ///   "tokens": { "<TokenKind>": { "fg": "#RRGGBB", "bold": true, "italic": …, "underline": …, "strikethrough": …,
+    ///                                 "fontScale": 1.714 } } }   // fontScale: multiple of the body size (clamped to 0.5...4)
     /// ```
     /// `background` and `text` are required; the other colours default to values derived from them. Token keys are the raw
     /// values of `TokenKind`; unknown keys are ignored so a theme written for a newer app still loads.
@@ -110,7 +115,8 @@ extension EditorTheme {
         for (key, spec) in file.tokens ?? [:] {
             guard let kind = TokenKind(rawValue: key) else { continue }
             tokens[kind] = TokenStyle(color: spec.fg?.color, bold: spec.bold ?? false, italic: spec.italic ?? false,
-                                      underline: spec.underline ?? false, strikethrough: spec.strikethrough ?? false)
+                                      underline: spec.underline ?? false, strikethrough: spec.strikethrough ?? false,
+                                      fontScale: spec.fontScale.map { min(max($0, 0.5), 4) })
         }
         self.init(
             name: file.name, appearance: file.appearance, counterpart: file.counterpart, font: font,
@@ -125,7 +131,7 @@ extension EditorTheme {
             var background: Hex, text: Hex
             var caret: Hex?, selection: Hex?, lineNumber: Hex?, currentLine: Hex?
         }
-        struct Token: Decodable { var fg: Hex?; var bold: Bool?; var italic: Bool?; var underline: Bool?; var strikethrough: Bool? }
+        struct Token: Decodable { var fg: Hex?; var bold: Bool?; var italic: Bool?; var underline: Bool?; var strikethrough: Bool?; var fontScale: CGFloat? }
         var name: String
         var appearance: ThemeAppearance
         var counterpart: String?

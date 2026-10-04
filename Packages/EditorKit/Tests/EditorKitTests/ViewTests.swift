@@ -40,8 +40,8 @@ struct ViewTests {
 
     @Test func editorDefaultsToDarkAndTheLightThemeIsSelectable() async throws {
         let view = makeView("# Hi\n")
-        #expect(view.theme.name == "Default Dark")
-        #expect(view.backgroundColor == EditorTheme.dark.background)
+        #expect(view.theme.name == "MacDown Classic")
+        #expect(view.backgroundColor == EditorTheme.classic.background)
         view.theme = .light
         #expect(view.backgroundColor == EditorTheme.light.background)
         #expect(view.appearance?.name == .aqua)
@@ -51,6 +51,7 @@ struct ViewTests {
 
     @Test func styledTextLandsInTheTextStorage() async throws {
         let view = makeView("# Hi **b**\n\nplain\n")
+        view.theme = .dark  // a theme without heading sizes
         let theme = view.theme
         let styled = await eventually { foreground(view, at: 2) == theme.tokens[.heading]?.color }
         #expect(styled)

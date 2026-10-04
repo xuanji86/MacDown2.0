@@ -12,7 +12,7 @@ enum AppearanceKey {
 }
 
 enum AppearanceDefault {
-    static let editorTheme = EditorTheme.default.name  // "Default Dark"
+    static let editorTheme = EditorTheme.default.name  // "MacDown Classic"
     static let previewStyle = PreviewStyles.defaultID  // "github" (white)
 }
 
