@@ -71,6 +71,19 @@ struct SearchMatcherTests {
         #expect(overlap?.ranges == [0..<4])
     }
 
+    @Test func everyRequiredTermIsCheckedEvenWhenTheHighlightCapIsReached() throws {
+        let line = String(repeating: "a ", count: 80) + "b"
+        #expect(try match(line, "a b") != nil)
+        #expect(try match(line, "b a") != nil)
+        #expect(try match(String(repeating: "a ", count: 80), "a b") == nil)
+        #expect(try match(line, "a b -c") != nil)
+    }
+
+    @Test func zeroLengthRegexMatchesDoNotUseUpTheCap() throws {
+        let line = String(repeating: "a", count: 60) + "x"
+        #expect(try match(line, "x*", regex: true)?.ranges == [60..<61])
+    }
+
     @Test func regexMode() throws {
         let m = try match("v1.2 and v10.20", #"v\d+\.\d+"#, regex: true)
         #expect(m?.ranges == [0..<4, 9..<15])
@@ -119,6 +132,37 @@ struct SearchSnippetTests {
         #expect(String(decoding: Array(s.text.utf8), as: UTF8.self) == s.text)
     }
 
+    @Test func aMatchInTheTrailingWhitespaceOfALongLineDoesNotCrash() {
+        let line = String(repeating: "x", count: 150) + String(repeating: " ", count: 200)
+        let s = SearchSnippet.make(line: line, ranges: [348..<350])  // what the regex ` {2}$` finds
+        #expect(s.highlights.count == 1)
+        #expect((s.text as NSString).substring(with: NSRange(s.highlights[0])) == "  ")
+        let end = SearchSnippet.make(line: "ab   ", ranges: [3..<5])
+        #expect(end.text == "ab   " && end.highlights == [3..<5])
+    }
+
+    @Test func randomLinesAndRangesNeverTrapAndKeepHighlightsInsideTheText() {
+        var rng = SplitMix(seed: 42)
+        let alphabet = ["x", " ", "\t", "\u{3000}", "中", "😀", "é", "e\u{301}", "a"]
+        for _ in 0..<3000 {
+            let line = (0..<Int(rng.next() % 420)).map { _ in alphabet[Int(rng.next() % UInt64(alphabet.count))] }.joined()
+            let length = (line as NSString).length
+            // Mostly valid ranges, now and then ones that stick out or are empty: the builder may not trust its caller.
+            let ranges = (0..<Int(rng.next() % 4)).map { _ -> Range<Int> in
+                let lo = Int(rng.next() % UInt64(length + 3)), len = Int(rng.next() % 6)
+                return lo..<lo + len
+            }.sorted { $0.lowerBound < $1.lowerBound }
+            let s = SearchSnippet.make(line: line, ranges: ranges)
+            let textLength = (s.text as NSString).length
+            for h in s.highlights { #expect(h.lowerBound >= 0 && h.upperBound <= textLength && !h.isEmpty) }
+            for r in ranges where r.upperBound <= length && !r.isEmpty {
+                if let h = s.highlights.first(where: { ($0.count == r.count) && (s.text as NSString).substring(with: NSRange($0)) == (line as NSString).substring(with: NSRange(r)) }) {
+                    #expect(h.count == r.count)
+                }
+            }
+        }
+    }
+
     @Test func aMatchInsideTheIndentationKeepsItsText() {
         let s = SearchSnippet.make(line: "   x", ranges: [0..<2])
         #expect((s.text as NSString).substring(with: NSRange(s.highlights[0])) == "  ")
@@ -133,6 +177,14 @@ struct SearchScopeTests {
         let roots = SearchScope.roots(workspace: ws, location: URL(filePath: "/q/c", directoryHint: .isDirectory))
         #expect(roots.map(\.path) == ["/p/a", "/p/b"])
         #expect(SearchScope.title(of: roots) == "2 个文件夹")
+    }
+
+    @Test func nestedWorkspaceFoldersAreSearchedOnce() {
+        func u(_ p: String) -> URL { URL(filePath: p, directoryHint: .isDirectory) }
+        let ws = WorkspaceFolders(roots: [u("/p/project/notes"), u("/p/project"), u("/p/other"), u("/p/project-x")])
+        #expect(SearchScope.roots(workspace: ws, location: nil).map(\.path) == ["/p/project", "/p/other", "/p/project-x"])
+        #expect(SearchScope.outermost([u("/a"), u("/a")]).map(\.path) == ["/a"])
+        #expect(SearchScope.outermost([u("/a/b/c"), u("/a/b")]).map(\.path) == ["/a/b"])
     }
 
     @Test func browseModeSearchesTheCurrentLocationUnlessItIsTooBroad() {
@@ -380,5 +432,18 @@ struct SearchPerformanceTests {
 
         print("search 5,050 entries: rare word first \(first!) total \(rareTotal); common word first \(firstCommon!) total \(commonTotal) (\(n) hits); regex total \(regexTotal)")
         #expect(first! < .seconds(3) && firstCommon! < .seconds(1) && rareTotal < .seconds(10) && regexTotal < .seconds(30))
+    }
+}
+
+/// A tiny seeded generator, so the fuzz test is the same on every run.
+private struct SplitMix {
+    var state: UInt64
+    init(seed: UInt64) { state = seed }
+    mutating func next() -> UInt64 {
+        state &+= 0x9E3779B97F4A7C15
+        var z = state
+        z = (z ^ (z >> 30)) &* 0xBF58476D1CE4E5B9
+        z = (z ^ (z >> 27)) &* 0x94D049BB133111EB
+        return z ^ (z >> 31)
     }
 }

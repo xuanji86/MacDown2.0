@@ -53,6 +53,7 @@ struct EditorPane: NSViewRepresentable {
         // text changes). The undo manager is the document's own: every document keeps its undo stack across tab switches.
         context.coordinator.onUserEdit = onUserEdit
         context.coordinator.bind(to: document)
+        editor?.syncDocumentKey(document.fileURL?.fileKey)  // the same document under a new URL (first save, rename)
         guard let textView = context.coordinator.textView else { return }
         textView.behavior = settings.behavior
         textView.apply(settings: settings.view)

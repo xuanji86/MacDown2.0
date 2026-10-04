@@ -21,36 +21,24 @@ final class EditorHandle {
 
     // MARK: Search results
 
-    /// A result waiting for its file to be on screen: opening a tab only changes the window's active document, the editor
-    /// swaps its text a moment later (`EditorPane` calls `documentBound`).
-    private struct Reveal {
-        let key: String
-        let line: Int
-        let columns: Range<Int>?
-        let focus: Bool
-    }
-    private var pending: Reveal?
-    /// File key of the document the editor shows now (nil: untitled or none).
-    private var shownKey: String?
+    /// A result waiting for its file to be on screen (`RevealTracker`; `EditorPane` reports which document the editor shows).
+    private var tracker = RevealTracker()
 
     /// Selects the match at `line` (0-based) of the file `key` as soon as the editor shows that file.
     func reveal(key: String, line: Int, columns: Range<Int>?, focus: Bool) {
-        pending = Reveal(key: key, line: line, columns: columns, focus: focus)
-        applyPending()
+        perform(tracker.request(RevealRequest(key: key, line: line, columns: columns, focus: focus)))
     }
 
     /// `EditorPane`: the editor now shows the document with this file key.
-    func documentBound(key: String?) {
-        shownKey = key
-        applyPending()
-        pending = nil  // a result for a file that never came up must not fire on some later tab switch
-    }
+    func documentBound(key: String?) { perform(tracker.bound(key: key)) }
 
-    private func applyPending() {
-        guard let reveal = pending, reveal.key == shownKey, let textView else { return }
-        pending = nil
-        textView.reveal(line: reveal.line, columns: reveal.columns)
-        if reveal.focus { textView.window?.makeFirstResponder(textView) }
+    /// `EditorPane`: the shown document's URL may have changed under it (first save, rename).
+    func syncDocumentKey(_ key: String?) { perform(tracker.sync(key: key)) }
+
+    private func perform(_ request: RevealRequest?) {
+        guard let request, let textView else { return }
+        textView.reveal(line: request.line, columns: request.columns)
+        if request.focus { textView.window?.makeFirstResponder(textView) }
     }
 
     func resignFocus() {

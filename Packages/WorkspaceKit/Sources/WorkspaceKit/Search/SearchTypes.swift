@@ -160,15 +160,18 @@ struct SearchMatcher: @unchecked Sendable {  // NSRegularExpression is immutable
             guard !include.isEmpty else { return nil }
             var found: [Range<Int>] = []
             for term in include {
-                let before = found.count
+                // Every required term has to be on the line; only the highlights are capped.
+                var present = false
                 var rest = line
-                while rest.length > 0, found.count < Self.maxRanges {
+                while rest.length > 0 {
                     let r = text.range(of: term, options: Self.compare, range: rest)
                     guard r.location != NSNotFound, r.length > 0 else { break }
+                    present = true
+                    if found.count >= Self.maxRanges { break }
                     found.append(r.location - line.location..<NSMaxRange(r) - line.location)
                     rest = NSRange(location: NSMaxRange(r), length: NSMaxRange(line) - NSMaxRange(r))
                 }
-                if found.count == before { return nil }
+                if !present { return nil }
             }
             for term in exclude where text.range(of: term, options: Self.compare, range: line).location != NSNotFound { return nil }
             return LineMatch(ranges: Self.merged(found))
@@ -178,7 +181,7 @@ struct SearchMatcher: @unchecked Sendable {  // NSRegularExpression is immutable
             // mean the line's ends.
             // lazy: a lookbehind / lookahead that spans a line break can still see the neighbouring line; upgrade: cut the line out (3x slower)
             let found = regex.matches(in: text as String, range: line)
-                .prefix(Self.maxRanges).map(\.range).filter { $0.length > 0 }
+                .map(\.range).filter { $0.length > 0 }.prefix(Self.maxRanges)
             guard !found.isEmpty else { return nil }
             return LineMatch(ranges: Self.merged(found.map { $0.location - line.location..<NSMaxRange($0) - line.location }))
         }
@@ -212,19 +215,25 @@ enum SearchSnippet {
 
     /// `line` without its indentation, cut to a window around the first match when long ("…" marks what was left out),
     /// with `ranges` (UTF-16 inside `line`) translated into the snippet.
-    static func make(line: String, ranges: [Range<Int>]) -> (text: String, highlights: [Range<Int>]) {
+    static func make(line: String, ranges rawRanges: [Range<Int>]) -> (text: String, highlights: [Range<Int>]) {
         let ns = line as NSString
-        var start = 0, end = ns.length
+        let length = ns.length
+        // Whatever the caller says, only ranges inside the line count: every offset below is then in 0...length.
+        let ranges = rawRanges.filter { $0.lowerBound >= 0 && $0.lowerBound < $0.upperBound && $0.upperBound <= length }
+        var start = 0, end = length
         while start < end, isBlank(ns.character(at: start)) { start += 1 }
         while end > start, isBlank(ns.character(at: end - 1)) { end -= 1 }
+        // A match in the indentation or the trailing blanks (a regex like ` {2}$`) stays in the snippet.
         if let first = ranges.first { start = min(start, first.lowerBound) }
+        if let last = ranges.map(\.upperBound).max() { end = max(end, last) }
 
         var from = start, to = end
         if to - from > maxUnits {
             from = max(start, (ranges.first?.lowerBound ?? start) - lead)
-            if from > start { from = ns.rangeOfComposedCharacterSequence(at: from).location }
+            if from > start, from < length { from = ns.rangeOfComposedCharacterSequence(at: from).location }
             to = min(end, from + maxUnits)
-            if to < end { to = ns.rangeOfComposedCharacterSequence(at: to - 1).upperBound }
+            if to < end, to > from { to = ns.rangeOfComposedCharacterSequence(at: to - 1).upperBound }
+            to = min(max(to, from), length)
         }
         let prefix = from > start ? "…" : "", suffix = to < end ? "…" : ""
         let text = prefix + ns.substring(with: NSRange(location: from, length: to - from)) + suffix

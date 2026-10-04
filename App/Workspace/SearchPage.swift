@@ -22,11 +22,14 @@ struct SearchPage: View {
                 results(search)
             }
         }
-        .onAppear { focus = .field }
+        .onAppear {
+            focus = .field
+            search.revalidate()
+        }
         .onChange(of: search.focusTick) { focus = .field }
-        .onChange(of: model.sidebar.showAllFiles) { search.start() }
-        // The workspace or the active document's folder changed: results of the old scope would be misleading.
-        .onChange(of: search.scopeTitle) { search.start() }
+        // The folders or the file filter changed while this page is up (a different folder with the same name, "全部"):
+        // the old results would be misleading. While another page is up, `revalidate` catches up when this one returns.
+        .onChange(of: search.scopeSnapshot) { search.start() }
     }
 
     private func results(_ search: SearchModel) -> some View {

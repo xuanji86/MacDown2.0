@@ -24,6 +24,12 @@ enum SearchStatus: Equatable {
     case failed(String)
 }
 
+/// Where and over which files a search looked: the results are stale when this is different now.
+struct SearchScopeSnapshot: Equatable {
+    let roots: [String]
+    let files: FileTreeOptions
+}
+
 /// One window's search page (PLAN 4.12): the query, the results of the providers, which result is selected. Searches run
 /// off the main thread inside the providers; this only receives their streams, in batches.
 @MainActor @Observable
@@ -44,6 +50,8 @@ final class SearchModel {
     @ObservationIgnored private let debouncer = Debouncer(delay: .milliseconds(200))
     @ObservationIgnored private(set) var task: Task<Void, Never>?
     @ObservationIgnored private var generation = 0
+    /// The scope the current results (or the running search) belong to.
+    @ObservationIgnored private var searchedScope: SearchScopeSnapshot?
 
     init(providers: [any SearchProvider] = [AppSearch.builtin], scope: @escaping () -> (roots: [URL], files: FileTreeOptions)) {
         self.providers = providers
@@ -52,6 +60,16 @@ final class SearchModel {
 
     /// The folders being searched, as the page names them ("MyBook"); "" with none. Reads the sidebar's state, so a view
     /// that shows it follows the workspace.
+    var scopeSnapshot: SearchScopeSnapshot {
+        let (roots, files) = scope()
+        return SearchScopeSnapshot(roots: roots.map(\.fileKey), files: files)
+    }
+
+    /// The search page came back on screen: the folder or the file filter may have changed meanwhile (on the Files page).
+    func revalidate() {
+        if !currentQuery(files: FileTreeOptions()).isBlank, scopeSnapshot != searchedScope { start() }
+    }
+
     var scopeTitle: String { SearchScope.title(of: scope().roots) }
     var hitCount: Int { groups.reduce(0) { $0 + $1.hits.count } }
     var isSearching: Bool { status == .searching }
@@ -82,6 +100,7 @@ final class SearchModel {
         debouncer.cancel()
         let (roots, files) = scope()
         let q = currentQuery(files: files)
+        searchedScope = SearchScopeSnapshot(roots: roots.map(\.fileKey), files: files)
         guard !q.isBlank else { clear(); return }
         cancelRunning()
         groups = []
