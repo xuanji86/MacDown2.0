@@ -36,9 +36,14 @@ export interface RenderOptions {
 
 export interface BlockMap { lineStart: number; lineEnd: number; hash: number }
 export interface OutlineItem { level: number; text: string; slug: string; line: number }
+// A task-list checkbox, as the renderer saw it in this text. `line`: the source line the preview page reports for it (its
+// `data-line`: the item's paragraph in a loose item, else the item); `mark`: the line holding the `[ ]` (differs from `line`
+// only when the item starts with an empty bullet line). The app edits the source from this, not from its own idea of Markdown.
+export interface TaskItem { line: number; mark: number }
 export interface RenderResult {
   html: string;
   blocks: BlockMap[];
+  tasks: TaskItem[];
   outline: OutlineItem[];
   stats: TextStats;
   frontMatter?: string; // raw text between the `---` (YAML) or `+++` (TOML, Hugo) fences; absent when there is none or the extension is off
@@ -184,8 +189,15 @@ export function renderResult(source: string, options: RenderOptions): RenderResu
       const [lineStart, lineEnd] = t.map!;
       return { lineStart, lineEnd, hash: hash53(lines.slice(lineStart, lineEnd).join('\n')) };
     });
+  const tasks: TaskItem[] = [];
+  for (let i = 2; i < tokens.length; i++) {
+    const t = tokens[i];
+    if (t.type !== 'inline' || !t.map || t.children?.[0]?.type !== 'checkbox_input') continue;
+    const owner = tokens[i - 1].hidden ? tokens[i - 2] : tokens[i - 1]; // a tight item's paragraph is not rendered, so its <li> carries the line
+    if (owner.map) tasks.push({ line: owner.map[0], mark: t.map[0] });
+  }
   const fm = tokens.find((t) => t.type === 'front_matter');
-  const result: RenderResult = { html, blocks, outline: env.outline, stats: textStats(collectText(tokens)) };
+  const result: RenderResult = { html, blocks, tasks, outline: env.outline, stats: textStats(collectText(tokens)) };
   if (fm) result.frontMatter = fm.meta as unknown as string;
   return result;
 }

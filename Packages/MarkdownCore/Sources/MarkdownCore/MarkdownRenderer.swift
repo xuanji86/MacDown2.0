@@ -47,10 +47,24 @@ public struct RenderOptions: Sendable, Codable, Hashable {
 public struct RenderResult: Sendable, Codable, Hashable {
     public var html: String
     public var blocks: [BlockMap]
+    /// The task-list checkboxes of this text, in document order.
+    public var tasks: [TaskItem]
     public var outline: [OutlineItem]
     public var stats: TextStats
     /// Raw text between the `---` (YAML) or `+++` (TOML) fences; nil when there is none or `.frontMatter` is off.
     public var frontMatter: String?
+}
+
+/// A task-list checkbox as the renderer saw it (`Web/src/render/index.ts`): `line` is the 0-based source line the preview page
+/// reports for it (`data-line` of its paragraph in a loose item, of its list item otherwise), `mark` the line that holds its
+/// `[ ]` (different only for an item that starts with an empty bullet line). `TaskToggle` edits the source from this.
+public struct TaskItem: Sendable, Codable, Hashable {
+    public var line: Int
+    public var mark: Int
+    public init(line: Int, mark: Int) {
+        self.line = line
+        self.mark = mark
+    }
 }
 
 /// A top-level block and the source lines it came from (`lineEnd` exclusive, zero-based).

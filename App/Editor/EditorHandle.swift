@@ -42,14 +42,14 @@ final class EditorHandle {
         if request.focus { textView.window?.makeFirstResponder(textView) }
     }
 
-    /// A task checkbox was clicked in the preview, which shows `renderedText`: tick or untick the item on `line` (0-based) in
-    /// the source. Only when the editor still holds exactly that text and the line is still a task item (`TaskToggle`), and
+    /// A task checkbox was clicked in the preview, which shows `renderedText`: tick or untick `task` in the source. Only when
+    /// the editor still holds exactly that text and `task` (the renderer's) still points at a mark (`TaskToggle`), and
     /// as one undo step in the document's undo manager. The edit goes through the text view, which is in the window in every
     /// layout (a hidden pane is only faded out), so the same path serves split and preview-only. Returns the editor's new
     /// text, or nil when nothing was changed.
-    func toggleTask(line: Int, checked: Bool, renderedText: String) -> String? {
+    func toggleTask(_ task: TaskItem, checked: Bool, renderedText: String) -> String? {
         guard let textView, textView.string == renderedText,
-              let edit = TaskToggle.edit(in: renderedText, line: line, checked: checked),
+              let edit = TaskToggle.edit(in: renderedText, task: task, checked: checked),
               textView.replaceUndoably(edit.range, with: edit.replacement, actionName: "切换任务")
         else { return nil }
         return textView.string

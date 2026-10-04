@@ -85,7 +85,7 @@ struct DocumentView: View {
         .task { await IsolatedTestHooks.toggleTaskThroughPage(model: model, preview: preview, editor: editor, document: document) }
         .onAppear {
             scrollSync.attach(preview: preview)
-            preview.onToggleTask = { [editor] line, checked, text in editor.toggleTask(line: line, checked: checked, renderedText: text) }
+            preview.onToggleTask = { [editor] task, checked, text in editor.toggleTask(task, checked: checked, renderedText: text) }
         }
         .onChange(of: syncScrolling, initial: true) { _, on in scrollSync.isEnabled = on }
         .onChange(of: previewFollowsCaret, initial: true) { _, on in scrollSync.followsCaret = on }

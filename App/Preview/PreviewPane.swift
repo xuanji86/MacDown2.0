@@ -54,6 +54,8 @@ private final class PreviewMessageHandler: NSObject, WKScriptMessageHandler {
 struct PreviewMetadata: Decodable, Equatable {
     var outline: [OutlineItem]
     var stats: TextStats
+    /// The task-list checkboxes of the text the page shows (`TaskToggle` edits from these).
+    var tasks: [TaskItem]
 }
 
 /// Owns the `WebPage` that shows `preview.html` and pushes Markdown into it.
@@ -70,9 +72,9 @@ final class PreviewModel {
     /// A render or script error inside the page (the old content stays on screen).
     var onRenderError: ((String) -> Void)?
     /// The user clicked a task checkbox on the page and the page's token and render version check out: edit the source
-    /// (`line` 0-based, `checked` the wanted state, `text` the Markdown the page shows). Returns the document's new text
+    /// (`task` as the renderer saw it in `text`, the Markdown the page shows; `checked` the wanted state). Returns the document's new text
     /// when it made the edit, nil when it refused; the page is then told to take the checkbox back.
-    var onToggleTask: ((_ line: Int, _ checked: Bool, _ text: String) -> String?)?
+    var onToggleTask: ((_ task: TaskItem, _ checked: Bool, _ text: String) -> String?)?
 
     /// Directory that relative image paths resolve against; nil for a document that was never saved.
     var documentDirectory: URL? {
@@ -108,9 +110,9 @@ final class PreviewModel {
     /// Not persisted anywhere: a new load (or a new launch) has a new one.
     private var bridgeToken: String?
     /// The text the page shows, and the version it was given (every render gets the next one; the page reports the one it
-    /// shows with each checkbox click). Set before the render is sent and put back if it fails, so a click that arrives
-    /// right behind the page's own update is judged against the right text. nil until the first render succeeds.
-    private var shown: (version: Int, text: String)?
+    /// shows with each checkbox click), and the checkboxes the renderer found in it (nil until that render has answered: a
+    /// click in that instant is refused). Set before the render is sent and put back if it fails. nil until the first render.
+    private var shown: (version: Int, text: String, tasks: [TaskItem]?)?
     private var renderCount = 0
     // Same latest-wins collapsing for scroll requests.
     private var pendingScrollLine: Double?
@@ -253,7 +255,8 @@ final class PreviewModel {
             log.error("preview task toggle dropped: wrong token")
             return
         }
-        if let shown, shown.version == version, let new = onToggleTask?(line, checked, shown.text) {
+        if let shown, shown.version == version, let task = shown.tasks?.first(where: { $0.line == line }),
+           let new = onToggleTask?(task, checked, shown.text) {
             // Render the new text now instead of after the typing debounce: a second click inside that window would be stale.
             lastMarkdown = new
             Task { [weak self] in await self?.push(new) }
@@ -317,7 +320,7 @@ final class PreviewModel {
             renderCount += 1
             let version = renderCount
             let before = shown
-            shown = (version, next)
+            shown = (version, next, nil)
             do {
                 // A chunk that fails to load is reported by `update` itself (the flavor is then unknown).
                 let result = try await page.callJavaScript(
@@ -329,8 +332,9 @@ final class PreviewModel {
                 let meta = (result as? String).flatMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any] }
                 if meta?["error"] != nil { shown = before }  // the old content stays on the page
                 if meta?["error"] == nil {
-                    if let decoded = try? JSONDecoder().decode(PreviewMetadata.self, from: Data((result as? String ?? "").utf8)), decoded != metadata {
-                        metadata = decoded
+                    if let decoded = try? JSONDecoder().decode(PreviewMetadata.self, from: Data((result as? String ?? "").utf8)) {
+                        if decoded != metadata { metadata = decoded }
+                        if shown?.version == version { shown?.tasks = decoded.tasks }
                     }
                     let perf = meta?["perf"] as? [String: Any]
                     let ms = Double(elapsed.components.attoseconds) / 1e15 + Double(elapsed.components.seconds) * 1000

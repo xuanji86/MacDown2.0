@@ -2,10 +2,19 @@ import Foundation
 import Testing
 @testable import MarkdownCore
 
+/// Which lines are task items is decided by the renderer (`RenderResult.tasks`), `TaskToggle` only finds the mark on the line the
+/// renderer named. So these tests go through the real renderer: whatever it calls a checkbox must toggle, nothing else may.
 @Suite struct TaskToggleTests {
-    /// Applies the edit like the editor would (UTF-16 range), nil when there is none.
-    private func toggled(_ text: String, line: Int, checked: Bool) -> String? {
-        guard let edit = TaskToggle.edit(in: text, line: line, checked: checked) else { return nil }
+    private let renderer = try! JSCRenderer()  // lazy: one JavaScriptCore context per test is plenty
+
+    private func tasks(_ text: String, _ options: RenderOptions = RenderOptions()) async throws -> [TaskItem] {
+        try await renderer.render(text, options: options).tasks
+    }
+
+    /// Applies the edit like the editor would (UTF-16 range); nil when the renderer sees no checkbox there or there is nothing to do.
+    private func toggled(_ text: String, line: Int, checked: Bool, _ options: RenderOptions = RenderOptions()) async throws -> String? {
+        guard let task = try await tasks(text, options).first(where: { $0.line == line }),
+              let edit = TaskToggle.edit(in: text, task: task, checked: checked) else { return nil }
         #expect(edit.range.length == 1)
         return (text as NSString).replacingCharacters(in: edit.range, with: edit.replacement)
     }
@@ -20,8 +29,6 @@ import Testing
         ("12) [ ] a", "12) [x] a"),
         ("-   [ ] a", "-   [x] a"),
         ("  - [ ] nested", "  - [x] nested"),
-        ("        - [ ] deeply nested", "        - [x] deeply nested"),
-        ("\t- [ ] tab indented", "\t- [x] tab indented"),
         ("> - [ ] in a quote", "> - [x] in a quote"),
         (">- [ ] tight quote", ">- [x] tight quote"),
         ("> > 1. [ ] two quotes", "> > 1. [x] two quotes"),
@@ -30,9 +37,16 @@ import Testing
         ("- [ ]\u{a0}no-break space after", "- [x]\u{a0}no-break space after"),
         ("- [ ] 中文 😀 text", "- [x] 中文 😀 text"),
     ])
-    func checksAnOpenItem(_ source: String, _ expected: String) {
-        #expect(toggled(source, line: 0, checked: true) == expected)
-        #expect(TaskToggle.edit(in: source, line: 0, checked: false) == nil)  // already open
+    func checksAnOpenItem(_ source: String, _ expected: String) async throws {
+        #expect(try await toggled(source, line: 0, checked: true) == expected)
+        #expect(try await toggled(source, line: 0, checked: false) == nil)  // already open
+    }
+
+    @Test func indentationIsTheRenderersCall() async throws {
+        #expect(try await toggled("- parent\n  - child\n        - [ ] deep\n", line: 2, checked: true) == nil)  // 8 spaces under a 4-space item: code
+        #expect(try await toggled("- parent\n    - [ ] four\n", line: 1, checked: true) == "- parent\n    - [x] four\n")
+        #expect(try await toggled("- parent\n\t- [ ] tab\n", line: 1, checked: true) == "- parent\n\t- [x] tab\n")
+        #expect(try await toggled("    - [ ] code\n", line: 0, checked: true) == nil)
     }
 
     @Test(arguments: [
@@ -42,35 +56,36 @@ import Testing
         ("  * [x] nested", "  * [ ] nested"),
         ("> + [x] quoted", "> + [ ] quoted"),
     ])
-    func unchecksADoneItem(_ source: String, _ expected: String) {
-        #expect(toggled(source, line: 0, checked: false) == expected)
-        #expect(TaskToggle.edit(in: source, line: 0, checked: true) == nil)  // already done
+    func unchecksADoneItem(_ source: String, _ expected: String) async throws {
+        #expect(try await toggled(source, line: 0, checked: false) == expected)
+        #expect(try await toggled(source, line: 0, checked: true) == nil)  // already done
     }
 
-    @Test func editIsTheOneMarkCharacterAndNothingElse() throws {
+    @Test func editIsTheOneMarkCharacterAndNothingElse() async throws {
         let text = "intro\n\n- [ ] one\n- [X] 二\n"
-        let open = try #require(TaskToggle.edit(in: text, line: 2, checked: true))
-        #expect(open == TaskToggle.Edit(range: NSRange(location: 10, length: 1), replacement: "x"))
-        let done = try #require(TaskToggle.edit(in: text, line: 3, checked: false))
-        #expect(done == TaskToggle.Edit(range: NSRange(location: 20, length: 1), replacement: " "))
+        let items = try await tasks(text)
+        #expect(items == [TaskItem(line: 2, mark: 2), TaskItem(line: 3, mark: 3)])
+        #expect(TaskToggle.edit(in: text, task: items[0], checked: true) == TaskToggle.Edit(range: NSRange(location: 10, length: 1), replacement: "x"))
+        #expect(TaskToggle.edit(in: text, task: items[1], checked: false) == TaskToggle.Edit(range: NSRange(location: 20, length: 1), replacement: " "))
     }
 
-    @Test func offsetsAreUTF16UnitsAfterWideCharacters() throws {
+    @Test func offsetsAreUTF16UnitsAfterWideCharacters() async throws {
         let text = "😀 emoji line\n中文\n- [ ] after\n"  // the emoji is two UTF-16 units
-        let edit = try #require(TaskToggle.edit(in: text, line: 2, checked: true))
+        let task = try #require(try await tasks(text).first)
+        let edit = try #require(TaskToggle.edit(in: text, task: task, checked: true))
         #expect((text as NSString).substring(with: edit.range) == " ")
         #expect(edit.range.location == (text as NSString).range(of: "[ ]").location + 1)
     }
 
-    @Test func picksTheRequestedLineAmongSeveralItems() {
+    @Test func picksTheRequestedItemAmongSeveral() async throws {
         let text = "- [ ] a\n- [x] b\n  - [ ] c\n- [ ] d"
-        #expect(toggled(text, line: 0, checked: true) == "- [x] a\n- [x] b\n  - [ ] c\n- [ ] d")
-        #expect(toggled(text, line: 1, checked: false) == "- [ ] a\n- [ ] b\n  - [ ] c\n- [ ] d")
-        #expect(toggled(text, line: 2, checked: true) == "- [ ] a\n- [x] b\n  - [x] c\n- [ ] d")
-        #expect(toggled(text, line: 3, checked: true) == "- [ ] a\n- [x] b\n  - [ ] c\n- [x] d")  // last line, no trailing newline
+        #expect(try await toggled(text, line: 0, checked: true) == "- [x] a\n- [x] b\n  - [ ] c\n- [ ] d")
+        #expect(try await toggled(text, line: 1, checked: false) == "- [ ] a\n- [ ] b\n  - [ ] c\n- [ ] d")
+        #expect(try await toggled(text, line: 2, checked: true) == "- [ ] a\n- [x] b\n  - [x] c\n- [ ] d")
+        #expect(try await toggled(text, line: 3, checked: true) == "- [ ] a\n- [x] b\n  - [ ] c\n- [x] d")  // last line, no trailing newline
     }
 
-    // MARK: Lines that are not task items
+    // MARK: Lines the renderer does not make checkboxes of
 
     @Test(arguments: [
         "- [] empty brackets",
@@ -81,85 +96,86 @@ import Testing
         "- [ ]\ttab after the bracket",
         "- [ ]",
         "- [ ] ",
-        "- [ ]   ",
         "[ ] no list marker",
         "text - [ ] after text",
         "1.[ ] glued",
         "1234567890. [ ] ten digits",
         "a. [ ] letter marker",
         "- - -",
-        "    ",
         "",
         "# - [ ] heading",
         "| - [ ] | table |",
+        "    - [ ] indented code",
+        "<div>\n- [ ] inside an html block\n</div>",
+        "$$\n- [ ] inside math\n$$",
     ])
-    func refusesAnythingThatIsNotATaskItem(_ source: String) {
-        #expect(TaskToggle.edit(in: source, line: 0, checked: true) == nil)
-        #expect(TaskToggle.edit(in: source, line: 0, checked: false) == nil)
-    }
-
-    @Test func aLineThatStoppedBeingATaskIsRefused() {
-        // The page asked for line 1 of an older text; the current one has the item elsewhere.
-        #expect(TaskToggle.edit(in: "- [ ] a\n\nplain\n", line: 2, checked: true) == nil)
-        #expect(TaskToggle.edit(in: "x\n- [ ] a\n", line: 0, checked: true) == nil)
-    }
-
-    @Test func outOfRangeLinesAreRefused() {
-        #expect(TaskToggle.edit(in: "- [ ] a\n", line: -1, checked: true) == nil)
-        #expect(TaskToggle.edit(in: "- [ ] a\n", line: 2, checked: true) == nil)  // the empty line after the final \n is line 1
-        #expect(TaskToggle.edit(in: "- [ ] a\n", line: 1, checked: true) == nil)
-        #expect(TaskToggle.edit(in: "- [ ] a", line: 1, checked: true) == nil)
-        #expect(TaskToggle.edit(in: "", line: 0, checked: true) == nil)
-        #expect(TaskToggle.edit(in: "- [ ] a", line: Int.max, checked: true) == nil)
-    }
-
-    // MARK: Fenced code, front matter
-
-    @Test func aTaskLookingLineInsideAFenceIsLeftAlone() {
-        for fence in ["```", "~~~", "````", "```swift"] {
-            let close = fence.hasPrefix("~") ? "~~~" : fence.hasPrefix("````") ? "````" : "```"
-            let text = "\(fence)\n- [ ] not a task\n- [x] nor this\n\(close)\n- [ ] real\n"
-            #expect(TaskToggle.edit(in: text, line: 1, checked: true) == nil, "\(fence)")
-            #expect(TaskToggle.edit(in: text, line: 2, checked: false) == nil, "\(fence)")
-            #expect(toggled(text, line: 4, checked: true)?.hasSuffix("- [x] real\n") == true, "\(fence) closes")
+    func refusesAnythingThatIsNotATaskItem(_ source: String) async throws {
+        for line in 0..<source.split(separator: "\n", omittingEmptySubsequences: false).count {
+            #expect(try await toggled(source, line: line, checked: true) == nil)
+            #expect(try await toggled(source, line: line, checked: false) == nil)
         }
     }
 
-    @Test func fenceRules() {
-        // a shorter or different closer does not end the fence; ``` inside ~~~ is just text
-        #expect(TaskToggle.edit(in: "````\n```\n- [ ] a\n````\n", line: 2, checked: true) == nil)
-        #expect(TaskToggle.edit(in: "~~~\n```\n- [ ] a\n~~~\n", line: 2, checked: true) == nil)
-        // a closer carries no text; a fence line with text after it is content
-        #expect(TaskToggle.edit(in: "```\n``` not a closer\n- [ ] a\n```\n", line: 2, checked: true) == nil)
-        // an unclosed fence runs to the end of the document
-        #expect(TaskToggle.edit(in: "```\n- [ ] a\n", line: 1, checked: true) == nil)
-        // a backtick fence cannot have a backtick in its info string: that line is a code span, not a fence
-        #expect(toggled("```a`b\n- [ ] a\n", line: 1, checked: true) == "```a`b\n- [x] a\n")
-        // inline triple backticks mid-line open nothing
-        #expect(toggled("text ``` more\n- [ ] a\n", line: 1, checked: true) == "text ``` more\n- [x] a\n")
-        // a fence inside a quote or a list item is a fence too
-        #expect(TaskToggle.edit(in: "> ```\n> - [ ] a\n> ```\n", line: 1, checked: true) == nil)
-        #expect(TaskToggle.edit(in: "- ```\n  - [ ] a\n  ```\n", line: 1, checked: true) == nil)
-        #expect(toggled("> ```\n> x\n> ```\n- [ ] a\n", line: 3, checked: true) == "> ```\n> x\n> ```\n- [x] a\n")
-        // a task item after two separate fences
-        #expect(toggled("```\na\n```\n\n```\nb\n```\n- [ ] z\n", line: 7, checked: true) == "```\na\n```\n\n```\nb\n```\n- [x] z\n")
+    @Test func aTextThatMovedOnHasNoSuchTask() async throws {
+        // The renderer's task list belongs to the text it rendered; against another text the line is not a task any more.
+        let task = try #require(try await tasks("- [ ] a\n").first)
+        #expect(TaskToggle.edit(in: "plain\n", task: task, checked: true) == nil)
+        #expect(TaskToggle.edit(in: "x\n- [ ] a\n", task: task, checked: true) == nil)
+        #expect(TaskToggle.edit(in: "- [ ] a\n", task: TaskItem(line: 5, mark: 5), checked: true) == nil)  // beyond the text
+        #expect(TaskToggle.edit(in: "- [ ] a\n", task: TaskItem(line: -1, mark: -1), checked: true) == nil)
+        #expect(TaskToggle.edit(in: "- [ ] a", task: TaskItem(line: 1, mark: 1), checked: true) == nil)
     }
 
-    @Test func frontMatterIsNotMarkdown() {
-        #expect(TaskToggle.edit(in: "---\n- [ ] a\n---\n- [ ] b\n", line: 1, checked: true) == nil)
-        #expect(toggled("---\n- [ ] a\n---\n- [ ] b\n", line: 3, checked: true) == "---\n- [ ] a\n---\n- [x] b\n")
-        #expect(TaskToggle.edit(in: "+++\n- [ ] a\n+++\n", line: 1, checked: true) == nil)
-        #expect(TaskToggle.edit(in: "---\n- [ ] a\n...\n", line: 1, checked: true) == nil)
-        // a first line that is not a front matter opener, or one that never closes, is plain text
-        #expect(toggled("- [ ] a\n---\n", line: 0, checked: true) == "- [x] a\n---\n")
-        #expect(toggled("---\n- [ ] a\n", line: 1, checked: true) == "---\n- [x] a\n")
+    // MARK: What the renderer decides (fences, front matter, options): no second parser to disagree
+
+    @Test func aTaskLookingLineInsideAFenceIsLeftAlone() async throws {
+        for fence in ["```", "~~~", "````", "```swift"] {
+            let close = fence.hasPrefix("~") ? "~~~" : fence.hasPrefix("````") ? "````" : "```"
+            let text = "\(fence)\n- [ ] not a task\n- [x] nor this\n\(close)\n- [ ] real\n"
+            #expect(try await toggled(text, line: 1, checked: true) == nil, "\(fence)")
+            #expect(try await toggled(text, line: 2, checked: false) == nil, "\(fence)")
+            #expect(try await toggled(text, line: 4, checked: true)?.hasSuffix("- [x] real\n") == true, "\(fence) closes")
+        }
     }
 
-    // MARK: Parity with the renderer
+    @Test func aFenceThatClosesInsideAListItemDoesNotHideLaterItems() async throws {
+        let text = "- ~~~\n    code\n    ~~~\n\n- [ ] real\n"
+        #expect(try await toggled(text, line: 4, checked: true) == "- ~~~\n    code\n    ~~~\n\n- [x] real\n")
+        let quote = "> ```\n> - [ ] in the fence\n> ```\n\n- [ ] after\n"
+        #expect(try await toggled(quote, line: 1, checked: true) == nil)
+        #expect(try await toggled(quote, line: 4, checked: true) == "> ```\n> - [ ] in the fence\n> ```\n\n- [x] after\n")
+    }
 
-    /// The lines the renderer gives a checkbox (`data-line` of the element holding it) are exactly the lines this type accepts, over
-    /// every item form, a fence, front matter and look-alikes. Keeps the marker grammar in step with `@mdit/plugin-tasklist`.
-    @Test func acceptsExactlyTheLinesTheRendererMakesCheckboxesOf() async throws {
+    @Test func aMarkerLineWhoseTextContinuesBelowIsATask() async throws {
+        #expect(try await toggled("- [ ] \n  continuation\n", line: 0, checked: true) == "- [x] \n  continuation\n")
+        // the item that starts with an empty bullet line: the page reports the item's line, the mark is on the next one
+        let text = "-\n  [ ] later\n"
+        let task = try #require(try await tasks(text).first)
+        #expect(task == TaskItem(line: 0, mark: 1))
+        #expect(try await toggled(text, line: 0, checked: true) == "-\n  [x] later\n")
+    }
+
+    @Test func frontMatterFollowsTheRenderOptions() async throws {
+        let yaml = "---\n- [ ] in front matter\n---\n- [ ] after\n"
+        #expect(try await toggled(yaml, line: 1, checked: true) == nil)  // front matter on (default): metadata
+        #expect(try await toggled(yaml, line: 3, checked: true) == "---\n- [ ] in front matter\n---\n- [x] after\n")
+        var off = RenderOptions()
+        off.extensions.remove(.frontMatter)
+        #expect(try await toggled(yaml, line: 1, checked: true, off) == "---\n- [x] in front matter\n---\n- [ ] after\n")  // two rules and a list
+        let toml = "+++\n- [ ] in toml\n+++\n"
+        #expect(try await toggled(toml, line: 1, checked: true) == nil)
+        #expect(try await toggled(toml, line: 1, checked: true, off) == "+++\n- [x] in toml\n+++\n")  // Hugo front matter is the same option
+    }
+
+    @Test func switchingTaskListsOffLeavesNothingToToggle() async throws {
+        var off = RenderOptions()
+        off.extensions.remove(.taskLists)
+        #expect(try await tasks("- [ ] a\n", off).isEmpty)
+    }
+
+    /// Toggling every task the renderer found, one at a time, flips exactly that checkbox in the next render and nothing else, over
+    /// a document that has every awkward shape the renderer knows.
+    @Test func everyRendererTaskTogglesAndOnlyThatOne() async throws {
         let source = """
         ---
         - [ ] front matter, not a task
@@ -196,55 +212,75 @@ import Testing
         - [x] tilde fenced
         ~~~
 
+        - ~~~
+            code
+            ~~~
+
+        - [ ] after a fence closed in a list item
+
         - [ ] loose item
 
           second paragraph
         - [ ] last
+        - [ ] 
+          continuation
+        -
+          [ ] marker below the bullet
         """
-        let html = try await JSCRenderer().render(source, options: RenderOptions()).html
-        let rendered = Set(html.matches(of: /data-line="(\d+)"[^>]*><input type="checkbox" class="task-list-item-checkbox"/).map { Int($0.1)! })
-        let lines = source.split(separator: "\n", omittingEmptySubsequences: false)
-        let accepted = Set(lines.indices.filter {
-            TaskToggle.edit(in: source, line: $0, checked: true) != nil || TaskToggle.edit(in: source, line: $0, checked: false) != nil
-        })
-        #expect(!rendered.isEmpty)
-        #expect(accepted == rendered, "accepted \(accepted.sorted()) but the page has checkboxes on \(rendered.sorted())")
+        func states(_ html: String) -> [Bool] {
+            html.matches(of: /<input[^>]*task-list-item-checkbox[^>]*>/).map { $0.output.contains("checked=\"checked\"") }
+        }
+        let first = try await renderer.render(source, options: RenderOptions())
+        let before = states(first.html)
+        #expect(first.tasks.count == before.count)
+        #expect(before.count > 15)
+        for (i, task) in first.tasks.enumerated() {
+            let edit = try #require(TaskToggle.edit(in: source, task: task, checked: !before[i]), "task \(i) at line \(task.line)")
+            #expect(TaskToggle.edit(in: source, task: task, checked: before[i]) == nil)
+            let changed = (source as NSString).replacingCharacters(in: edit.range, with: edit.replacement)
+            let after = states(try await renderer.render(changed, options: RenderOptions()).html)
+            var expected = before
+            expected[i].toggle()
+            #expect(after == expected, "toggling task \(i) at line \(task.line) changed something else")
+        }
     }
 
     // MARK: The file on disk
 
     /// Decodes `data` as a file would be opened, applies the toggle to the LF text, writes it back.
-    private func saved(_ data: Data, as encoding: TextEncoding? = nil, line: Int, checked: Bool) throws -> Data {
+    private func saved(_ data: Data, as encoding: TextEncoding? = nil, line: Int, checked: Bool) async throws -> Data {
         var file = try encoding.map { try MarkdownFile.decode(data, as: $0) } ?? MarkdownFile.decode(data)
-        let edit = try #require(TaskToggle.edit(in: file.text, line: line, checked: checked))
+        let task = try #require(try await tasks(file.text).first(where: { $0.line == line }))
+        let edit = try #require(TaskToggle.edit(in: file.text, task: task, checked: checked))
         file.text = (file.text as NSString).replacingCharacters(in: edit.range, with: edit.replacement)
         return try file.encoded()
     }
 
-    @Test func crlfFileKeepsItsLineEndingsAndOtherBytes() throws {
+    @Test func crlfFileKeepsItsLineEndingsAndOtherBytes() async throws {
         let before = Data("# T\r\n\r\n- [ ] a\r\n- [x] b\r\n".utf8)
-        #expect(try saved(before, line: 2, checked: true) == Data("# T\r\n\r\n- [x] a\r\n- [x] b\r\n".utf8))
-        #expect(try saved(before, line: 3, checked: false) == Data("# T\r\n\r\n- [ ] a\r\n- [ ] b\r\n".utf8))
+        #expect(try await saved(before, line: 2, checked: true) == Data("# T\r\n\r\n- [x] a\r\n- [x] b\r\n".utf8))
+        #expect(try await saved(before, line: 3, checked: false) == Data("# T\r\n\r\n- [ ] a\r\n- [ ] b\r\n".utf8))
     }
 
-    @Test func bareCRFileKeepsItsLineEndings() throws {
+    @Test func bareCRFileKeepsItsLineEndings() async throws {
         let before = Data("- [ ] a\r- [x] b\r".utf8)
-        #expect(try saved(before, line: 0, checked: true) == Data("- [x] a\r- [x] b\r".utf8))
+        #expect(try await saved(before, line: 0, checked: true) == Data("- [x] a\r- [x] b\r".utf8))
     }
 
-    @Test func utf8WithBOMKeepsItsBOM() throws {
+    @Test func utf8WithBOMKeepsItsBOM() async throws {
         let before = Data([0xEF, 0xBB, 0xBF] + Array("- [ ] 中\n".utf8))
-        #expect(try saved(before, line: 0, checked: true) == Data([0xEF, 0xBB, 0xBF] + Array("- [x] 中\n".utf8)))
+        #expect(try await saved(before, line: 0, checked: true) == Data([0xEF, 0xBB, 0xBF] + Array("- [x] 中\n".utf8)))
     }
 
     @Test(arguments: [TextEncoding.utf16LE, .utf16BE, .gb18030, .shiftJIS, .windows1252, .macRoman])
-    func otherEncodingsChangeExactlyOneUnit(encoding: TextEncoding) throws {
+    func otherEncodingsChangeExactlyOneUnit(encoding: TextEncoding) async throws {
         let text = encoding == .gb18030 ? "标题\n- [ ] 任务\n" : encoding == .shiftJIS ? "見出し\n- [ ] タスク\n" : "café\n- [ ] tâche\n"
-        let open = try MarkdownFile(text: text, lineEnding: .crlf, encoding: encoding, hasBOM: encoding == .utf16LE || encoding == .utf16BE).encoded()
-        let done = try MarkdownFile(text: text.replacingOccurrences(of: "[ ]", with: "[x]"), lineEnding: .crlf, encoding: encoding, hasBOM: encoding == .utf16LE || encoding == .utf16BE).encoded()
+        let bom = encoding == .utf16LE || encoding == .utf16BE
+        let open = try MarkdownFile(text: text, lineEnding: .crlf, encoding: encoding, hasBOM: bom).encoded()
+        let done = try MarkdownFile(text: text.replacingOccurrences(of: "[ ]", with: "[x]"), lineEnding: .crlf, encoding: encoding, hasBOM: bom).encoded()
         #expect(open.count == done.count)
         #expect(zip(open, done).filter { $0 != $1 }.count == 1)  // one byte: ' ' (0x20) became 'x' (0x78), in either UTF-16 order
-        #expect(try saved(open, as: encoding, line: 1, checked: true) == done)
-        #expect(try saved(done, as: encoding, line: 1, checked: false) == open)
+        #expect(try await saved(open, as: encoding, line: 1, checked: true) == done)
+        #expect(try await saved(done, as: encoding, line: 1, checked: false) == open)
     }
 }

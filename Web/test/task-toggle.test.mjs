@@ -45,6 +45,21 @@ describe('static HTML never becomes interactive', () => {
   });
 });
 
+test('the renderer lists the checkboxes it made: the line the page reports and the line holding the mark', () => {
+  assert.deepEqual(renderResult(DOC, OPTIONS).tasks, [
+    { line: 0, mark: 0 },
+    { line: 1, mark: 1 },
+    { line: 2, mark: 2 },
+    { line: 4, mark: 4 },
+    { line: 6, mark: 6 },
+  ]);
+  // a loose item reports its paragraph's line; an item that starts with an empty bullet line has its mark one line below
+  assert.deepEqual(renderResult('- [ ] a\n\n  more\n\n- [ ] b\n', OPTIONS).tasks, [{ line: 0, mark: 0 }, { line: 4, mark: 4 }]);
+  assert.deepEqual(renderResult('-\n  [ ] b\n', OPTIONS).tasks, [{ line: 0, mark: 1 }]);
+  assert.deepEqual(renderResult('```\n- [ ] a\n```\n', OPTIONS).tasks, []);
+  assert.deepEqual(renderResult('- [ ] a\n', { ...OPTIONS, extensions: [] }).tasks, []);
+});
+
 describe('the preview page (headless Chrome)', { skip: !chromeAvailable && 'no Chrome (set CHROME_BIN)' }, () => {
   let browser;
   before(async () => {
@@ -88,6 +103,8 @@ describe('the preview page (headless Chrome)', { skip: !chromeAvailable && 'no C
     try {
       await render(page, DOC, 41);
       for (const n of [0, 1, 2, 3, 4]) await page.eval(`${box(n)}.click()`);
+      const tasks = renderResult(DOC, OPTIONS).tasks.map((t) => t.line);
+      assert.deepEqual((await page.eval('__msgs.filter((m) => m.type === "toggleTask").map((m) => m.line)')), tasks); // the page and the renderer agree on every line
       assert.deepEqual(await toggles(page), [
         { type: 'toggleTask', token: 'secret-7', line: 0, checked: true, version: 41 },
         { type: 'toggleTask', token: 'secret-7', line: 1, checked: false, version: 41 },
