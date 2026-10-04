@@ -73,8 +73,23 @@ final class WorkspaceRegistry: DocumentBackend {
 
     // MARK: Documents (DocumentBackend)
 
+    /// fileKey → live document. A cache, never the truth: every hit is checked against the document's current key and the
+    /// controller's list, so a rename, Save As, close or an open that bypassed `load` just misses and takes the scan (which refills it).
+    private let documentIndex = NSMapTable<NSString, MarkdownDocument>.strongToWeakObjects()
+
+    /// Called from SwiftUI bodies (every tab, every redraw): a hit costs one key computation, not one per open document.
     func document(for url: URL) -> MarkdownDocument? {
-        NSDocumentController.shared.documents.lazy.compactMap { $0 as? MarkdownDocument }.first { $0.tabURL?.fileKey == url.fileKey }
+        let key = url.fileKey
+        let open = NSDocumentController.shared.documents
+        if let doc = documentIndex.object(forKey: key as NSString), doc.tabURL?.fileKey == key, open.contains(where: { $0 === doc }) { return doc }
+        documentIndex.removeAllObjects()
+        var found: MarkdownDocument?
+        for case let doc as MarkdownDocument in open {
+            guard let docKey = doc.tabURL?.fileKey, documentIndex.object(forKey: docKey as NSString) == nil else { continue }
+            documentIndex.setObject(doc, forKey: docKey as NSString)
+            if docKey == key { found = doc }
+        }
+        return found
     }
 
     func makeUntitled() -> URL {
@@ -400,15 +415,30 @@ final class WorkspaceRegistry: DocumentBackend {
             return target
         }
         guard isFolder else { return try FileOperations.rename(url, to: name) }
+        // Refuse a bad or taken name before any tab is closed: closing asks about unsaved text, and a refusal afterwards would
+        // leave the tabs gone for nothing.
+        if try FileOperations.destination(renaming: url, to: name).path == url.path { return url }
         let affected = tabs(under: url)
-        guard await closeTabs(under: url) else { return url }
-        let target = try FileOperations.rename(url, to: name)
+        guard await closeTabs(under: url) else {
+            reopen(affected)  // the tabs closed before the user cancelled come back
+            return url
+        }
+        let target: URL
+        do { target = try FileOperations.rename(url, to: name) } catch {
+            reopen(affected)
+            throw error
+        }
         let oldPrefix = url.fileKey, newPrefix = target.fileKey
         for (model, tab) in affected {
             let moved = URL(filePath: newPrefix + tab.fileKey.dropFirst(oldPrefix.count))
             try? model.controller.open(moved, as: .pinned)
         }
         return target
+    }
+
+    /// Opens again the tabs of `affected` that are not open now (a folder rename that did not happen).
+    private func reopen(_ affected: [(model: WindowModel, tab: URL)]) {
+        for (model, tab) in affected where !model.controller.holds(tab) { try? model.controller.open(tab, as: .pinned) }
     }
 
     /// The document popover's Name and Where for a saved file: moves the open document to `name` in `folder` through

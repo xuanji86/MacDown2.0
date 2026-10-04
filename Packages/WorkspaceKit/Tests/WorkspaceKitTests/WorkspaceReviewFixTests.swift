@@ -275,3 +275,16 @@ struct RecentsRenameOrderTests {
         #expect(store.count == 1)
     }
 }
+
+struct FolderRenameValidationTests {
+    /// `WorkspaceRegistry.rename` asks for the destination of a folder rename before it closes any tab, so a taken or invalid
+    /// name must already be refused by `destination`, with nothing renamed.
+    @Test func aFolderRenameToATakenOrInvalidNameIsRefusedUpFront() throws {
+        let t = try TempDir(); defer { t.cleanUp() }
+        let a = try t.dir("a"), b = try t.dir("b")
+        #expect(throws: FileOperations.Failure.exists("b")) { try FileOperations.destination(renaming: a, to: "b") }
+        #expect(throws: FileOperations.Failure.invalidName) { try FileOperations.destination(renaming: a, to: "x/y") }
+        #expect(try FileOperations.destination(renaming: a, to: "a").path == a.path)  // unchanged name: nothing to do
+        #expect(FileManager.default.fileExists(atPath: a.path) && FileManager.default.fileExists(atPath: b.path))
+    }
+}
