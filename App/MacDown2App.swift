@@ -5,13 +5,17 @@ import SwiftUI
 struct MacDown2App: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
 
-    init() { AppExtensions.start() }
+    init() {
+        AppDefaults.installIsolation()
+        AppExtensions.start()
+    }
 
     var body: some Scene {
         // Every window is a workspace window (PLAN Q15): it owns its documents, tabs and sidebar. Cmd-N opens another one.
         WindowGroup(id: WorkspaceScene.id) {
             WorkspaceView()
         }
+        .defaultAppStorage(AppDefaults.store)
         .defaultSize(width: 1100, height: 700)  // wide enough for the whole toolbar
         // Windows come back from WorkspaceRegistry's own record (tabs, sidebar, split), the same on every system setting;
         // SwiftUI must neither restore windows itself nor skip the first one when it thinks it restored "no windows".
@@ -27,6 +31,7 @@ struct MacDown2App: App {
             ExportCommands()
         }
         Settings { SettingsView() }
+            .defaultAppStorage(AppDefaults.store)
     }
 }
 

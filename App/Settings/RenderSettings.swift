@@ -9,10 +9,10 @@ final class RenderSettings {
 
     /// What to hand `JSCRenderer` right now (preview, Copy HTML, export). Reads UserDefaults, so it is always current
     /// and callable from any context.
-    nonisolated static var current: RenderOptions { RenderPreferences(defaults: .standard).options }
+    nonisolated static var current: RenderOptions { RenderPreferences(defaults: AppDefaults.store).options }
 
-    var preferences = RenderPreferences(defaults: .standard) {
-        didSet { if preferences != oldValue { preferences.write(to: .standard) } }
+    var preferences = RenderPreferences(defaults: AppDefaults.store) {
+        didSet { if preferences != oldValue { preferences.write(to: AppDefaults.store) } }
     }
 
     var options: RenderOptions { preferences.options }
