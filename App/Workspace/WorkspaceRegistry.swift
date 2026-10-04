@@ -388,14 +388,18 @@ final class WorkspaceRegistry: DocumentBackend {
 
     /// Renames a file or folder from the sidebar. An open document moves through `NSDocument.move` (its tabs follow, unsaved
     /// text survives); a folder with open files closes their tabs first and reopens them at the new place.
-    func rename(_ url: URL, to name: String) async throws -> URL {
+    func rename(_ url: URL, to typed: String) async throws -> URL {
+        // A file keeps its extension (`.md`, `.qmd`) when the typed name has none; a blank name is left to `destination` to refuse.
+        let isFolder = OpenRouter.isFolder(url)
+        let normalized = RenameName.normalized(typed: typed, current: url.lastPathComponent)
+        let name = isFolder || normalized.isEmpty ? typed : normalized
         if let doc = document(for: url) {
             let target = try FileOperations.destination(renaming: url, to: name)
             if target.path == url.path { return url }
             try await doc.move(to: target)
             return target
         }
-        guard OpenRouter.isFolder(url) else { return try FileOperations.rename(url, to: name) }
+        guard isFolder else { return try FileOperations.rename(url, to: name) }
         let affected = tabs(under: url)
         guard await closeTabs(under: url) else { return url }
         let target = try FileOperations.rename(url, to: name)
@@ -404,6 +408,25 @@ final class WorkspaceRegistry: DocumentBackend {
             let moved = URL(filePath: newPrefix + tab.fileKey.dropFirst(oldPrefix.count))
             try? model.controller.open(moved, as: .pinned)
         }
+        return target
+    }
+
+    /// The document popover's Name and Where for a saved file: moves the open document to `name` in `folder` through
+    /// `NSDocument.move` (the tab, recents, the sidebar and the external-change monitor follow). Refuses a taken name.
+    func relocate(_ url: URL, as name: String, into folder: URL) async throws -> URL {
+        guard let doc = document(for: url) else { throw CocoaError(.fileNoSuchFile) }
+        let target = try FileOperations.destination(moving: url, as: name, into: folder)
+        if target.path == url.path { return url }
+        try await doc.move(to: target)
+        return target
+    }
+
+    /// The popover's Save for an untitled document: the first save, under the chosen name in the chosen folder, without the panel
+    /// (the tab, recents and the monitor follow through `markdownDocumentMoved`). Refuses a taken name.
+    func saveUntitled(_ url: URL, as name: String, into folder: URL) async throws -> URL {
+        guard let doc = document(for: url) else { throw CocoaError(.fileNoSuchFile) }
+        let target = try FileOperations.destination(newFile: name, in: folder)
+        try await doc.save(to: target, ofType: MarkdownDocument.type(for: target), for: .saveAsOperation)
         return target
     }
 

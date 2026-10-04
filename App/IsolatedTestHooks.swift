@@ -39,6 +39,11 @@ import WorkspaceKit
 ///                                         (the live switch, photographed before / after)
 ///   MACDOWN2_TEST_DUMP_TOOLBAR=<secs>     after this many seconds, every window's toolbar style, items, visibility priorities and overflow-menu
 ///                                         forms go to the log (category "toolbar-dump")
+///   MACDOWN2_TEST_TAB_RENAME=<secs>       the first window's active tab opens its Name / Tags / Where popover after this many seconds,
+///                                         as a click on the active tab's name does (the stem selected, ready for a photo)
+///   MACDOWN2_TEST_TAB_RENAME_COMMIT=<name> with `_AFTER=<secs>` (default 4 after the start): the popover applies <name> as typed, the
+///                                         way Return does; `_TAGS=a,b` and `_FOLDER=<dir, relative to the isolated root>` set the other two rows first (an
+///                                         untitled document is saved there, a saved file renamed / moved)
 ///   MACDOWN2_TEST_DUMP_MENUS=<secs>       after this many seconds, the app's language and every title in the main menu bar go to the
 ///                                         log (menus cannot be photographed window-only): category "menu-dump"
 ///                                         (the language itself is chosen with MACDOWN2_LANGUAGE in `Scripts/run-isolated.sh`)
@@ -171,6 +176,25 @@ enum IsolatedTestHooks {
         }
         after("MACDOWN2_TEST_DUMP_MENUS") { dumpMenus() }
         after("MACDOWN2_TEST_DUMP_TOOLBAR") { dumpToolbar() }
+        after("MACDOWN2_TEST_TAB_RENAME") {
+            guard let model = WorkspaceRegistry.shared.orderedModels().first, let url = model.controller.activeURL else { return }
+            // A popover closes when the app is not active (a background launch): activate first, as a click would have.
+            NSApp.activate(ignoringOtherApps: true)
+            model.window?.makeKeyAndOrderFront(nil)
+            model.beginTabRename(url)
+        }
+        if let typed = value("MACDOWN2_TEST_TAB_RENAME_COMMIT") {
+            let seconds = (value("MACDOWN2_TEST_TAB_RENAME").flatMap(Double.init) ?? 0) + (value("MACDOWN2_TEST_TAB_RENAME_COMMIT_AFTER").flatMap(Double.init) ?? 4)
+            DispatchQueue.main.asyncAfter(deadline: .now() + seconds) {
+                MainActor.assumeIsolated {
+                    guard let model = WorkspaceRegistry.shared.orderedModels().first, let draft = model.renameDraft else { return }
+                    draft.name = typed
+                    if let tags = value("MACDOWN2_TEST_TAB_RENAME_TAGS") { draft.tags = tags.split(separator: ",").map(String.init) }
+                    if let folder = value("MACDOWN2_TEST_TAB_RENAME_FOLDER") { draft.folder = URL(filePath: folder, directoryHint: .isDirectory, relativeTo: AppDefaults.isolation?.allowedRoot).absoluteURL }
+                    model.saveRename()
+                }
+            }
+        }
         #endif
     }
 

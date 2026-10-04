@@ -21,6 +21,9 @@ final class WindowModel {
     /// New windows start with the Settings choice (a restored one overwrites it in `apply`).
     var splitMode = SplitMode.setting(in: AppDefaults.store)
     var editorFraction = 0.5
+    /// The open Name / Tags / Where popover (hanging from a tab); nil when none is. Lives here, not in the popover's view, so it
+    /// survives the "Other…" folder panel taking the key window and is put back afterwards.
+    var renameDraft: RenameDraft?
 
     // AppKit side, filled in once the window exists.
     @ObservationIgnored weak var window: NSWindow?
