@@ -100,13 +100,16 @@ public struct MarkdownFile: Sendable, Equatable {
     /// exactly the bytes that were read, so what is opened can always be saved without change. It is still a guess: the
     /// user can reopen the file in another encoding (`decode(_:as:)`).
     public static func decode(_ data: Data) throws -> MarkdownFile {
-        if let file = try? decode(data, as: .utf8) { return file }
+        // A NUL byte means this is not Markdown text. The case that matters is UTF-16 without a BOM: ASCII text in it ("a\0b\0")
+        // is also valid UTF-8, so without this check it would open as `a<NUL>b<NUL>` and the first edit would corrupt the file.
+        // A BOM-marked UTF-16 file, or an explicit `decode(_:as:)`, still works.
+        if !data.contains(0), let file = try? decode(data, as: .utf8) { return file }
         // FF FE 00 00 is a UTF-32 BOM, not UTF-16 text starting with NUL: leave it to the fallbacks.
         let utf32LE = data.starts(with: [0xFF, 0xFE, 0x00, 0x00])
         for encoding in [TextEncoding.utf16LE, .utf16BE] where data.starts(with: encoding.bom) && !utf32LE {
             if let file = try? decode(data, as: encoding) { return file }
         }
-        // A NUL byte means this is not text in any single-byte or CJK encoding (typically UTF-16 without a BOM): refuse, do not garble.
+        // Not text in any single-byte or CJK encoding either (see above): refuse, do not garble.
         if !data.contains(0) {
             for encoding in TextEncoding.legacyFallbacks {
                 if let file = try? decode(data, as: encoding) { return file }
@@ -131,11 +134,12 @@ public struct MarkdownFile: Sendable, Equatable {
     // MARK: Writing
 
     /// The bytes to write. Throws `EncodeError.unrepresentable` instead of dropping or replacing characters the encoding
-    /// has no code for; the caller offers to save as UTF-8 instead.
+    /// has no code for, or for which it has a code that reads back as a different character (Shift_JIS stores U+301C as
+    /// the byte pair that decodes to U+FF5E); the caller offers to save as UTF-8 instead.
     public func encoded() throws -> Data {
         var out = Self.normalized(text)  // pasted text may carry CRLF or CR; settle on LF first
         if lineEnding != .lf { out = out.replacingOccurrences(of: "\n", with: lineEnding.terminator) }
-        guard let data = Self.bytes(out, encoding, hasBOM) else {
+        guard let data = Self.bytes(out, encoding, hasBOM), Self.readsBack(data, as: out, encoding) else {
             throw EncodeError.unrepresentable(encoding: encoding, characters: Self.unrepresentable(in: out, encoding))
         }
         return data
@@ -147,10 +151,20 @@ public struct MarkdownFile: Sendable, Equatable {
         return data
     }
 
-    /// A few distinct characters of `s` that `encoding` cannot hold, in order of appearance (for the message to the user).
+    /// Whether `data` decodes in `encoding` to exactly the scalars of `s`. Only the legacy encodings can lose something
+    /// here (a code point they map one-way); the Unicode ones are lossless by construction.
+    private static func readsBack(_ data: Data, as s: String, _ encoding: TextEncoding) -> Bool {
+        if encoding == .utf8 || encoding == .utf16LE || encoding == .utf16BE { return true }
+        return String(data: data, encoding: encoding.stringEncoding)?.unicodeScalars.elementsEqual(s.unicodeScalars) == true
+    }
+
+    /// A few distinct characters of `s` that `encoding` cannot hold (or would read back as another character), in order of
+    /// appearance (for the message to the user).
     private static func unrepresentable(in s: String, _ encoding: TextEncoding, limit: Int = 8) -> [Character] {
         var seen = Set<Character>(), found: [Character] = []
-        for ch in s where seen.insert(ch).inserted && String(ch).data(using: encoding.stringEncoding, allowLossyConversion: false) == nil {
+        for ch in s where seen.insert(ch).inserted {
+            let one = String(ch)
+            if let data = bytes(one, encoding, false), readsBack(data, as: one, encoding) { continue }
             found.append(ch)
             if found.count == limit { break }
         }

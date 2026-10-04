@@ -73,10 +73,35 @@ enum Open {
 
     // MARK: stdin
 
-    /// `~/Library/Caches/io.github.xuanji86.MacDown2/stdin`, or `$MACDOWN2_STDIN_DIR`.
-    static func stdinDirectory(host: CLIHost) -> URL {
-        if let override = host.environment[stdinDirectoryVariable], !override.isEmpty { return URL(fileURLWithPath: override, isDirectory: true) }
+    /// `~/Library/Caches/io.github.xuanji86.MacDown2/stdin`, or `$MACDOWN2_STDIN_DIR`. In an isolated launch (the variables
+    /// `isolationVariables` names) the default is `<MACDOWN2_ALLOWED_ROOT>/macdown2-stdin`: the isolated app refuses any file
+    /// outside its root, so piped text spooled into the Caches folder would be dropped while this command still exited 0.
+    static func stdinDirectory(host: CLIHost) throws -> URL {
+        let isolation = try isolation(host: host)
+        if let override = host.environment[stdinDirectoryVariable], !override.isEmpty {
+            let directory = URL(fileURLWithPath: override, isDirectory: true)
+            if let isolation, !isolation.allows(directory) {
+                throw CLIError(ExitCode.usage, "\(stdinDirectoryVariable)=\(override) is outside \(isolationVariables[1]); the isolated MacDown2.0 would refuse the piped text")
+            }
+            return directory
+        }
+        if let isolation {
+            guard let root = isolation.allowedRoot else {
+                throw CLIError(ExitCode.usage, "\(isolationVariables[0]) is set but \(isolationVariables[1]) is not an absolute path; the isolated MacDown2.0 would refuse the piped text")
+            }
+            return root.appending(path: "macdown2-stdin", directoryHint: .isDirectory)
+        }
         return host.home.appending(path: "Library/Caches/\(CLIHost.bundleIdentifier)/stdin", directoryHint: .isDirectory)
+    }
+
+    /// The isolation the app will apply to what this command hands it; nil when the environment asks for none.
+    private static func isolation(host: CLIHost) throws -> IsolatedLaunch? {
+        guard host.environment[isolationVariables[0]]?.isEmpty == false else { return nil }
+        do {
+            return try IsolatedLaunch(environment: host.environment, reservedSuites: [CLIHost.bundleIdentifier])
+        } catch {
+            throw CLIError(ExitCode.usage, "\(isolationVariables[0]) is not usable (\(error)); the app would refuse to start")
+        }
     }
 
     /// `yyyyMMdd-HHmmss-SSS.md` in local time: sorts by time, no characters that need quoting.
@@ -90,7 +115,7 @@ enum Open {
 
     /// Saves piped text as a new file in the stdin folder. lazy: nothing prunes the folder (it is a cache); upgrade = delete files older than a month here.
     static func spool(_ data: Data, host: CLIHost) throws -> URL {
-        let directory = stdinDirectory(host: host)
+        let directory = try stdinDirectory(host: host)
         do {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         } catch {

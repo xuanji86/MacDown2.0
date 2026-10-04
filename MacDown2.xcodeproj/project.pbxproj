@@ -486,6 +486,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
+				MACDOWN2_ISOLATION_SUPPORTED = YES;
 				MARKETING_VERSION = 0.0.1;
 				PRODUCT_BUNDLE_IDENTIFIER = io.github.xuanji86.MacDown2;
 				PRODUCT_NAME = "$(TARGET_NAME)";

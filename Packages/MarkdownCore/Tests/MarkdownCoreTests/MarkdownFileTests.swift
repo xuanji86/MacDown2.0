@@ -151,6 +151,53 @@ import Testing
         #expect(try utf8.encoded() == Data("café 😀 你好\n".utf8))
     }
 
+    /// Review finding: the encoder accepts these (no lossy conversion needed) but the bytes it writes read back as a different
+    /// character, so a "successful" save silently changed the text.
+    @Test(arguments: [
+        (TextEncoding.shiftJIS, "〜", "U+301C WAVE DASH reads back as U+FF5E"),
+        (.shiftJIS, "−", "U+2212 MINUS SIGN reads back as U+FF0D"),
+        (.shiftJIS, "—", "U+2014 EM DASH reads back as U+2015"),
+        (.shiftJIS, "‖", "U+2016 reads back as U+2225"),
+        (.shiftJIS, "¢", "U+00A2 reads back as U+FFE0"),
+        (.macRoman, "\u{2126}", "OHM SIGN reads back as GREEK CAPITAL OMEGA"),
+        (.gb18030, "\u{E5E5}", "private-use code reads back as U+3000"),
+        (.gb18030, "\u{E78D}", "private-use code reads back as U+FE10"),
+    ])
+    func roundTripUnsafeCharactersRefuseToSave(_ encoding: TextEncoding, _ ch: String, _ why: String) throws {
+        let file = MarkdownFile(text: "a\(ch)b\n", encoding: encoding)
+        do {
+            _ = try file.encoded()
+            Issue.record("must not encode (\(why))")
+        } catch let MarkdownFile.EncodeError.unrepresentable(e, characters) {
+            #expect(e == encoding)
+            #expect(characters == [Character(ch)], "\(why)")
+        }
+        var utf8 = file
+        utf8.encoding = .utf8  // the existing recovery: save as UTF-8 keeps the character
+        #expect(try utf8.encoded() == Data("a\(ch)b\n".utf8))
+    }
+
+    @Test func shiftJISFullWidthTildeStillSavesAndANormalFileIsUntouched() throws {
+        // U+FF5E is what a Shift_JIS file's 81 60 opens as; it writes back to the same bytes.
+        let data = Data([0x81, 0x60, 0x0A])
+        let file = try MarkdownFile.decode(data, as: .shiftJIS)
+        #expect(file.text == "～\n")
+        #expect(try file.encoded() == data)
+    }
+
+    @Test func bomlessUTF16WithASCIIOnlyIsRefusedNotOpenedAsUTF8WithNULs() throws {
+        let data = Data([0x61, 0x00, 0x62, 0x00])  // "ab" as UTF-16 LE, valid UTF-8 for "a\0b\0"
+        #expect(throws: (any Error).self) { try MarkdownFile.decode(data) }
+        let big = Data([0x00, 0x61, 0x00, 0x62])  // ...and as UTF-16 BE
+        #expect(throws: (any Error).self) { try MarkdownFile.decode(big) }
+        // BOM-marked UTF-16 and an explicit choice still work.
+        #expect(try MarkdownFile.decode(Data([0xFF, 0xFE]) + data).text == "ab")
+        #expect(try MarkdownFile.decode(data, as: .utf16LE).text == "ab")
+        // A stray NUL in an otherwise ordinary file is not guessed at either; the user can still pick UTF-8.
+        #expect(throws: (any Error).self) { try MarkdownFile.decode(Data("a\0b".utf8)) }
+        #expect(try MarkdownFile.decode(Data("a\0b".utf8), as: .utf8).text == "a\0b")
+    }
+
     @Test func formatLabelShowsEncodingAndLineEnding() {
         #expect(MarkdownFile().formatLabel == "UTF-8 · LF")
         #expect(MarkdownFile(lineEnding: .crlf, encoding: .gb18030).formatLabel == "GB18030 · CRLF")

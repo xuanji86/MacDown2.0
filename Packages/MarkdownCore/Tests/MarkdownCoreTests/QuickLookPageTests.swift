@@ -44,14 +44,119 @@ private func page(_ markdown: String, utType: String = "net.daringfireball.markd
     #expect(p.attachments.contains { $0.id == "KaTeX_Main-Regular" })
 }
 
-@Test func relativeImagesBecomePlaceholdersOthersStay() async throws {
-    let p = try await page("![the pic](pic.png) ![](a/b.png) ![r](https://example.com/x.png) ![d](data:image/png;base64,AAAA) ![p](//cdn.example.com/x.png)")
+@Test func relativeAndRemoteImagesBecomePlaceholdersDataURIsStay() async throws {
+    let p = try await page("![the pic](pic.png) ![](a/b.png) ![r](https://example.com/x.png) ![d](data:image/png;base64,AAAA) ![p](//cdn.example.com/x.png) ![h](http://example.com/y.png \"t\")")
     #expect(p.html.contains(#"<span class="md2-ql-note">[image: the pic]</span>"#))
     #expect(p.html.contains(#"<span class="md2-ql-note">[image: a/b.png]</span>"#))
-    #expect(p.html.contains(#"<img src="https://example.com/x.png""#))
+    #expect(p.html.contains(#"<span class="md2-ql-note">[image: r]</span>"#))
+    #expect(p.html.contains(#"<span class="md2-ql-note">[image: p]</span>"#))
+    #expect(p.html.contains(#"<span class="md2-ql-note">[image: h]</span>"#))
     #expect(p.html.contains(#"<img src="data:image/png;base64,AAAA""#))
-    #expect(p.html.contains(#"<img src="//cdn.example.com/x.png""#))
     #expect(!p.html.contains(#"src="pic.png""#))
+    #expect(p.html.components(separatedBy: "<img").count == 2)  // only the data: one
+}
+
+/// Everything in the page that could make the host open a connection: an attribute that takes a URL, or a CSS `url()`/`@import`
+/// that is not a `cid:`/`data:` reference. Only markup is scanned (tags and `<style>` contents): text is just text, and the
+/// document's own escaped source (`src=&quot;https://...`) shows up in it.
+private func networkReferences(in page: String) -> [String] {
+    let markup = try! NSRegularExpression(pattern: #"<[A-Za-z][^>]*>|(?<=<style>).*?(?=</style>)"#, options: .dotMatchesLineSeparators)
+    let html = markup.matches(in: page, range: NSRange(page.startIndex..., in: page)).map { String(page[Range($0.range, in: page)!]) }.joined(separator: "\n")
+    var found: [String] = []
+    for pattern in [#"\b(?:src|srcset|poster|data|action|background)\s*=\s*(?:"([^"]*)"|'([^']*)')"#, #"url\(\s*['"]?([^'")]*)"#, #"@import\s+['"]?([^'";)]*)"#] {
+        let regex = try! NSRegularExpression(pattern: pattern, options: .caseInsensitive)
+        for m in regex.matches(in: html, range: NSRange(html.startIndex..., in: html)) {
+            let value = (1..<m.numberOfRanges).compactMap { Range(m.range(at: $0), in: html).map { String(html[$0]) } }.joined()
+            if !value.hasPrefix("cid:"), !value.hasPrefix("data:") { found.append(value) }
+        }
+    }
+    return found
+}
+
+@Test func theNetworkScannerSeesWhatItIsMeantTo() {
+    #expect(networkReferences(in: #"<p><img src="https://x.example/a.png" srcset="https://x.example/b.png 2x"></p>"#) == ["https://x.example/a.png", "https://x.example/b.png 2x"])
+    #expect(networkReferences(in: "<style>a{background:url(https://x.example/c.png)} @import 'https://x.example/d.css';</style>") == ["https://x.example/c.png", "https://x.example/d.css"])
+    #expect(networkReferences(in: #"<img src="cid:a"><i style="x:url(data:image/png;base64,AA)"></i> src="https://text.only""#) == [])
+}
+
+@Test func theQuickLookPageNeverReferencesTheNetwork() async throws {
+    let p = try await page("""
+    ![a](https://tracker.example/a.png) ![b](http://tracker.example/b.png) ![c](//tracker.example/c.png) ![d](ftp://tracker.example/d.png)
+    [![linked](https://tracker.example/e.png)](https://example.com)
+
+    <img src="https://tracker.example/raw.png" srcset="https://tracker.example/1x.png 1x, https://tracker.example/2x.png 2x">
+    <div style="background:url(https://tracker.example/f.png)">raw</div>
+    <style>@import url(https://tracker.example/g.css);</style>
+
+    $$x^2$$ and `code`
+    """)
+    #expect(networkReferences(in: p.html) == [], "found \(networkReferences(in: p.html))")
+    #expect(!p.html.contains("<img"))
+    #expect(p.html.contains(#"content="\#(QuickLookPage.contentSecurityPolicy)""#))
+    // the CSP names no origin to connect to
+    #expect(!QuickLookPage.contentSecurityPolicy.contains("http"))
+    #expect(!QuickLookPage.contentSecurityPolicy.contains("*"))
+}
+
+@Test func srcsetAndCSSURLsThatSomehowReachThePageAreDropped() {
+    // The renderer escapes raw HTML, so these cannot come from a document today; the sanitiser is the second line.
+    let hostile = """
+    <img src="cid:ok" srcset="https://x.example/a.png 1x" alt="a"><picture><source srcset="https://x.example/b.png"></picture>
+    <p style="background:url(https://x.example/c.png)">1</p><p style='background-image:image-set("https://x.example/d.png" 1x)'>2</p>
+    <p style="background:u\\72l(https://x.example/e.png)">3</p><p style="background:&#117;rl(https://x.example/f.png)">4</p>
+    <p style="text-align:center">kept</p><video poster="https://x.example/g.png"></video><link rel="stylesheet" href="https://x.example/h.css">
+    """
+    let clean = QuickLookPage.removeNetworkReferences(hostile)
+    #expect(!clean.contains("x.example"))
+    #expect(clean.contains(#"<img src="cid:ok" alt="a">"#))
+    #expect(clean.contains(#"<p style="text-align:center">kept</p>"#))
+}
+
+@Test func onlyHTTPMailtoAndInPageLinksStayLive() async throws {
+    let p = try await page("""
+    [ssh](ssh://attacker.example) [vnc](vnc://attacker.example) [file](file:///Applications/Calculator.app) [custom](x-apple.systempreferences:com.apple.preference.security)
+    [js](javascript:alert(1)) [data](data:text/html,hi) [rel](other.md) [root](/etc/passwd) [scheme-relative](//attacker.example/x)
+    [web](https://example.com/a?b=1&c=2) [plain](http://example.com) [mail](mailto:me@example.com) [up](HTTPS://EXAMPLE.COM)
+    [**bold** in ssh](ssh://attacker.example) [anchor](#section)
+
+    # Section
+
+    Footnote[^1]
+
+    [^1]: note
+    """)
+    let hrefs = try hrefs(in: p.html)
+    #expect(hrefs.contains("https://example.com/a?b=1&amp;c=2"))
+    #expect(hrefs.contains("http://example.com"))
+    #expect(hrefs.contains("mailto:me@example.com"))
+    #expect(hrefs.contains("HTTPS://EXAMPLE.COM"))
+    #expect(hrefs.contains("#section"))
+    #expect(hrefs.contains { $0.hasPrefix("#footnote") })  // footnote references are in-page anchors
+    for href in hrefs {
+        #expect(href.hasPrefix("#") || href.lowercased().hasPrefix("http") || href.hasPrefix("mailto:"), "live link \(href)")
+    }
+    // neutralised links keep their text, bold included, and are balanced
+    #expect(p.html.contains("<span>ssh</span>"))
+    #expect(p.html.contains("<span><strong>bold</strong> in ssh</span>"))
+    #expect(p.html.contains("[js](javascript:alert(1))"))  // markdown-it itself refuses these as links
+    #expect(!p.html.contains("attacker.example</a>"))
+}
+
+@Test func neutralizeLinksIsAnAllowListOnTheRawAttribute() {
+    func run(_ html: String) -> String { QuickLookPage.neutralizeLinks(html) }
+    #expect(run(#"<a href="ssh://x">t</a>"#) == "<span>t</span>")
+    #expect(run(#"<a href="file:///Applications/Calculator.app">t</a>"#) == "<span>t</span>")
+    #expect(run(#"<a href=" https://x.example">t</a>"#) == "<span>t</span>")  // padded
+    #expect(run(#"<a href="&#104;ttps://x.example">t</a>"#) == "<span>t</span>")  // entity-encoded scheme
+    #expect(run(#"<a href="https:///nohost">t</a>"#) == "<span>t</span>")
+    #expect(run(#"<a href="https://x.example">t</a> <a href="ssh://y">u</a>"#) == #"<a href="https://x.example">t</a> <span>u</span>"#)
+    #expect(run(#"<a class="x" HREF="vnc://y">t</a>"#) == "<span>t</span>")
+    #expect(run(#"<a name="n">t</a>"#) == #"<a name="n">t</a>"#)
+}
+
+private func hrefs(in html: String) throws -> [String] {
+    let regex = try NSRegularExpression(pattern: #"<a\b[^>]*\shref="([^"]*)""#)
+    return regex.matches(in: html, range: NSRange(html.startIndex..., in: html)).compactMap { Range($0.range(at: 1), in: html).map { String(html[$0]) } }
 }
 
 @Test func localImagesBecomeCidAttachments() async throws {

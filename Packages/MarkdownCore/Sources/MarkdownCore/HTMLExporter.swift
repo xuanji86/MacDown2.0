@@ -19,20 +19,23 @@ public enum HTMLExporter {
     ///   - inlineImages: nil keeps `<img src>` as written; otherwise every document-relative one it can read becomes a
     ///     `data:` URI, so the file does not depend on the folder it came from.
     ///   - flavor: the document's flavor id; `stylesheets` are the extra WebAssets files it needs (e.g. `quarto-approx.css`).
+    ///   - blockRemoteImages: adds a CSP with no network origin (`RemoteContent.printContentSecurityPolicy`), so printing or
+    ///     saving a PDF fetches nothing: a remote `<img>` stays empty. For the print path; a saved HTML file would carry it too.
     public static func document(
         body: String, title: String, style: (light: String, dark: String?) = PreviewStyles.resolve(id: PreviewStyles.defaultID, followSystem: false),
-        inlineImages: ImageSource? = nil, flavor: String = "markdown", stylesheets: [String] = []
+        inlineImages: ImageSource? = nil, flavor: String = "markdown", stylesheets: [String] = [], blockRemoteImages: Bool = false
     ) -> String {
         var body = stripSourceLines(body)
         if let inlineImages { body = inlineRelativeImages(in: body, source: inlineImages) }
         let math = body.contains(#"class="katex"#) ? "<style>\(katexCSS())</style>\n" : ""
         let extra = stylesheets.map { "<style>\(asset($0))</style>\n" }.joined()
+        let csp = blockRemoteImages ? #"<meta http-equiv="Content-Security-Policy" content="\#(RemoteContent.printContentSecurityPolicy)">"# + "\n" : ""
         return """
         <!doctype html>
         <html>
         <head>
         <meta charset="utf-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1">
+        \(csp)<meta name="viewport" content="width=device-width, initial-scale=1">
         <title>\(escape(title))</title>
         <style>\(styleCSS(style))</style>
         \(math)\(extra)</head>
