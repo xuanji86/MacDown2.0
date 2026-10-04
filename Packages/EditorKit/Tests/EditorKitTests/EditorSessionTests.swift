@@ -11,6 +11,7 @@ private final class FakeDocument: EditorDocument {
     let undo = UndoManager()
     var undoManager: UndoManager? { undo }
     var userEdits = 0
+    var detachedEditorBuffers: [AnyObject] = []
     init(_ text: String) { self.text = text }
     func noteUserEdit() { userEdits += 1 }
 }
@@ -238,19 +239,126 @@ struct EditorSessionTests {
 
     // MARK: Lifetime
 
-    @Test func closingTheWindowTakesItsStoragesUndoStepsAndStopsFollowingTheModel() {
+    /// The review's sequence: removing one window's steps from an interleaved history would shift the offsets of the rest and
+    /// make undo delete other edits' text. The closed window's storage stays, off screen, so every step still fits.
+    @Test func closingTheWindowThatRecordedMiddleStepsKeepsTheWholeHistoryCorrect() {
+        let doc = FakeDocument("")
+        let first = Editor(showing: doc), second = Editor(showing: doc)
+        second.type("abc")
+        endEvent()
+        first.type("X", at: 0)
+        endEvent()
+        second.type("Y")
+        endEvent()
+        #expect(doc.text == "XabcY")
+        first.session.close()
+        for expected in ["Xabc", "abc", ""] {
+            doc.undo.undo()
+            #expect(doc.text == expected)
+            #expect(second.view.string == expected && second.laidOutText == expected)
+        }
+        for expected in ["abc", "Xabc", "XabcY"] {
+            doc.undo.redo()
+            #expect(doc.text == expected)
+            #expect(second.view.string == expected)
+        }
+    }
+
+    @Test func everyOrderOfClosingAndInterleavedEditsKeepsUndoCorrect() {
+        for closeFirstWindow in [true, false] {
+            for closeBeforeEdits in [true, false] {
+                let doc = FakeDocument("mid")
+                let first = Editor(showing: doc), second = Editor(showing: doc)
+                let closing = closeFirstWindow ? first : second, staying = closeFirstWindow ? second : first
+                let label = "close first window: \(closeFirstWindow), before the last edits: \(closeBeforeEdits)"
+                first.type("1", at: 0)
+                endEvent()
+                second.type("2")
+                endEvent()
+                if closeBeforeEdits { closing.session.close() }
+                staying.type("3", at: 1)
+                endEvent()
+                staying.type("4", at: 0)
+                endEvent()
+                if !closeBeforeEdits { closing.session.close() }
+                let final = doc.text
+                #expect(final == "413mid2", "\(label)")
+                // Undoing everything walks back through the earlier texts and ends at the original.
+                var steps = 0
+                while doc.undo.canUndo { doc.undo.undo(); endEvent(); steps += 1 }
+                #expect(steps == 4 && doc.text == "mid" && staying.view.string == "mid", "\(label): got \(doc.text) after \(steps) steps")
+                while doc.undo.canRedo { doc.undo.redo(); endEvent() }
+                #expect(doc.text == final && staying.view.string == final, "\(label): redo replays to \(final), got \(doc.text)")
+            }
+        }
+    }
+
+    @Test func aClosedWindowsStorageKeepsFollowingTheModel() {
         let doc = FakeDocument("alpha")
         let first = Editor(showing: doc), second = Editor(showing: doc)
         first.type("X")
         endEvent()
         first.session.close()
-        #expect(!doc.undo.canUndo, "a step aimed at a storage that no longer follows the model would edit text that is not there")
-        doc.text = "other"
+        #expect(doc.detachedEditorBuffers.count == 1)
+        second.type("!")  // after the close: the detached storage must have followed
+        endEvent()
+        doc.text = "other"  // a model change too
         #expect(second.view.string == "other")
-        second.type("!")
-        #expect(doc.text == "other!")
-        doc.undo.undo()  // window 2's own step still works
+        second.type("?")
+        endEvent()
+        doc.undo.undo()
         #expect(doc.text == "other" && second.view.string == "other")
+    }
+
+    @Test func aThirdWindowCanUndoStepsOfWindowsThatAreGone() {
+        let doc = FakeDocument("alpha")
+        let first = Editor(showing: doc), second = Editor(showing: doc)
+        first.type("X")
+        endEvent()
+        second.type("Y")
+        endEvent()
+        first.session.close()
+        second.session.close()
+        let third = Editor(showing: doc)
+        #expect(third.view.string == "alphaXY")
+        doc.undo.undo()
+        #expect(doc.text == "alphaX" && third.view.string == "alphaX" && third.laidOutText == "alphaX")
+        doc.undo.undo()
+        #expect(doc.text == "alpha" && third.view.string == "alpha")
+    }
+
+    @Test func aWindowThatRecordedNothingLeavesNothingBehind() {
+        let doc = FakeDocument("alpha")
+        Editor(showing: doc).session.close()
+        #expect(doc.detachedEditorBuffers.isEmpty)
+        let again = Editor(showing: doc)
+        again.type("X")
+        endEvent()
+        again.session.close()
+        #expect(doc.detachedEditorBuffers.count == 1, "its step still points at the storage")
+        doc.undo.removeAllActions()  // a revert
+        Editor(showing: doc).session.close()
+        #expect(doc.detachedEditorBuffers.isEmpty, "with no history left nothing needs the old storages")
+    }
+
+    // MARK: Switching tabs mid-composition
+
+    @Test func switchingTabsDuringCompositionCommitsTheComposedText() {
+        let a = FakeDocument("a "), b = FakeDocument("beta")
+        let editor = Editor(showing: a)
+        editor.view.setSelectedRange(NSRange(location: 2, length: 0))
+        editor.view.setMarkedText("zhong", selectedRange: NSRange(location: 5, length: 0), replacementRange: NSRange(location: NSNotFound, length: 0))
+        #expect(editor.view.hasMarkedText() && a.text == "a ")
+        editor.session.show(b)
+        #expect(!editor.view.hasMarkedText())
+        #expect(a.text == "a zhong", "the composed text reached the model, as it stays in the storage")
+        #expect(a.userEdits == 1 && editor.userEdits == 1)
+        #expect(editor.view.string == "beta" && b.text == "beta")
+        editor.session.show(a)
+        #expect(editor.view.string == "a zhong" && a.text == "a zhong", "editor and model agree")
+        editor.type("!")
+        endEvent()
+        #expect(a.text == "a zhong!")
     }
 
     @Test func aClosedDocumentIsNotKeptAliveByTheWindow() async throws {

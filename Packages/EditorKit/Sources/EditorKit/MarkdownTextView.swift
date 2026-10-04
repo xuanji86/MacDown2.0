@@ -386,6 +386,15 @@ public final class MarkdownTextView: NSTextView {
         }
     }
 
+    /// Keeps the marked text as typed (what AppKit does when focus leaves the view) and announces the change like any other
+    /// edit, so the model and the undo history follow. Call before something swaps the view's text under a composition.
+    public func commitComposition() {
+        guard hasMarkedText() else { return }
+        inputContext?.discardMarkedText()
+        unmarkText()
+        didChangeText()
+    }
+
     private func endComposition() {
         guard hasMarkedText() else { return }
         inputContext?.discardMarkedText()

@@ -29,6 +29,8 @@ final class MarkdownDocument: NSDocument, ObservableObject {
     static let quartoType = "org.quarto.qmd"
 
     @Published var text = ""
+    /// Text storages of closed windows that undo steps still point at (`EditorSession.close`).
+    var detachedEditorBuffers: [AnyObject] = []
     /// `isDocumentEdited` as a value views and the window's edited dot can follow.
     @Published private(set) var isEdited = false
     let editedFlag = EditedFlag()

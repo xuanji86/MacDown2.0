@@ -11,7 +11,7 @@ enum WindowChromeKey {
 /// so typing re-renders only `PreviewPane` (which does), not this view or the editor.
 ///
 /// Both panes always stay in the view tree: hiding one only fades it out at full width. Removing the editor would drop
-/// its window's text storages (and the undo steps aimed at them) and selection; removing the preview would reload the web page; and an editor squeezed to zero width
+/// its window's text storages (the undo steps aimed at them would have to move out) and selection; removing the preview would reload the web page; and an editor squeezed to zero width
 /// makes TextKit 2 lay a large document out one character per line.
 struct DocumentView: View {
     let model: WindowModel

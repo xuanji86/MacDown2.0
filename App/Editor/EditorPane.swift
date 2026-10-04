@@ -69,7 +69,7 @@ struct EditorPane: NSViewRepresentable {
         if textView.theme.name != theme.name || textView.theme.font != theme.font { textView.theme = theme }
     }
 
-    /// The window is going away: the undo steps aimed at its storages go with them (`EditorSession.close`).
+    /// The window is going away: its storages move to their documents, where the undo steps aimed at them still work (`EditorSession.close`).
     static func dismantleNSView(_ nsView: NSScrollView, coordinator: Coordinator) {
         coordinator.session?.close()
     }

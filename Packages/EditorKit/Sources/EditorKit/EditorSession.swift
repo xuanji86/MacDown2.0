@@ -10,6 +10,9 @@ public protocol EditorDocument: AnyObject {
     var undoManager: UndoManager? { get }
     /// The user changed the text in an editor (typing, paste, a command, undo): mark the document edited.
     func noteUserEdit()
+    /// Where a closed window leaves the text storages that its undo steps still point at (`EditorSession.close`). Stored on the
+    /// document so they live exactly as long as it does.
+    var detachedEditorBuffers: [AnyObject] { get set }
 }
 
 /// One window's editor view and the documents it shows.
@@ -30,20 +33,38 @@ public protocol EditorDocument: AnyObject {
 /// correctly from any other, whichever tab that window shows at the time.
 @MainActor
 public final class EditorSession {
-    @MainActor private final class Buffer {
+    @MainActor fileprivate final class Buffer {
         weak var document: (any EditorDocument)?
         let storage: NSTextStorage
+        /// The window whose view may be showing this storage; nil once that window is closed (the buffer then lives on in the
+        /// document, off screen for good).
+        weak var session: EditorSession?
         /// The text this storage and the model last agreed on.
         var sync: ExternalTextSync
         var selection = NSRange(location: 0, length: 0)
         var subscription: AnyCancellable?
         var observer: NSObjectProtocol?
 
-        init(document: any EditorDocument, storage: NSTextStorage) {
+        init(document: any EditorDocument, storage: NSTextStorage, session: EditorSession) {
             self.document = document
             self.storage = storage
+            self.session = session
             sync = ExternalTextSync(document: document, text: storage.string)
+            subscription = document.textChanges.sink { [weak self] text in
+                MainActor.assumeIsolated { self?.modelDidChange(to: text) }
+            }
+            // Undo and redo reach a storage the view is not showing (another tab's, or a closed window's) without any view to
+            // announce them.
+            observer = NotificationCenter.default.addObserver(forName: NSTextStorage.didProcessEditingNotification, object: storage, queue: nil) { [weak self] note in
+                guard let storage = note.object as? NSTextStorage, storage.editedMask.contains(.editedCharacters) else { return }
+                MainActor.assumeIsolated {
+                    guard let self, !self.isShown, let manager = self.document?.undoManager, manager.isUndoing || manager.isRedoing else { return }
+                    self.publish()
+                }
+            }
         }
+
+        var isShown: Bool { session?.shown === self }
 
         func stopObserving() {
             subscription = nil
@@ -52,11 +73,42 @@ public final class EditorSession {
         }
 
         isolated deinit { stopObserving() }
+
+        /// Storage -> model. False when the model already had this text (a copy of the model that was just written into the
+        /// storage, or an edit that changed no characters).
+        @discardableResult
+        func publish() -> Bool {
+            guard let document else { return false }
+            let text = storage.string
+            guard !sync.matches(text) else { return false }
+            sync.editorDidWrite(text)  // before the write: the `text` publisher fires synchronously and must see it as ours
+            document.text = text
+            document.noteUserEdit()
+            return true
+        }
+
+        /// Model -> storage, for a change that did not come from this storage.
+        func modelDidChange(to modelText: String) {
+            guard let document, let text = sync.reloadText(document: document, modelText: modelText) else { return }
+            if let session, let textView = session.textView {
+                if isShown {
+                    // Keeps the first visible source line, not the pixel offset: a change above the viewport changes heights.
+                    // The selection is remapped by `reloadText` (clamped when its text is gone).
+                    let line = textView.topVisibleLine
+                    textView.reloadText(text)
+                    textView.scroll(toLine: line)
+                } else {
+                    textView.replaceContents(of: storage, with: text)
+                }
+            } else {
+                storage.setAttributedString(NSAttributedString(string: text))  // nobody will ever show it: only the text matters
+            }
+        }
     }
 
-    private weak var textView: MarkdownTextView?
+    fileprivate weak var textView: MarkdownTextView?
     private var buffers: [ObjectIdentifier: Buffer] = [:]
-    private var shown: Buffer?
+    fileprivate var shown: Buffer?
 
     /// The user edited the document on screen (not an undo that reached a storage off screen): the workspace turns a preview
     /// tab into a regular one.
@@ -77,6 +129,7 @@ public final class EditorSession {
     /// Puts `document` on screen (its own storage, its selection from the last time). Does nothing if it already is.
     public func show(_ document: any EditorDocument) {
         guard let textView, shown?.document !== document else { return }
+        textView.commitComposition()  // as AppKit does when focus leaves: the composed text stays, and the model and undo follow
         shown?.selection = textView.selectedRange()
         discardBuffersOfDeadDocuments()
         let buffer = buffers[ObjectIdentifier(document)].flatMap { $0.document === document ? $0 : nil } ?? makeBuffer(for: document, in: textView)
@@ -88,21 +141,7 @@ public final class EditorSession {
     }
 
     private func makeBuffer(for document: any EditorDocument, in textView: MarkdownTextView) -> Buffer {
-        let buffer = Buffer(document: document, storage: textView.makeStorage(text: document.text))
-        buffer.subscription = document.textChanges.sink { [weak self, weak buffer] text in
-            MainActor.assumeIsolated {
-                if let self, let buffer { self.modelDidChange(buffer, to: text) }
-            }
-        }
-        // Undo and redo reach a storage the view is not showing (another tab's) without any view to announce them.
-        buffer.observer = NotificationCenter.default.addObserver(forName: NSTextStorage.didProcessEditingNotification, object: buffer.storage, queue: nil) { [weak self, weak buffer] note in
-            guard let storage = note.object as? NSTextStorage, storage.editedMask.contains(.editedCharacters) else { return }
-            MainActor.assumeIsolated {
-                guard let self, let buffer, buffer !== self.shown,
-                      let manager = buffer.document?.undoManager, manager.isUndoing || manager.isRedoing else { return }
-                self.publish(buffer)
-            }
-        }
+        let buffer = Buffer(document: document, storage: textView.makeStorage(text: document.text), session: self)
         buffers[ObjectIdentifier(document)] = buffer
         return buffer
     }
@@ -120,45 +159,27 @@ public final class EditorSession {
     public func textDidChange() {
         // IME composition: the model gets the text once the marked range is committed (textDidChange fires again).
         guard let shown, let textView, !textView.hasMarkedText() else { return }
-        if publish(shown) { onUserEdit?() }
-    }
-
-    /// Storage -> model. False when the model already had this text (a copy of the model that was just written into the
-    /// storage, or an edit that changed no characters).
-    @discardableResult
-    private func publish(_ buffer: Buffer) -> Bool {
-        guard let document = buffer.document else { return false }
-        let text = buffer.storage.string
-        guard !buffer.sync.matches(text) else { return false }
-        buffer.sync.editorDidWrite(text)  // before the write: the `text` publisher fires synchronously and must see it as ours
-        document.text = text
-        document.noteUserEdit()
-        return true
-    }
-
-    /// Model -> storage, for a change that did not come from this storage.
-    private func modelDidChange(_ buffer: Buffer, to modelText: String) {
-        guard let document = buffer.document, let textView,
-              let text = buffer.sync.reloadText(document: document, modelText: modelText) else { return }
-        if buffer === shown {
-            // Keeps the first visible source line, not the pixel offset: a change above the viewport changes heights. The
-            // selection is remapped by `reloadText` (clamped when its text is gone).
-            let line = textView.topVisibleLine
-            textView.reloadText(text)
-            textView.scroll(toLine: line)
-        } else {
-            textView.replaceContents(of: buffer.storage, with: text)
-        }
+        if shown.publish() { onUserEdit?() }
     }
 
     // MARK: Going away
 
-    /// The window is closing. Undo steps aimed at these storages go with them: nothing would keep the storages in step with
-    /// the model any more, and replaying a step on a stale one would edit text that is not there.
+    /// The window is closing. Its storages stay: undo steps recorded in this window still point at them, and steps recorded in
+    /// other windows were made against texts that included this window's edits, so removing some steps from the middle of a
+    /// history would break the offsets of the rest. Each storage is handed to its document, off screen for good, where it keeps
+    /// following the model and publishing undo and redo that reach it, and goes when the document does.
+    // lazy: a window opened and closed over and over on one document leaves a storage (a copy of the text) each time, until the
+    // document closes; a document whose undo history is empty keeps none (released below, and on the next close)
     public func close() {
+        textView?.attach(storage: NSTextStorage())  // the dying view lets go of the storage it showed
         for buffer in buffers.values {
-            buffer.document?.undoManager?.removeAllActions(withTarget: buffer.storage)
-            buffer.stopObserving()
+            buffer.session = nil
+            guard let document = buffer.document else { buffer.stopObserving(); continue }
+            document.detachedEditorBuffers.append(buffer)
+            if let manager = document.undoManager, !manager.canUndo, !manager.canRedo {
+                document.detachedEditorBuffers = []  // nothing points at any of them
+                buffer.stopObserving()
+            }
         }
         buffers = [:]
         shown = nil
