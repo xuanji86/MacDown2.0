@@ -16,10 +16,10 @@
 </p>
 
 <p align="center">
-  <img src="docs/images/screenshot.png" width="100%" alt="MacDown2.0 正在编辑一份 Quarto 文档：左边是深色编辑区里的 Markdown 源码，右边是实时预览，含 callout、表格、Swift 代码高亮和 KaTeX 公式">
+  <img src="docs/images/screenshot.zh-CN.png" width="100%" alt="MacDown2.0 正在编辑一份 Markdown 文档：左边是深色编辑区里的源码，右边是实时预览，含 GitHub 提示块、任务列表、表格、Swift 代码高亮、KaTeX 公式和 Mermaid 图表">
 </p>
 
-<p align="center"><sub>默认外观：编辑区深色，预览浅色。图中是一份 <code>.qmd</code>，callout、GFM 表格、Swift 高亮与 KaTeX 公式都在实时渲染。</sub></p>
+<p align="center"><sub>默认外观：深色编辑区旁边一页白纸。GitHub 提示块、任务列表、表格、Swift 高亮、KaTeX 公式和 Mermaid 图表都在实时渲染。</sub></p>
 
 ## 为什么是 MacDown2.0
 
@@ -33,15 +33,24 @@
 
 | | |
 |:--|:--|
-| **编辑** | TextKit 2 加 tree-sitter 增量语法高亮。格式工具栏和快捷键与 MacDown 一致：⌘B / ⌘I / ⌘U，⌘1–⌘6 标题，⌘K 行内代码，⇧⌘K 链接，⇧⌘B 引用，⌘/ 注释。自动配对、列表续写、Tab 缩进。中文输入法组字时不会被打断。 |
-| **预览** | markdown-it 渲染，只更新改动过的块：50KB 文档单次按键 9–16ms，1MB 文档一次 patch 约 20ms。编辑区与预览双向滚动同步。 |
-| **语法** | GFM 表格与删除线、任务列表、脚注、`==高亮==`、`H~2~O` 下标与 `x^2^` 上标、`[TOC]`、front matter。强调对中文友好：`**「重点」**的` 也能正确加粗。 |
-| **公式与代码** | KaTeX 支持 `$$…$$`、`\[…\]`、`\(…\)`，行内 `$…$` 可选开启。代码块由 highlight.js 高亮。 |
-| **主题** | 编辑器 6 套、预览 8 套，各自独立选择；也可以都跟随系统深浅色。 |
-| **导出** | 单文件 HTML（可内嵌图片）、按纸张分页的 PDF（纸张、方向、页边距在「设置 › Export」，「格式 › 插入分页符」）、打印、复制为 HTML。导出和复制出去的 HTML 不会带文档里的脚本、框架和事件处理属性。 |
+| **编辑** | TextKit 2 加 tree-sitter 增量语法高亮，沿用原版 MacDown 的样子：深色的 Tomorrow Night Eighties 编辑区、Menlo 14、居中标题下一排扁平工具栏，编辑区与预览之间的分隔线和状态栏可选。工具栏和快捷键与 MacDown 一致：⌘B / ⌘I / ⌘U，⌘1–⌘6 标题，⌘K 行内代码，⇧⌘K 链接，⇧⌘B 引用，⌘/ 注释。自动配对、列表续写、Tab 缩进。中文输入法组字时不会被打断。 |
+| **工作区** | 打开文件夹（⇧⌘O），里面的文件以树状出现在侧栏；不开文件夹时，浏览模式列出收藏、当前位置和最近使用。编辑区上方是标签页：单击文件在预览标签里查看，双击或第一次编辑即固定成正式标签。**内置全文搜索**（⇧⌘F，可开正则）覆盖整个工作区，大纲列出文档的各级标题。⌘N 新建未命名文档。 |
+| **预览** | markdown-it 渲染，只更新改动过的块：50KB 文档单次按键 9–16ms，1MB 文档一次 patch 约 20ms。编辑区与预览双向滚动同步。**在预览里勾选任务框，Markdown 源码会随之改写。** |
+| **语法** | GFM 表格与删除线、任务列表、脚注、GitHub 提示块（`> [!NOTE]`）、`==高亮==`、`H~2~O` 下标与 `x^2^` 上标、`[TOC]`、emoji 短码（`:smile:`，默认关闭），以及 YAML 或 TOML（`+++`，Hugo 风格）front matter，可隐藏或显示为表格。强调对中文友好：`**「重点」**的` 也能正确加粗。 |
+| **公式、代码与图表** | KaTeX 支持 `$$…$$`、`\[…\]`、`\(…\)`，行内 `$…$` 可选开启。代码块由 highlight.js 高亮。Mermaid 图表（dagre 布局）在预览、PDF 和打印里绘制；HTML 导出、复制和 Quick Look 里保留为代码块。 |
+| **磁盘上的文件** | 别的程序改了文件，会自动重新载入；有未保存修改时由你选「保留我的版本」或「从磁盘重新载入」，文件被删除会有标记。可读写 UTF-8、UTF-16、GB18030、Shift_JIS、Windows-1252 和 Mac Roman（**文件 › 编码**），LF、CRLF、CR 保持原样，遇到所选编码装不下的文字会拒绝保存，而不是悄悄丢字。 |
+| **主题** | 编辑器 7 套（默认 MacDown Classic）、预览 8 套，各自独立选择；也可以都跟随系统深浅色。 |
+| **导出** | 单文件 HTML（可内嵌图片）、按纸张分页的 PDF（纸张、方向、页边距在「设置 › 导出」，「格式 › 插入分页符」）、带专用打印样式的打印、复制为 HTML。单独一行的 `\newpage` 另起一页。 |
+| **默认安全** | 导出和复制出去的 HTML 经过净化：不带文档里的脚本、框架和事件处理属性。预览里的链接：Markdown 文件在应用内打开，网页和邮件链接交给浏览器，其他文件先询问再交给系统，可执行文件一律不打开。可在「设置 › 渲染」里阻止远程图片；Quick Look 从不联网。 |
 | **Quick Look** | 在 Finder 里按空格，直接看到渲染后的效果。 |
 | **Quarto** | `.qmd` 支持以内置扩展的形式提供，默认开启。近似预览 callout、`:::` 分块、交叉引用、文献引用、shortcode 和 `{{< include >}}`；代码单元只高亮，不执行。 |
-| **还有** | 设置窗口、文档大纲、可选的状态栏（行列号与字数，中文按字计数；视图 ▸ 显示状态栏），以及 Sparkle 自动更新——等正式发版后启用。 |
+| **还有** | 命令行工具（见下）；Dock 图标样式可选（跟随系统、浅色、深色、透明、着色）；中英文双语界面，可按应用单独设置语言；新窗口的默认布局；设置窗口；以及 Sparkle 自动更新——等正式发版后启用。通用二进制，同时支持 Apple Silicon 与 Intel。 |
+
+<p align="center">
+  <img src="docs/images/workspace.zh-CN.png" width="100%" alt="MacDown2.0 打开了一个工作区文件夹：侧栏显示整个文件夹的全文搜索结果，编辑区上方有三个标签页，右边是预览">
+</p>
+
+<p align="center"><sub>把文件夹当作工作区：侧栏全文搜索，编辑区上方是标签页。</sub></p>
 
 ## 安装
 
@@ -63,6 +72,7 @@ brew install --cask xuanji86/tap/macdown2    # 即将推出
 
 ```sh
 macdown2 notes.md docs/      # 打开文件；传文件夹则以工作区方式打开
+macdown2 .                   # 把当前文件夹作为工作区打开
 cat draft.md | macdown2      # 管道输入会存到 ~/Library/Caches/io.github.xuanji86.MacDown2/stdin/ 再打开
 macdown2 --preview-only a.md # 只显示预览地打开（另有 --editor-only、--both）
 macdown2 render a.md --standalone -o a.html    # 不启动应用，直接渲染 HTML
@@ -70,11 +80,11 @@ macdown2 render a.md --export pdf -o a.pdf --css my.css   # 同样不启动应�
 macdown2 --help
 ```
 
-`--both`、`--editor-only`、`--preview-only` 指定文件所在窗口的布局，应用是否已在运行都有效（最多给一个，且需要同时给文件或文件夹）。不带参数时，新窗口使用「设置 › Editor › 布局」里的启动布局，重新打开的文件夹恢复它上次的布局，恢复的窗口沿用自己的布局。
+`--both`、`--editor-only`、`--preview-only` 指定文件所在窗口的布局，应用是否已在运行都有效（最多给一个，且需要同时给文件或文件夹）。不带参数时，新窗口使用「设置 › 编辑器 › 布局」里的启动布局，重新打开的文件夹恢复它上次的布局，恢复的窗口沿用自己的布局。`--dry-run` 只打印将要执行的 `open` 命令，不真正运行。
 
-`render --export pdf` 使用「设置 › Export」里的纸张、方向和页边距，在 `macdown2` 进程内用一个看不见的 WebKit 视图打印：没有应用窗口，也没有 Dock 图标。它需要已登录的 macOS 会话（纯 `ssh` 或 launchd 守护进程里不行），并且必须带 `-o`（PDF 不往终端输出）。`--css file.css` 把你的样式表加在预览样式之后，只读取这一个本地文件（URL 或其中的 `@import` 会被拒绝）。`--embed-images` 把文档相对路径的图片嵌入 HTML。单独一行的 `\newpage`、`{{< pagebreak >}}` 或 `<div style="page-break-after: always"></div>` 在 PDF 和打印里另起一页（预览里是一条虚线）。
+`render --export pdf` 使用「设置 › 导出」里的纸张、方向和页边距，在 `macdown2` 进程内用一个看不见的 WebKit 视图打印：没有应用窗口，也没有 Dock 图标。它需要已登录的 macOS 会话（纯 `ssh` 或 launchd 守护进程里不行），并且必须带 `-o`（PDF 不往终端输出）。`--css file.css` 把你的样式表加在预览样式之后，只读取这一个本地文件（URL 或其中的 `@import` 会被拒绝）。`--embed-images` 把文档相对路径的图片嵌入 HTML。单独一行的 `\newpage`、`{{< pagebreak >}}` 或 `<div style="page-break-after: always"></div>` 在 PDF 和打印里另起一页（预览里是一条虚线）。
 
-退出码：0 成功，64 参数错误，66 文件问题，69 PDF 输出不可用，70 渲染失败。
+退出码：0 成功，64 参数错误，66 文件问题，69 应用无法启动（或当前构建不能输出 PDF），70 渲染失败。
 
 ## 从源码构建
 
@@ -90,17 +100,11 @@ make web     # 仅在改过 Web/ 之后：重新生成已提交的 web 资源
 
 ## 路线图
 
-**进行中**
-
-- 文件树侧栏（浏览模式 + 工作区模式）与窗口内标签
-
 **计划中**
 
 - 在预览区直接做文字级编辑，选区在两栏之间双向跟随
 - 调用本机安装的 `quarto` 做真正的 Quarto 渲染
 - 本地语义搜索，作为基于 [tobi/qmd](https://github.com/tobi/qmd) 的扩展
-- 命令行工具 `macdown2 .`
-- Mermaid 图表
 - 1.0
 
 ## 无隶属关系声明
@@ -112,7 +116,10 @@ MacDown2.0 是一个独立项目，与 [MacDown](https://github.com/MacDownApp/m
 - Mou 与 [MacDown](https://macdown.uranusjr.com)，定义了这件事该有的样子
 - [MacDown 3000](https://github.com/schuyler/macdown3000)，我们的渲染快照测试使用了它的测试文档（MIT）
 - Dustin Curtis 的 [Markdown Mark](https://github.com/dcurtis/markdown-mark)（CC0）；图标中的 M↓ 字形按其网格重绘
-- [markdown-it](https://github.com/markdown-it/markdown-it) 与 [@mdit](https://mdit-plugins.github.io) 插件、[KaTeX](https://katex.org)、[highlight.js](https://highlightjs.org)
+- [markdown-it](https://github.com/markdown-it/markdown-it)、[@mdit](https://mdit-plugins.github.io) 插件（含提示块）与 [markdown-it-emoji](https://github.com/markdown-it/markdown-it-emoji)；[KaTeX](https://katex.org)、[highlight.js](https://highlightjs.org)
+- [Mermaid](https://mermaid.js.org) 及其 dagre 布局
+- [parse5](https://github.com/inikulin/parse5)（HTML 净化器的基础）与 [smol-toml](https://github.com/squirrelchat/smol-toml)（TOML front matter）
+- Chris Kempson 的 Tomorrow Night Eighties 配色（MIT），MacDown Classic 编辑器主题的基础
 - [tree-sitter](https://tree-sitter.github.io) 与 [tree-sitter-markdown](https://github.com/tree-sitter-grammars/tree-sitter-markdown)；ChimeHQ 的 [SwiftTreeSitter](https://github.com/ChimeHQ/SwiftTreeSitter) 与 [Neon](https://github.com/ChimeHQ/Neon)
 - [Sparkle](https://sparkle-project.org)
 - [quarto-dev/quarto](https://github.com/quarto-dev/quarto) 的 markdown-it 插件
