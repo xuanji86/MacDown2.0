@@ -23,8 +23,15 @@ struct TabBar: View {
     @Environment(\.colorScheme) private var colorScheme
     @State private var dropTarget: String?
 
-    private var activeFill: Color {
-        Color(nsColor: ThemeLibrary.resolve(name: themeName, followSystem: followsSystem, systemIsDark: colorScheme == .dark).background)
+    private var activeBackground: NSColor {
+        ThemeLibrary.resolve(name: themeName, followSystem: followsSystem, systemIsDark: colorScheme == .dark).background
+    }
+    private var activeFill: Color { Color(nsColor: activeBackground) }
+    /// The active tab is painted in the editor's background, which need not match the system appearance (a dark editor in light
+    /// mode): its name and close button take the scheme of that background, so they stay readable on it.
+    private var activeScheme: ColorScheme {
+        let color = activeBackground.usingColorSpace(.sRGB) ?? activeBackground
+        return 0.2126 * color.redComponent + 0.7152 * color.greenComponent + 0.0722 * color.blueComponent < 0.5 ? .dark : .light
     }
 
     /// A file's name; an untitled document's "Untitled N".
@@ -41,7 +48,7 @@ struct TabBar: View {
             HStack(spacing: 2) {
                 ForEach(session.tabs) { tab in
                     TabItem(
-                        tab: tab, title: Self.title(of: tab), isActive: tab.id == session.activeID, fill: activeFill, compact: compact,
+                        tab: tab, title: Self.title(of: tab), isActive: tab.id == session.activeID, fill: activeFill, activeScheme: activeScheme, compact: compact,
                         edited: WorkspaceRegistry.shared.document(for: tab.url)?.editedFlag,
                         isDropTarget: dropTarget == tab.id,
                         popover: Binding(
@@ -85,6 +92,7 @@ private struct TabItem: View {
     let title: String
     let isActive: Bool
     let fill: Color
+    let activeScheme: ColorScheme
     let compact: Bool
     let edited: EditedFlag?
     let isDropTarget: Bool
@@ -98,6 +106,7 @@ private struct TabItem: View {
     let reveal: () -> Void
     let copyPath: () -> Void
     @State private var hovering = false
+    @Environment(\.colorScheme) private var systemScheme
     /// Where the name is, in the tab's own coordinates: only a click on it (not the padding or the close button's slot) renames.
     @State private var titleFrame = CGRect.null
 
@@ -130,6 +139,7 @@ private struct TabItem: View {
             }
             .frame(width: 14, height: 14)
         }
+        .environment(\.colorScheme, isActive ? activeScheme : systemScheme)
         .padding(.leading, compact ? 14 : 12)
         .padding(.trailing, compact ? 9 : 8)
         .frame(minWidth: 60, maxWidth: 200)
