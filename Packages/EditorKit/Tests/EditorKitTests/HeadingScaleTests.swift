@@ -53,7 +53,10 @@ struct HeadingScaleTests {
             let location = content.location(content.documentRange.location, offsetBy: offset)!
             return layout.textLayoutFragment(for: location)!.layoutFragmentFrame.height
         }
-        #expect(height(at: 0) > height(at: 6) * 1.4)
+        // Both lines carry the same extra line spacing (default 3 pt since the editor settings landed); compare glyph rows.
+        let style = view.textStorage?.attribute(.paragraphStyle, at: 6, effectiveRange: nil) as? NSParagraphStyle
+        let spacing = style?.lineSpacing ?? 0
+        #expect(height(at: 0) - spacing > (height(at: 6) - spacing) * 1.4)
     }
 
     @Test func scrollLineMappingSurvivesMixedLineHeights() async throws {
