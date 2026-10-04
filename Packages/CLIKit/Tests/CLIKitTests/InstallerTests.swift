@@ -22,7 +22,7 @@ private func app(in s: Scratch) throws -> (app: URL, helper: URL) {
 @Test func aLinkIntoAnotherCopyOfTheAppIsElsewhere() throws {
     let s = try Scratch(); defer { s.remove() }
     let (_, helper) = try app(in: s)
-    let other = try s.write("Other.app/Contents/Helpers/macdown2")
+    let other = try s.write("MacDown2 Dev.app/Contents/Helpers/macdown2")
     let bin = s.root.appending(path: "bin")
     try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
     try FileManager.default.createSymbolicLink(at: bin.appending(path: "macdown2"), withDestinationURL: other)
@@ -34,30 +34,68 @@ private func app(in s: Scratch) throws -> (app: URL, helper: URL) {
     #expect(CLIInstaller.state(link: bin.appending(path: "macdown2"), helper: helper) == .installed)
 }
 
-@Test func aRegularFileIsAskedAboutAndAFolderIsNeverReplaced() throws {
+@Test func aRegularFileOrFolderIsNeverReplaced() throws {
     let s = try Scratch(); defer { s.remove() }
     let (_, helper) = try app(in: s)
     let file = try s.write("bin/macdown2", "something else")
-    #expect(CLIInstaller.state(link: file, helper: helper) == .elsewhere("an existing file"))
-    try CLIInstaller.install(helper: helper, into: file.deletingLastPathComponent(), replace: true)
-    #expect(CLIInstaller.state(link: file, helper: helper) == .installed)
+    let state = CLIInstaller.state(link: file, helper: helper)
+    #expect(state == .foreign("an existing file"))
+    // Even when the caller says "replace" (the old prompt would have deleted it): the file stays, byte for byte.
+    #expect(throws: CLIInstaller.InstallError.self) { try CLIInstaller.install(helper: helper, into: file.deletingLastPathComponent(), replace: true) }
+    #expect(try String(contentsOf: file, encoding: .utf8) == "something else")
+    #expect(CLIInstaller.state(link: file, helper: helper) == state)
+    // The message the app shows names the path and says it was left alone.
+    do { try CLIInstaller.install(helper: helper, into: file.deletingLastPathComponent(), replace: true) } catch {
+        #expect(error.localizedDescription == CLIInstaller.foreignMessage(link: file, what: "an existing file"))
+        #expect(error.localizedDescription.contains(file.path) && error.localizedDescription.contains("left alone"))
+    }
 
     let folder = s.root.appending(path: "bin2/macdown2")
     try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
     try Data("keep".utf8).write(to: folder.appending(path: "keep.txt"))
+    #expect(CLIInstaller.state(link: folder, helper: helper) == .foreign("an existing file"))
     #expect(throws: (any Error).self) { try CLIInstaller.install(helper: helper, into: folder.deletingLastPathComponent(), replace: true) }
     #expect(FileManager.default.fileExists(atPath: folder.appending(path: "keep.txt").path))
 }
 
-@Test func aDanglingLinkCountsAsSomethingElse() throws {
+@Test func aLinkToAnotherProgramIsNeverReplaced() throws {
+    let s = try Scratch(); defer { s.remove() }
+    let (_, helper) = try app(in: s)
+    let other = try s.write("tools/macdown2", "#!/bin/sh\n")  // e.g. somebody's own wrapper script
+    let bin = s.root.appending(path: "bin")
+    try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+    let link = bin.appending(path: "macdown2")
+    try FileManager.default.createSymbolicLink(at: link, withDestinationURL: other)
+    #expect(CLIInstaller.state(link: link, helper: helper) == .foreign("a link to \(other.path)"))
+    #expect(throws: CLIInstaller.InstallError.self) { try CLIInstaller.install(helper: helper, into: bin, replace: true) }
+    #expect(try FileManager.default.destinationOfSymbolicLink(atPath: link.path) == other.path)
+    // A look-alike path that is not a MacDown2 bundle's helper does not count either.
+    for path in ["/x/Other.app/Contents/Helpers/macdown2", "/x/MacDown2.app/Contents/MacOS/macdown2", "/x/MacDown2/Contents/Helpers/macdown2", "/Contents/Helpers/macdown2"] {
+        #expect(!CLIInstaller.pointsIntoMacDown2Bundle(URL(fileURLWithPath: path)), "\(path)")
+    }
+}
+
+@Test func aStaleLinkIntoAMacDown2BundleIsReplaceable() throws {
+    let s = try Scratch(); defer { s.remove() }
+    let (_, helper) = try app(in: s)
+    let bin = s.root.appending(path: "bin")
+    try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+    let link = bin.appending(path: "macdown2")
+    try FileManager.default.createSymbolicLink(atPath: link.path, withDestinationPath: "/gone/MacDown2.app/Contents/Helpers/macdown2")  // that copy was deleted
+    #expect(CLIInstaller.state(link: link, helper: helper) == .elsewhere("a link to /gone/MacDown2.app/Contents/Helpers/macdown2"))
+    try CLIInstaller.install(helper: helper, into: bin, replace: true)
+    #expect(CLIInstaller.state(link: link, helper: helper) == .installed)
+}
+
+@Test func aDanglingLinkToSomethingElseIsForeign() throws {
     let s = try Scratch(); defer { s.remove() }
     let (_, helper) = try app(in: s)
     let bin = s.root.appending(path: "bin")
     try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
     try FileManager.default.createSymbolicLink(atPath: bin.appending(path: "macdown2").path, withDestinationPath: "/nonexistent/macdown2")
-    #expect(CLIInstaller.state(link: bin.appending(path: "macdown2"), helper: helper) == .elsewhere("a link to /nonexistent/macdown2"))
-    try CLIInstaller.install(helper: helper, into: bin, replace: true)
-    #expect(CLIInstaller.state(link: bin.appending(path: "macdown2"), helper: helper) == .installed)
+    #expect(CLIInstaller.state(link: bin.appending(path: "macdown2"), helper: helper) == .foreign("a link to /nonexistent/macdown2"))
+    #expect(throws: (any Error).self) { try CLIInstaller.install(helper: helper, into: bin, replace: true) }
+    #expect(try FileManager.default.destinationOfSymbolicLink(atPath: bin.appending(path: "macdown2").path) == "/nonexistent/macdown2")
 }
 
 @Test func installWithoutTheToolInTheBundleFails() throws {

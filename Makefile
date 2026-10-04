@@ -25,4 +25,4 @@ perf:
 	  status=$$?; ../../Scripts/clean-dock-ghosts.sh; exit $$status
 
 app:
-	DEVELOPER_DIR=$(XCODE_DEV) xcodebuild -project MacDown2.xcodeproj -scheme MacDown2 -configuration Debug -derivedDataPath build/DerivedData build
+	DEVELOPER_DIR="$(XCODE_DEV)" xcodebuild -project MacDown2.xcodeproj -scheme MacDown2 -configuration Debug -derivedDataPath build/DerivedData build

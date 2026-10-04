@@ -249,6 +249,7 @@ private struct MarkdownPage: View {
 private struct RenderingPage: View {
     @AppStorage(AppearanceKey.previewStyle) private var style = AppearanceDefault.previewStyle
     @AppStorage(AppearanceKey.previewStyleFollowsSystem) private var styleFollows = false
+    @AppStorage(RemoteContent.blockImagesKey) private var blockRemoteImages = false
     @Bindable private var render = RenderSettings.shared
 
     var body: some View {
@@ -258,6 +259,13 @@ private struct RenderingPage: View {
                     ForEach(PreviewStyles.all) { Text($0.name).tag($0.id) }
                 }
                 Toggle("跟随系统", isOn: $styleFollows)
+            }
+            Section {
+                Toggle("阻止远程图片", isOn: $blockRemoteImages)
+            } header: {
+                Text("远程内容")
+            } footer: {
+                Text("默认关闭:预览会从网络加载文档里的 https 图片。打开后预览不再联网取图,被挡住的图片不显示。快速预览(Quick Look)任何时候都不加载远程图片。")
             }
             Section("代码") {
                 Toggle("代码高亮", isOn: $render.preferences.codeHighlighting)

@@ -31,6 +31,10 @@ enum CommandLineToolInstaller {
             alert.addButton(withTitle: "取消")
             guard alert.runModal() == .alertFirstButtonReturn else { return }
             replace = true
+        case .foreign(let what):
+            // Not ours (a regular file, a folder, a link to another program): never offered for replacement.
+            show("无法安装命令行工具", CLIInstaller.foreignMessage(link: link, what: what), style: .warning)
+            return
         case .notInstalled:
             break
         }

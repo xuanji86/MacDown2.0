@@ -143,5 +143,9 @@
 	<string>REPLACE_WITH_PUBLIC_KEY_FROM_generate_keys</string>
 	<key>SUEnableAutomaticChecks</key>
 	<true/>
+	<!-- "YES" only in the Debug configuration (build setting MACDOWN2_ISOLATION_SUPPORTED), empty in Release. Only a Debug build
+	     honours MACDOWN2_DEFAULTS_SUITE / MACDOWN2_ALLOWED_ROOT; Scripts/run-isolated.sh refuses a bundle without it. -->
+	<key>MacDown2IsolationSupported</key>
+	<string>$(MACDOWN2_ISOLATION_SUPPORTED)</string>
 </dict>
 </plist>

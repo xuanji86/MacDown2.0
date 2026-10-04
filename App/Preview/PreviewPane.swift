@@ -183,6 +183,9 @@ final class PreviewModel {
         Task { await reloadPage() }
     }
 
+    /// A setting that lives in the page's own CSP changed (Block remote images): the page is read again with the new policy.
+    func reloadForPolicyChange() { Task { await reloadPage() } }
+
     private func reloadPage() async {
         let line = lastLine
         pageLoaded = false
@@ -299,6 +302,7 @@ struct PreviewPane: View {
     var flavor: (any DocumentFlavor)?
     @AppStorage(AppearanceKey.previewStyle) private var style = AppearanceDefault.previewStyle
     @AppStorage(AppearanceKey.previewStyleFollowsSystem) private var followsSystem = false
+    @AppStorage(RemoteContent.blockImagesKey) private var blockRemoteImages = false
     private let renderSettings = RenderSettings.shared
 
     var body: some View {
@@ -308,6 +312,7 @@ struct PreviewPane: View {
             .onChange(of: renderSettings.options) { _, options in model.setOptions(options) }
             .onChange(of: "\(style)|\(followsSystem)", initial: true) { model.setStyle(id: style, followSystem: followsSystem) }
             .onChange(of: flavor?.id, initial: true) { model.setFlavor(flavor) }
+            .onChange(of: blockRemoteImages) { model.reloadForPolicyChange() }
             // Restarts with the document: the page stays, the text it renders is the active tab's.
             .task(id: ObjectIdentifier(document)) {
                 for await text in document.$text.values { model.schedule(text) }

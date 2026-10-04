@@ -82,16 +82,20 @@ struct PreviewAssetHandler: URLSchemeHandler {
             file = nil
         }
         guard let file, var data = try? Data(contentsOf: file) else { return (status, "text/plain", nil) }
-        if url.host == "app", url.path == "/preview.html" { data = Self.withNonce(data) }
+        if url.host == "app", url.path == "/preview.html" {
+            // The switch is read on every load of the page, so a change in Settings only needs the page reloaded.
+            data = Self.withNonce(data, blockRemoteImages: RemoteContent.blocksImages(in: AppDefaults.store))
+        }
         let mime = UTType(filenameExtension: file.pathExtension)?.preferredMIMEType ?? "application/octet-stream"
         return (200, mime, data)
     }
 
     /// Every load of the page gets a fresh CSP nonce: the `<meta>` policy and our `<script nonce>` tags share it,
     /// so only the tags in this file run (CSP only; the bundles themselves are not user-controlled).
-    static func withNonce(_ html: Data) -> Data {
+    static func withNonce(_ html: Data, blockRemoteImages: Bool = false) -> Data {
         guard let text = String(data: html, encoding: .utf8) else { return html }
-        return Data(text.replacingOccurrences(of: nonceToken, with: UUID().uuidString).utf8)
+        let page = RemoteContent.previewPage(text, blockingImages: blockRemoteImages)
+        return Data(page.replacingOccurrences(of: nonceToken, with: UUID().uuidString).utf8)
     }
 
     /// Maps `/a/b.css` into the Resources folder; anything that escapes it resolves to nil. `url.path` is already
