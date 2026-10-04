@@ -59,7 +59,7 @@ enum DocumentExport {
     private static func page(_ markdown: String, fileURL: URL?, options: RenderOptions, embedImages: Bool) async throws -> String {
         let body = try await CopyHTML.render(markdown, options: options, fileURL: fileURL)
         let flavor = AppExtensions.flavor(for: fileURL)
-        let defaults = UserDefaults.standard
+        let defaults = AppDefaults.store
         let style = PreviewStyles.resolve(
             id: defaults.string(forKey: AppearanceKey.previewStyle) ?? AppearanceDefault.previewStyle,
             followSystem: defaults.bool(forKey: AppearanceKey.previewStyleFollowsSystem)
@@ -112,7 +112,7 @@ private final class EmbedImagesAccessory: NSObject {
 
     override init() {
         checkbox = NSButton(checkboxWithTitle: "Embed images in the file (otherwise keep their relative paths)", target: nil, action: nil)
-        checkbox.state = UserDefaults.standard.bool(forKey: DocumentExport.embedImagesKey) ? .on : .off
+        checkbox.state = AppDefaults.store.bool(forKey: DocumentExport.embedImagesKey) ? .on : .off
         let box = NSView(frame: NSRect(x: 0, y: 0, width: 420, height: 36))
         checkbox.frame = NSRect(x: 12, y: 8, width: 400, height: 20)
         box.addSubview(checkbox)
@@ -123,6 +123,6 @@ private final class EmbedImagesAccessory: NSObject {
     }
 
     @objc private func changed() {
-        UserDefaults.standard.set(isOn, forKey: DocumentExport.embedImagesKey)
+        AppDefaults.store.set(isOn, forKey: DocumentExport.embedImagesKey)
     }
 }

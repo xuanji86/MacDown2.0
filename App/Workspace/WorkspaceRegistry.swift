@@ -42,7 +42,7 @@ final class WorkspaceRegistry: DocumentBackend {
 
     /// Reads the saved windows; the windows that appear first claim them (`register`).
     func prepareLaunch() {
-        restoreQueue = WindowRestoration.decode(UserDefaults.standard.data(forKey: Self.defaultsKey))
+        restoreQueue = WindowRestoration.decode(AppDefaults.store.data(forKey: Self.defaultsKey))
         Task {
             try? await Task.sleep(for: Self.launchGrace)
             launchGraceOver = true
@@ -61,6 +61,7 @@ final class WorkspaceRegistry: DocumentBackend {
 
     func load(_ url: URL) throws {
         if document(for: url) != nil { return }
+        guard AppDefaults.permitsOpening(url) else { throw CocoaError(.fileReadNoPermission, userInfo: [NSFilePathErrorKey: url.path]) }
         let doc = try MarkdownDocument(contentsOf: url, ofType: MarkdownDocument.type(for: url))
         NSDocumentController.shared.addDocument(doc)
         NSDocumentController.shared.noteNewRecentDocumentURL(url)
@@ -178,7 +179,7 @@ final class WorkspaceRegistry: DocumentBackend {
 
     func persist() {
         guard !isTerminating else { return }
-        UserDefaults.standard.set(WindowRestoration.encode(orderedModels().map(\.state)), forKey: Self.defaultsKey)
+        AppDefaults.store.set(WindowRestoration.encode(orderedModels().map(\.state)), forKey: Self.defaultsKey)
     }
 
     /// A new workspace window: through `openWindow` once a window has handed it over; before that (a launch in the
@@ -195,6 +196,8 @@ final class WorkspaceRegistry: DocumentBackend {
 
     /// Finder double click, Dock drop, Cmd-O, Open Recent: tabs in the frontmost window, a new window when there is none.
     func open(_ urls: [URL]) {
+        let urls = urls.filter(AppDefaults.permitsOpening)
+        if urls.isEmpty { return }
         if models.isEmpty || !restoreQueue.isEmpty {  // launching: the windows are still coming
             pendingURLs += urls
             if launchGraceOver, models.isEmpty { requestWindow() }

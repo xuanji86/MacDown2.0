@@ -18,10 +18,10 @@ enum AppearanceDefault {
 
 /// View ▸ 编辑器主题 / 预览样式: pick one, plus a 跟随系统 switch that swaps in the pick's light/dark partner by itself.
 struct AppearanceCommands: Commands {
-    @AppStorage(AppearanceKey.editorTheme) private var editorTheme = AppearanceDefault.editorTheme
-    @AppStorage(AppearanceKey.editorThemeFollowsSystem) private var editorFollows = false
-    @AppStorage(AppearanceKey.previewStyle) private var previewStyle = AppearanceDefault.previewStyle
-    @AppStorage(AppearanceKey.previewStyleFollowsSystem) private var previewFollows = false
+    @AppStorage(AppearanceKey.editorTheme, store: AppDefaults.store) private var editorTheme = AppearanceDefault.editorTheme
+    @AppStorage(AppearanceKey.editorThemeFollowsSystem, store: AppDefaults.store) private var editorFollows = false
+    @AppStorage(AppearanceKey.previewStyle, store: AppDefaults.store) private var previewStyle = AppearanceDefault.previewStyle
+    @AppStorage(AppearanceKey.previewStyleFollowsSystem, store: AppDefaults.store) private var previewFollows = false
 
     var body: some Commands {
         CommandGroup(after: .toolbar) {

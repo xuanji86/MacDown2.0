@@ -20,7 +20,7 @@ enum AppExtensions {
     static let useAppGroup = false
     static let appGroupSuite = "io.github.xuanji86.MacDown2.shared"
     static let preferences: UserDefaults = {
-        guard useAppGroup, let shared = UserDefaults(suiteName: appGroupSuite) else { return .standard }
+        guard !AppDefaults.isIsolated, useAppGroup, let shared = UserDefaults(suiteName: appGroupSuite) else { return AppDefaults.store }
         return shared
     }()
 

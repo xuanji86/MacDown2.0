@@ -37,7 +37,8 @@ final class UpdaterController: NSObject, SPUUpdaterDelegate {
 
     private override init() {
         let key = Bundle.main.object(forInfoDictionaryKey: "SUPublicEDKey") as? String
-        isConfigured = key.flatMap { Data(base64Encoded: $0) }?.count == 32
+        // An isolated test launch never starts Sparkle: it keeps its own state in the app's real domain.
+        isConfigured = !AppDefaults.isIsolated && key.flatMap { Data(base64Encoded: $0) }?.count == 32
         automaticallyChecks = true
         checkInterval = Self.intervals[0].seconds
         super.init()
