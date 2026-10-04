@@ -136,6 +136,38 @@ private func matchesGolden(_ text: String, _ name: String) throws -> Bool {
     #expect(await run("commented.css") == 0)  // a comment about @import is not one
 }
 
+@Test func cssImportsAndRemoteURLsAreRefusedHoweverTheyAreSpelled() {
+    let refused = [
+        "@import url(x.css);", "@IMPORT 'x.css';", "@ImPoRt \"x.css\";",
+        #"@\69mport url(//evil.example/x.css);"#, #"@\000069mport url(x.css);"#, #"@\69 mport url(x.css);"#, #"@\49MPORT url(x.css);"#,
+        #"@i\6d port 'x';"#, #"@\i\m\p\o\r\t 'x';"#,
+        "/* c */ @import url(x.css);", "/* a */ /* b */\n@\\69mport url(x.css);", "p{}\n@import url(x.css);",
+        "p { background: url(https://evil.example/a.png) }", "p { background: url( 'HTTP://evil.example/a.png' ) }",
+        "p { background: url(\"//evil.example/a.png\") }", #"p { background: u\72l(http://evil.example/a.png) }"#,
+        #"p { background: \75 rl(https://evil.example/a.png) }"#, "p { background: url(ftp://x/a) }", "p { background: url(file:///etc/passwd) }",
+        "p { background: url(java\tscript:alert(1)) }", "@font-face { src: url(https://evil.example/f.woff2) }",
+    ]
+    for css in refused { #expect(Render.remoteReference(in: css) != nil, "not refused: \(css)") }
+    let fine = [
+        "", "p { color: red }", "/* @import url(x.css); */ p { color: red }", "/* multi\nline @import url(x.css);\n*/ p{}",
+        "p { background: url(img/a.png) }", "p { background: url('/Users/me/a.png') }", "p { background: url(\"a b.png\") }",
+        "p { background: url(data:image/png;base64,AAAA) }", "p { background: url( DATA:image/svg+xml,%3Csvg%3E ) }",
+        "p::after { content: \"\\201C\" }", "a:hover{color:#123}",
+    ]
+    for css in fine { #expect(Render.remoteReference(in: css) == nil, "refused: \(css)") }
+}
+
+@Test func anEscapedImportInACSSFileFailsTheCommand() async throws {
+    let s = try Scratch(); defer { s.remove() }
+    try s.write("a.md")
+    try s.write("esc.css", #"@\69mport url(https://evil.example/x.css); p{}"#)
+    try s.write("remote.css", "p { background: url(https://evil.example/a.png) }")
+    for css in ["esc.css", "remote.css"] {
+        #expect(await CLI.run(["render", "a.md", "--export", "html", "--css", css, "-o", "out.html"], host: s.host(defaults: Scratch.emptyDefaults())) == 64, "\(css)")
+        #expect(!FileManager.default.fileExists(atPath: s.root.appending(path: "out.html").path))
+    }
+}
+
 @Test func exportPDFHandsThePageAndTheAppsPaperSettingsToTheWriter() async throws {
     let s = try Scratch(); defer { s.remove() }
     try s.write("a.md", "# 标题\n")

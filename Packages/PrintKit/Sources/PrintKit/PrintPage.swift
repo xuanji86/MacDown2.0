@@ -111,11 +111,18 @@ public final class PrintPage: NSObject, WKNavigationDelegate {
         let script = """
         for (const heading of document.querySelectorAll('#doc h1, #doc h2, #doc h3, #doc h4, #doc h5, #doc h6')) {
           if (heading.parentElement.classList.contains('md2-keep')) continue;
+          // Walk the siblings, not just the elements: whitespace and comments between travel with the group, but bare text between the
+          // heading and the next element (raw HTML) would end up after it, so such a heading is left alone.
           const group = [heading];
-          let next = heading.nextElementSibling;
-          while (next && /^H[1-6]$/.test(next.tagName)) { group.push(next); next = next.nextElementSibling; }
-          if (!next || next.classList.contains('md2-page-break') || next.textContent.length > 500 || next.querySelectorAll('tr').length > 13) continue;
-          group.push(next);
+          let between = [];
+          let next = heading.nextSibling;
+          for (; next; next = next.nextSibling) {
+            if (next.nodeType === 8 || (next.nodeType === 3 && next.textContent.trim() === '')) between.push(next);
+            else if (next.nodeType === 1 && /^H[1-6]$/.test(next.tagName)) { group.push(...between, next); between = []; }
+            else break;
+          }
+          if (!next || next.nodeType !== 1 || next.classList.contains('md2-page-break') || next.textContent.length > 500 || next.querySelectorAll('tr').length > 13) continue;
+          group.push(...between, next);
           const wrapper = document.createElement('div');
           wrapper.className = 'md2-keep';
           heading.before(wrapper);

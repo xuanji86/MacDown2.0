@@ -75,8 +75,8 @@ enum Render {
     }
 
     /// The text of the one local file `--css` names. Nothing else is read or fetched on its behalf: a URL is refused, and so is an
-    /// `@import` (it would pull in a second file, or a remote one, that nobody typed on the command line).
-    // lazy: `url(...)` for a font or an image in it is not checked; a browser (HTML) or the hidden web view (PDF) loads it. Upgrade = refuse remote url().
+    /// `@import` (it would pull in a second file, or a remote one, that nobody typed on the command line) and a `url()` that points
+    /// off this machine. Both are looked for in the CSS as a browser reads it, after comments are gone and escapes are decoded.
     static func stylesheet(_ path: String, host: CLIHost) throws -> String {
         if path.range(of: #"^[A-Za-z][A-Za-z0-9+.-]*://"#, options: .regularExpression) != nil {
             throw CLIError(ExitCode.usage, "--css takes a local file, not a URL: \(path)")
@@ -89,10 +89,47 @@ enum Render {
             throw CLIError(ExitCode.noInput, "--css \(path) cannot be read as UTF-8 text")
         }
         if css.hasPrefix("\u{FEFF}") { css.removeFirst() }
-        let withoutComments = css.replacingOccurrences(of: #"/\*.*?\*/"#, with: "", options: .regularExpression)
-        if withoutComments.range(of: "@import", options: .caseInsensitive) != nil {
-            throw CLIError(ExitCode.usage, "--css \(path) uses @import, which is not followed: put its rules into the file")
+        if let problem = remoteReference(in: css) {
+            throw CLIError(ExitCode.usage, "--css \(path) uses \(problem), which is not followed: put its rules into the file and keep images local")
         }
         return css
+    }
+
+    /// `"@import"` or `"a url() that is not local"` when `css` has one, else nil. Conservative on purpose: comments are removed and
+    /// escapes decoded before looking (`@\69mport`, `u\72l(`, `@\000069 mport`), so spelling tricks cannot hide either; an
+    /// `@import` mentioned inside a string or an odd comment is refused too. Local means relative, absolute path or `data:`.
+    // lazy: a text scan, not a CSS parser (`image-set()`, `src()` and `-webkit-image-set` with a bare string are not looked at); upgrade = tokenize.
+    static func remoteReference(in css: String) -> String? {
+        let text = decodingEscapes(css.replacingOccurrences(of: #"/\*[\s\S]*?(?:\*/|$)"#, with: " ", options: .regularExpression))
+        if text.range(of: "@import", options: .caseInsensitive) != nil { return "@import" }
+        let urls = try! NSRegularExpression(pattern: #"url\(\s*(?:"([^"]*)"|'([^']*)'|([^)]*))\s*\)"#, options: .caseInsensitive)
+        for match in urls.matches(in: text, range: NSRange(text.startIndex..., in: text)) {
+            let target = (1...3).lazy.compactMap { Range(match.range(at: $0), in: text).map { String(text[$0]) } }.first ?? ""
+            let bare = target.filter { !$0.isWhitespace && $0.asciiValue.map { $0 >= 0x20 } ?? true }.lowercased()
+            if bare.hasPrefix("//") || bare.range(of: #"^[a-z][a-z0-9+.-]*:"#, options: .regularExpression) != nil, !bare.hasPrefix("data:") {
+                return "a url() outside this machine (\(target.trimmingCharacters(in: .whitespaces)))"
+            }
+        }
+        return nil
+    }
+
+    /// CSS escapes: one to six hex digits and one optional whitespace, or a backslash and any other character.
+    private static func decodingEscapes(_ css: String) -> String {
+        let escape = try! NSRegularExpression(pattern: #"\\(?:([0-9a-fA-F]{1,6})[ \t\n\r\f]?|([\s\S]))"#)
+        var out = ""
+        var last = css.startIndex
+        for match in escape.matches(in: css, range: NSRange(css.startIndex..., in: css)) {
+            let whole = Range(match.range, in: css)!
+            out += css[last..<whole.lowerBound]
+            if let hex = Range(match.range(at: 1), in: css), let code = UInt32(css[hex], radix: 16), let scalar = Unicode.Scalar(code), code != 0 {
+                out.unicodeScalars.append(scalar)
+            } else if let char = Range(match.range(at: 2), in: css) {
+                out += css[char]
+            } else {
+                out += "\u{FFFD}"
+            }
+            last = whole.upperBound
+        }
+        return out + css[last...]
     }
 }

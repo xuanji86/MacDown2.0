@@ -48,3 +48,26 @@ import Testing
         }
     }
 }
+
+/// Keeping a heading with its text must not reorder the text: raw HTML can leave bare text between a heading and the next element.
+@MainActor @Suite(.serialized) struct HeadingOrderTests {
+    private func order(_ html: String, _ words: [String]) async throws -> [String] {
+        PrintPage.becomeHeadless()
+        let page = HTMLExporter.document(body: html, title: "t")
+        let data = try await PrintPage.pdf(html: page, setup: PageSetup(locale: Locale(identifier: "en_US")))
+        let text = try #require(PDFDocument(data: data)?.string)
+        return words.filter { text.contains($0) }.sorted { text.range(of: $0)!.lowerBound < text.range(of: $1)!.lowerBound }
+    }
+
+    @Test func bareTextBetweenAHeadingAndTheNextElementStaysInPlace() async throws {
+        let words = ["TITLE-A", "FIRST-TEXT", "SECOND-PARAGRAPH"]
+        #expect(try await order("<h2>TITLE-A</h2>\nFIRST-TEXT\n\n<p>SECOND-PARAGRAPH</p>", words) == words)
+        #expect(try await order("<h2>TITLE-A</h2>FIRST-TEXT<p>SECOND-PARAGRAPH</p>", words) == words)
+        #expect(try await order("<h2>TITLE-A</h2><!-- c -->\n  <p>FIRST-TEXT</p><p>SECOND-PARAGRAPH</p>", words) == words)
+    }
+
+    @Test func stackedHeadingsWithWhitespaceBetweenStayInOrder() async throws {
+        let words = ["H-ONE", "H-TWO", "THE-TEXT", "AFTER"]
+        #expect(try await order("<h1>H-ONE</h1>\n<h2>H-TWO</h2>\n<p>THE-TEXT</p><p>AFTER</p>", words) == words)
+    }
+}
