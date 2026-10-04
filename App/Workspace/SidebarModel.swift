@@ -15,6 +15,10 @@ final class SidebarModel {
     var showAllFiles = false {
         didSet { if showAllFiles != oldValue { optionsChanged() } }
     }
+    /// The Quarto extension is on: only then are folders probed for `_quarto.yml` (a closed extension costs nothing).
+    var quartoEnabled = AppExtensions.host.flavors.contains { $0.id == "quarto" } {
+        didSet { if quartoEnabled != oldValue { optionsChanged() } }
+    }
     var filter = "" {
         didSet { if filter != oldValue { filterChanged() } }
     }
@@ -34,13 +38,18 @@ final class SidebarModel {
     @ObservationIgnored let stores = SidebarStores.shared
     @ObservationIgnored private let follower = Debouncer(delay: .milliseconds(150))
     @ObservationIgnored private var generation = 0
-    @ObservationIgnored private var loading: Set<String> = []
+    /// One background read per directory at most (`ReadTracker`); `then` runs once the read that follows the request is installed.
+    @ObservationIgnored private var reads = ReadTracker<@MainActor () -> Void>()
+    /// Roots with no file system watcher (the volume root and its direct children): refreshed when the window or app comes forward.
+    @ObservationIgnored private var unwatchedRoots: [URL] = []
     @ObservationIgnored private var watcher: FolderWatcher?
     @ObservationIgnored private var crawl: Task<Void, Never>?
     /// A file made with "New File": opened as a tab once the user has named it.
     @ObservationIgnored private var createdFile: String?
 
     init(controller: WorkspaceController) { self.controller = controller }
+
+    private var treeOptions: FileTreeOptions { FileTreeOptions(showAllFiles: showAllFiles, detectsQuartoProjects: quartoEnabled) }
 
     var isWorkspace: Bool { folders.isActive }
     var isFiltering: Bool { !filter.trimmingCharacters(in: .whitespaces).isEmpty }
@@ -133,9 +142,9 @@ final class SidebarModel {
             return
         }
         generation += 1
-        loading = []
+        reads.reset()
         skeletons = []
-        var fresh = FileTreeModel(roots: [], options: FileTreeOptions(showAllFiles: showAllFiles))
+        var fresh = FileTreeModel(roots: [], options: treeOptions)
         for root in wanted { fresh.addRoot(root, load: false) }
         tree = fresh
         restartWatcher()
@@ -145,9 +154,9 @@ final class SidebarModel {
 
     private func optionsChanged() {
         generation += 1
-        loading = []
+        reads.reset()
         skeletons = []
-        tree.setOptions(FileTreeOptions(showAllFiles: showAllFiles), relist: false)
+        tree.setOptions(treeOptions, relist: false)
         loadPending()
         if isFiltering { startCrawl() }
     }
@@ -173,41 +182,62 @@ final class SidebarModel {
     /// Reads `directory` in the background unless it is read or being read. The skeleton shows only if it takes > 300 ms.
     private func ensureLoaded(_ directory: URL) {
         let key = directory.fileKey
-        guard !tree.isLoaded(directory), loading.insert(key).inserted else { return }
+        guard !tree.isLoaded(directory), !reads.isReading(key) else { return }
         let generation = generation
-        let options = tree.options
         Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(300))
-            guard let self, self.generation == generation, self.loading.contains(key) else { return }
+            guard let self, self.generation == generation, self.reads.isReading(key) else { return }
             self.skeletons.insert(key)
         }
+        read(directory)
+    }
+
+    /// Asks for a read of `directory`: starts one, or, when one is already running, has another follow it (a change that
+    /// arrives while a big folder is being read must not be lost to the older result).
+    private func read(_ directory: URL, then: (@MainActor () -> Void)? = nil) {
+        if reads.request(directory.fileKey, then: then) { startRead(directory) }
+    }
+
+    private func startRead(_ directory: URL) {
+        let key = directory.fileKey
+        let generation = generation
+        let options = tree.options
         let allowed = isAllowed(directory)
         Task { [weak self] in
             let listing = await Task.detached(priority: .userInitiated) {
                 allowed ? DirectoryListing.read(directory, options: options) : DirectoryListing(directory: directory, nodes: nil, exists: true)
             }.value
-            guard let self, self.generation == generation else { return }
-            self.loading.remove(key)
+            guard let self, self.generation == generation else { return }  // roots or options changed: obsolete
+            let changed = self.tree.wouldChange(by: [listing])
+            if changed { self.tree.apply([listing]) }
             self.skeletons.remove(key)
-            self.tree.apply([listing])
+            let (done, again) = self.reads.finish(key)
+            if again { self.startRead(directory) }
             self.directoryChanged([listing])
-            if self.isFiltering { self.startCrawl() }
+            if changed, self.isFiltering { self.startCrawl() }
+            for action in done { action() }
         }
     }
 
-    /// Re-reads directories after a change (file system events, our own operations), then runs `done`.
+    /// Re-reads directories after a change (file system events, our own operations), then runs `done`. Directories that are
+    /// neither loaded nor being loaded are skipped: they are read when expanded.
     private func reread(_ directories: [URL], then done: @escaping @MainActor () -> Void = {}) {
-        let loaded = directories.filter { tree.isLoaded($0) }
-        guard !loaded.isEmpty else { done(); return }
-        let generation = generation
-        let options = tree.options
-        Task { [weak self] in
-            let listings = await Task.detached(priority: .userInitiated) { loaded.map { DirectoryListing.read($0, options: options) } }.value
-            guard let self, self.generation == generation else { return }
-            self.tree.apply(listings)
-            self.directoryChanged(listings)
-            done()
+        var targets: [String: URL] = [:]
+        for directory in directories where tree.isLoaded(directory) || reads.isReading(directory.fileKey) { targets[directory.fileKey] = directory }
+        guard !targets.isEmpty else { done(); return }
+        var remaining = targets.count
+        let one: @MainActor () -> Void = {
+            remaining -= 1
+            if remaining == 0 { done() }
         }
+        for directory in targets.values { read(directory, then: one) }
+    }
+
+    /// The window or the app came forward: re-read what no file system watcher covers (the volume root and its direct
+    /// children, which are too busy to watch, and everything opened below them).
+    /// lazy: the first 200 loaded directories per root; upgrade: watch the expanded directories individually.
+    func refreshUnwatched() {
+        for root in unwatchedRoots { reread(Array(tree.loadedDirectories(under: root).prefix(200))) }
     }
 
     /// The folder being browsed disappeared (deleted or moved in Finder): fall back to the nearest one that is left.
@@ -236,13 +266,28 @@ final class SidebarModel {
     private func restartWatcher() {
         watcher?.stop()
         watcher = nil
-        // lazy: no watching for the volume root or its direct children (every write on the disk would arrive); the folder is re-read when the window comes forward
+        // lazy: no watching for the volume root or its direct children (every write on the disk would arrive); `refreshUnwatched` re-reads them when the window or app comes forward
         let roots = tree.roots.filter { $0.pathComponents.count > 2 }
+        unwatchedRoots = tree.roots
         guard !roots.isEmpty else { return }
-        let watcher = FolderWatcher(roots: roots, ignore: tree.options.ignore) { [weak self] directories in
-            Task { @MainActor in self?.reread(Array(directories)) }
+        // ignoreSelf is off on purpose: this process writes too (New File, Rename, Save As into a folder, the File menu's
+        // Rename, exports), and every window's tree has to see that, not only the one that asked. Reading never produces
+        // events, rereads that find nothing new change nothing, and the batches are coalesced, so there is no loop.
+        let watcher = FolderWatcher(roots: roots, ignore: tree.options.ignore, ignoreSelf: false, watchRoot: true) { [weak self] batch in
+            Task { @MainActor in self?.watcherBatch(batch) }
         }
-        if watcher.start() { self.watcher = watcher }
+        if watcher.start() {
+            self.watcher = watcher
+            unwatchedRoots = tree.roots.filter { $0.pathComponents.count <= 2 }
+        }
+    }
+
+    private func watcherBatch(_ batch: FolderWatcher.Batch) {
+        var targets = Array(batch.directories)
+        // Events were coalesced or dropped, or a root moved: every listing below those paths may be stale.
+        for subtree in batch.subtrees { targets += tree.loadedDirectories(under: subtree) }
+        reread(targets)
+        if batch.rootChanged { restartWatcher() }  // the stream does not follow a moved root
     }
 
     // MARK: Opening
@@ -362,6 +407,10 @@ final class SidebarModel {
     /// Never a delete: `NSWorkspace.recycle` puts the item in the Trash (Finder's Put Back works). Tabs showing it close
     /// first, asking about unsaved changes; cancelling the prompt cancels the trashing.
     func trash(_ url: URL) {
+        do { try FileOperations.requireUnprotected(url) } catch {  // also when the menu was bypassed or the path leads through a symlink
+            present(error, title: String(localized: "无法移到废纸篓"))
+            return
+        }
         Task {
             guard await WorkspaceRegistry.shared.closeTabs(under: url) else { return }
             do { _ = try await NSWorkspace.shared.recycle([url]) } catch {
@@ -374,19 +423,25 @@ final class SidebarModel {
 
     // MARK: Alerts
 
-    private func present(_ error: any Error, title: String) {
+    private func present(_ error: any Error, title: String) { present(NSAlert.fileOperation(error, title: title)) }
+
+    private func present(_ alert: NSAlert) {
+        if let window = window() { alert.beginSheetModal(for: window) } else { alert.runModal() }
+    }
+}
+
+extension NSAlert {
+    /// The alert for a failed file operation: the system's text, with this app's wording for the refusals of `FileOperations`.
+    static func fileOperation(_ error: any Error, title: String) -> NSAlert {
         let alert = NSAlert(error: error)
         alert.messageText = title
         if let failure = error as? FileOperations.Failure {
             switch failure {
             case .invalidName: alert.informativeText = String(localized: "这个名字不能用。")
             case .exists(let name): alert.informativeText = String(localized: "“\(name)”已经存在。")
+            case .protected(let name): alert.informativeText = String(localized: "“\(name)”是受保护的文件夹，不能在这里重命名或移到废纸篓。")
             }
         }
-        present(alert)
-    }
-
-    private func present(_ alert: NSAlert) {
-        if let window = window() { alert.beginSheetModal(for: window) } else { alert.runModal() }
+        return alert
     }
 }

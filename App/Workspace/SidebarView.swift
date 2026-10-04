@@ -55,7 +55,10 @@ private struct FilesPage: View {
             }
             FileTable(model: sidebar, items: snapshot.items, tableContext: tableContext)
         }
+        .onChange(of: quartoOn, initial: true) { _, on in sidebar.quartoEnabled = on }
     }
+
+    private var quartoOn: Bool { AppExtensions.host.flavors.contains { $0.id == "quarto" } }
 
     private var tableContext: SidebarTableContext {
         let session = model.controller.session
@@ -63,7 +66,7 @@ private struct FilesPage: View {
         let dirty = session.tabs.filter { registry.document(for: $0.url)?.editedFlag.value == true }.map(\.id)
         return SidebarTableContext(
             activeKey: session.activeURL?.fileKey, previewKey: session.previewURL?.fileKey, dirtyKeys: Set(dirty),
-            quartoEnabled: AppExtensions.host.flavors.contains { $0.id == "quarto" },
+            quartoEnabled: quartoOn,
             query: model.sidebar.filter,
             favoriteKeys: Set(model.sidebar.stores.favorites.map { $0.url.fileKey }),
             anchorKeys: model.sidebar.folders.rootKeys)

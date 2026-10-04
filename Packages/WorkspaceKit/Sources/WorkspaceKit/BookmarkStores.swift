@@ -55,6 +55,8 @@ public class BookmarkStore {
             var stale = false
             let url = try? URL(resolvingBookmarkData: entry.bookmark, options: [.withoutUI, .withoutMounting], relativeTo: nil, bookmarkDataIsStale: &stale)
             if let url, FileManager.default.fileExists(atPath: url.path), !Self.isInTrash(url) {
+                // Two entries that resolve to the same file (a rename the list did not see): the first, i.e. the newest, stays.
+                if result.contains(where: { $0.url.fileKey == url.fileKey }) { continue }
                 if stale || url.fileKey != entry.path {
                     if let fresh = try? url.bookmarkData() { entry.bookmark = fresh }
                     entry.path = url.fileKey
@@ -132,6 +134,9 @@ public final class RecentsStore: BookmarkStore {
     /// is not recorded.
     public func noteOpened(_ url: URL) {
         guard var entry = entry(for: url) else { return }
+        // The entries still hold the paths from before a rename or move: resolve them first, so the file's old entry is
+        // found (the app notes the new path before anything has refreshed the list).
+        refresh()
         if let old = entries.firstIndex(where: { $0.path == url.fileKey }) {
             entry = Entry(id: entries[old].id, bookmark: entry.bookmark, path: entry.path)  // keep the id the UI knows
             entries.remove(at: old)

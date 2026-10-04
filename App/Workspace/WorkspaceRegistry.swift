@@ -35,9 +35,12 @@ final class WorkspaceRegistry: DocumentBackend {
             guard let old = note.userInfo?["old"] as? URL, let new = note.userInfo?["new"] as? URL else { return }
             MainActor.assumeIsolated { WorkspaceRegistry.shared.documentMoved(from: old, to: new) }
         }
-        NotificationCenter.default.addObserver(forName: NSWindow.didBecomeKeyNotification, object: nil, queue: .main) { _ in
+        NotificationCenter.default.addObserver(forName: NSWindow.didBecomeKeyNotification, object: nil, queue: .main) { note in
+            let key = (note.object as? NSWindow).map(ObjectIdentifier.init)
             MainActor.assumeIsolated {
                 WorkspaceRegistry.shared.persist()  // the order of the windows is part of the state
+                // Trees no file system watcher covers (the volume root and its direct children) catch up when their window comes forward.
+                WorkspaceRegistry.shared.models.values.first { key != nil && $0.window.map(ObjectIdentifier.init) == key }?.sidebar.refreshUnwatched()
                 WorkspaceRegistry.shared.askPendingExternalChanges()
             }
         }
@@ -45,6 +48,7 @@ final class WorkspaceRegistry: DocumentBackend {
         NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { _ in
             MainActor.assumeIsolated {
                 for case let doc as MarkdownDocument in NSDocumentController.shared.documents { doc.externalMonitor?.check() }
+                for model in WorkspaceRegistry.shared.models.values { model.sidebar.refreshUnwatched() }
                 WorkspaceRegistry.shared.askPendingExternalChanges()
             }
         }

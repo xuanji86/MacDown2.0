@@ -18,8 +18,11 @@ final class FakeBackend: DocumentBackend {
         loaded.insert(url.fileKey)
     }
     func isDirty(_ url: URL) -> Bool { dirty.contains(url.fileKey) }
+    /// What happens while the save sheet is up (a first save of an untitled document re-keys it).
+    var whileConfirming: ((URL) -> Void)?
     func confirmClose(_ url: URL, in window: UUID) async -> Bool {
         log.append("confirm \(url.lastPathComponent)")
+        whileConfirming?(url)
         return confirm
     }
     func unload(_ url: URL) {
@@ -196,6 +199,40 @@ struct WorkspaceControllerTests {
         #expect(c.activeURL == u("c"))
         c.select(number: 2)
         #expect(c.activeURL == u("b"))
+    }
+
+    @Test func savingAnUntitledDocumentDuringCloseClosesItsRekeyedTab() async throws {
+        let backend = FakeBackend(), ledger = DocumentLedger()
+        let c = WorkspaceController(ledger: ledger, backend: backend)
+        try c.open(u("keep"), as: .pinned)
+        c.newUntitled()
+        let untitled = try #require(c.activeURL)
+        backend.dirty = [untitled.fileKey]
+        let saved = u("saved.md")
+        backend.whileConfirming = { old in  // Save in the sheet: the document gets its file, the app re-keys ledger and tabs
+            ledger.rekey(old.fileKey, to: saved.fileKey)
+            c.documentMoved(from: old, to: saved)
+            backend.dirty = []
+        }
+        #expect(await c.close(untitled))
+        #expect(names(c) == ["keep"])  // the tab is gone, not left behind under its new name
+        #expect(backend.log.contains("unload saved.md"))
+        #expect(ledger.holders(of: saved.fileKey).isEmpty)
+    }
+
+    @Test func aTabThatMergedIntoAnAlreadyOpenFileIsNotClosedInsteadOfItself() async throws {
+        let backend = FakeBackend(), ledger = DocumentLedger()
+        let c = WorkspaceController(ledger: ledger, backend: backend)
+        try c.open(u("existing"), as: .pinned)
+        c.newUntitled()
+        let untitled = try #require(c.activeURL)
+        backend.dirty = [untitled.fileKey]
+        backend.whileConfirming = { old in  // saved over the file that is already open: the two tabs merge
+            ledger.rekey(old.fileKey, to: u("existing").fileKey)
+            c.documentMoved(from: old, to: u("existing"))
+        }
+        #expect(await c.close(untitled))
+        #expect(names(c) == ["existing"])
     }
 
     @Test func aMovedDocumentKeepsItsTabAndIsReactivated() throws {
