@@ -5,6 +5,7 @@ import SwiftUI
 /// on the focused document window.
 struct FormatCommands: Commands {
     @FocusedValue(\.windowActions) private var actions
+    @FocusedValue(\.workspace) private var workspace
 
     private func item(_ title: String, _ command: MarkdownCommand) -> some View {
         Button(title) { actions?.editor.perform(command) }
@@ -45,9 +46,12 @@ struct FormatCommands: Commands {
         CommandGroup(after: .toolbar) {
             Divider()
             SplitLayoutItems(actions: actions)
-            Button(actions?.outlineShown == true ? "隐藏大纲" : "显示大纲") { actions?.toggleOutline() }
+            Button(workspace?.sidebarVisible == false ? "展开侧栏" : "收起侧栏") { workspace?.sidebarVisible.toggle() }
+                .keyboardShortcut("\\")
+                .disabled(workspace == nil)
+            Button("显示大纲") { workspace?.showOutline() }
                 .keyboardShortcut("o", modifiers: [.command, .control])
-                .disabled(actions == nil)
+                .disabled(workspace == nil)
             Button("Cycle Editor and Preview") { actions?.cycleLayout() }
                 .keyboardShortcut("l", modifiers: [.command, .control])
                 .disabled(actions == nil)

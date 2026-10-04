@@ -7,34 +7,29 @@ import SwiftUI
 /// its undo stack and selection; removing the preview would reload the web page; and an editor squeezed to zero width
 /// makes TextKit 2 lay a large document out one character per line.
 struct DocumentView: View {
+    let model: WindowModel
+    /// The active tab's document. The view lives on when this changes: the editor and preview only swap their text.
     let document: MarkdownDocument
-    /// nil until the document is saved; follows Save As / move because the scene hands over a fresh value.
-    var fileURL: URL?
+    /// Follows a rename / move: the workspace hands over the tab's current URL.
+    let fileURL: URL
+    let preview: PreviewModel
+    let scrollSync: ScrollSyncController
+    let editor: EditorHandle
+    let status: EditorStatus
 
-    @State private var preview = PreviewModel()
-    @State private var scrollSync = ScrollSyncController()
     @AppStorage(ScrollSyncPreferences.syncKey) private var syncScrolling = true
     @AppStorage(ScrollSyncPreferences.followCaretKey) private var previewFollowsCaret = false
 
-    // Per window, restored with the window.
-    @SceneStorage("split.mode") private var modeRaw = SplitLayout.Mode.both.rawValue
-    @SceneStorage("split.editorFraction") private var editorFraction = 0.5
-    @State private var editor = EditorHandle()
-    @State private var status = EditorStatus()
-    @SceneStorage("outline.shown") private var showsOutline = false
-
-    private var layout: SplitLayout {
-        SplitLayout(mode: SplitLayout.Mode(rawValue: modeRaw) ?? .both, editorFraction: editorFraction)
-    }
+    private var layout: SplitLayout { model.layout }
 
     private func setLayout(_ new: SplitLayout) {
-        modeRaw = new.mode.rawValue
-        editorFraction = new.editorFraction
+        model.layout = new
         if !new.showsEditor { editor.resignFocus() }  // never type into an invisible editor
     }
 
     var body: some View {
         let layout = layout
+        let fileURL = fileURL
         let flavor = AppExtensions.flavor(for: fileURL)  // observable: re-evaluated when an extension is switched
         let actions = WindowActions(
             editor: editor, layout: layout, setLayout: setLayout,
@@ -42,13 +37,16 @@ struct DocumentView: View {
             exportHTML: { [document, fileURL] in Task { await DocumentExport.html(of: document.text, fileURL: fileURL) } },
             exportPDF: { [document, fileURL] in Task { await DocumentExport.pdf(of: document.text, fileURL: fileURL) } },
             printDocument: { [document, fileURL] in Task { await DocumentExport.print(document.text, fileURL: fileURL) } },
-            outlineShown: showsOutline, toggleOutline: { showsOutline.toggle() }
+            showOutline: { model.showOutline() }
         )
         GeometryReader { geometry in
             let total = geometry.size.width, height = geometry.size.height
             let editorWidth = layout.editorWidth(total: total)
             ZStack(alignment: .topLeading) {
-                EditorPane(document: document, scrollSync: scrollSync, editor: editor, status: status, flavor: flavor)
+                EditorPane(
+                    document: document, scrollSync: scrollSync, editor: editor, status: status, flavor: flavor,
+                    onUserEdit: { [model, fileURL] in model.controller.pin(fileURL) }
+                )
                     .frame(width: layout.mode == .both ? editorWidth : total, height: height)
                     .visible(layout.showsEditor)
                 PreviewPane(document: document, documentURL: fileURL, model: preview, flavor: flavor)
@@ -62,22 +60,12 @@ struct DocumentView: View {
             .coordinateSpace(.named("split"))
         }
         .safeAreaInset(edge: .bottom, spacing: 0) { StatusBar(preview: preview, status: status, renderMode: flavor?.badge?.title ?? "Markdown", renderModeHelp: flavor?.badge?.help) }
-        .inspector(isPresented: $showsOutline) {
-            OutlineInspector(preview: preview, status: status, jump: jump(toLine:))
-                .inspectorColumnWidth(min: 180, ideal: 240, max: 420)
-        }
         .frame(minWidth: 640, minHeight: 360)
         .toolbar { DocumentToolbar(actions: actions) }
         .focusedSceneValue(\.windowActions, actions)
         .onAppear { scrollSync.attach(preview: preview) }
         .onChange(of: syncScrolling, initial: true) { _, on in scrollSync.isEnabled = on }
         .onChange(of: previewFollowsCaret, initial: true) { _, on in scrollSync.followsCaret = on }
-    }
-
-    /// Outline click: the caret and both panes go to the heading's line, whatever the scroll sync settings.
-    private func jump(toLine line: Int) {
-        editor.goTo(line: line, focus: layout.showsEditor)
-        preview.scroll(toLine: Double(line))
     }
 
     /// One-point separator with a wider invisible grab area.
@@ -89,7 +77,7 @@ struct DocumentView: View {
                     .gesture(
                         DragGesture(minimumDistance: 1, coordinateSpace: .named("split")).onChanged { drag in
                             guard total > 0 else { return }
-                            editorFraction = min(max(drag.location.x / total, SplitLayout.minFraction), SplitLayout.maxFraction)
+                            model.editorFraction = min(max(drag.location.x / total, SplitLayout.minFraction), SplitLayout.maxFraction)
                         }
                     )
             }

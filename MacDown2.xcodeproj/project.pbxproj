@@ -16,6 +16,7 @@
 		A10000000000000000000004 /* EditorKit in Frameworks */ = {isa = PBXBuildFile; productRef = A10000000000000000000027 /* EditorKit */; };
 		A10000000000000000000094 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = A10000000000000000000093 /* Sparkle */; };
 		A10000000000000000000005 /* QuartoExtension in Frameworks */ = {isa = PBXBuildFile; productRef = A1000000000000000000002A /* QuartoExtension */; };
+		A10000000000000000000098 /* WorkspaceKit in Frameworks */ = {isa = PBXBuildFile; productRef = A10000000000000000000097 /* WorkspaceKit */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -104,6 +105,7 @@
 				A10000000000000000000004 /* EditorKit in Frameworks */,
 				A10000000000000000000094 /* Sparkle in Frameworks */,
 				A10000000000000000000005 /* QuartoExtension in Frameworks */,
+				A10000000000000000000098 /* WorkspaceKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -179,6 +181,7 @@
 				A10000000000000000000027 /* EditorKit */,
 				A10000000000000000000093 /* Sparkle */,
 				A1000000000000000000002A /* QuartoExtension */,
+				A10000000000000000000097 /* WorkspaceKit */,
 			);
 			productName = MacDown2;
 			productReference = A10000000000000000000010 /* MacDown2.app */;
@@ -218,6 +221,7 @@
 				A10000000000000000000028 /* XCLocalSwiftPackageReference "Packages/EditorKit" */,
 				A10000000000000000000029 /* XCRemoteSwiftPackageReference "Sparkle" */,
 				A10000000000000000000095 /* XCLocalSwiftPackageReference "Packages/QuartoExtension" */,
+				A10000000000000000000096 /* XCLocalSwiftPackageReference "Packages/WorkspaceKit" */,
 			);
 			productRefGroup = A10000000000000000000013 /* Products */;
 			projectDirPath = "";
@@ -458,6 +462,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/QuartoExtension;
 		};
+		A10000000000000000000096 /* XCLocalSwiftPackageReference "Packages/WorkspaceKit" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/WorkspaceKit;
+		};
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCRemoteSwiftPackageReference section */
@@ -504,6 +512,10 @@
 		A1000000000000000000002A /* QuartoExtension */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = QuartoExtension;
+		};
+		A10000000000000000000097 /* WorkspaceKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = WorkspaceKit;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
