@@ -10,20 +10,25 @@ extension Notification.Name {
     static let markdownDocumentMoved = Notification.Name("MarkdownDocumentMoved")
 }
 
-/// UTF-8 Markdown file. An `NSDocument` that has no window of its own: workspace windows own documents and show the
-/// active one (PLAN 4.11, S3). The editor always works on LF text; the original line-ending style and BOM are
+/// Markdown file. An `NSDocument` that has no window of its own: workspace windows own documents and show the
+/// active one (PLAN 4.11, S3). The editor always works on LF text; the original encoding, line-ending style and BOM are
 /// remembered at read time and restored on save (`MarkdownFile`).
 @objc(MarkdownDocument)
 final class MarkdownDocument: NSDocument, ObservableObject {
     static let markdownType = "net.daringfireball.markdown"
+    /// Not declared by the system (checked on macOS 26/27), so Info.plist imports it as a Markdown alias; files are still typed
+    /// `markdownType` by extension. Readable only, so Save As never offers it.
+    static let publicMarkdownType = "public.markdown"
     static let quartoType = "org.quarto.qmd"
 
     @Published var text = ""
     /// `isDocumentEdited` as a value views and the window's edited dot can follow.
     @Published private(set) var isEdited = false
     let editedFlag = EditedFlag()
-    private(set) var lineEnding: LineEnding = .lf
-    private(set) var hasBOM = false
+    /// Encoding, line ending and BOM the file is saved back in; shown in the status bar.
+    let format = DocumentFormat()
+    /// Set only while `reopen(as:)` re-reads the file.
+    private var encodingOverride: TextEncoding?
 
     override class var autosavesInPlace: Bool { true }
 
@@ -74,7 +79,7 @@ final class MarkdownDocument: NSDocument, ObservableObject {
 
     // Declared here, not through `NSDocumentClass` in Info.plist: with a document class in the plist AppKit treats the app as
     // document-based and makes a window-less untitled document at launch, which keeps SwiftUI from opening its first window.
-    override class var readableTypes: [String] { [markdownType, quartoType] }
+    override class var readableTypes: [String] { [markdownType, publicMarkdownType, quartoType] }
     override class var writableTypes: [String] { [markdownType, quartoType] }
     override class func isNativeType(_ type: String) -> Bool { readableTypes.contains(type) }
 
@@ -89,17 +94,48 @@ final class MarkdownDocument: NSDocument, ObservableObject {
     }
 
     override func read(from data: Data, ofType typeName: String) throws {
-        let file = try MarkdownFile.decode(data)
         // Reading and writing run on the main thread: `canConcurrentlyReadDocuments` / `canAsynchronouslyWrite` stay false.
-        MainActor.assumeIsolated {
-            lineEnding = file.lineEnding
-            hasBOM = file.hasBOM
+        try MainActor.assumeIsolated {
+            let file = try encodingOverride.map { try MarkdownFile.decode(data, as: $0) } ?? MarkdownFile.decode(data)
+            format.set(file)
             text = file.text  // on a revert / external reload this reaches the editor through ExternalTextSync
         }
     }
 
+    /// Never writes anything the file's encoding cannot hold: the save fails (the file on disk stays as it was) and the
+    /// error offers to switch to UTF-8 and save again.
     override func data(ofType typeName: String) throws -> Data {
-        MainActor.assumeIsolated { MarkdownFile(text: text, lineEnding: lineEnding, hasBOM: hasBOM).encoded() }
+        try MainActor.assumeIsolated {
+            do {
+                return try MarkdownFile(text: text, lineEnding: format.lineEnding, encoding: format.encoding, hasBOM: format.hasBOM).encoded()
+            } catch let MarkdownFile.EncodeError.unrepresentable(encoding, characters) {
+                throw SaveEncodingError.make(document: self, encoding: encoding, characters: characters)
+            }
+        }
+    }
+
+    // MARK: Encoding
+
+    /// Read the file from disk again as `encoding` (the status bar's "reopen with encoding"). Refuses with unsaved edits, which a
+    /// re-read would discard.
+    func reopen(as encoding: TextEncoding) throws {
+        guard let url = fileURL else { return }
+        guard !isDocumentEdited else { throw SaveEncodingError.reopenNeedsSave }
+        encodingOverride = encoding
+        defer { encodingOverride = nil }
+        do {
+            try revert(toContentsOf: url, ofType: fileType ?? Self.markdownType)
+        } catch let error as NSError where error.domain == NSCocoaErrorDomain && error.code == CocoaError.fileReadInapplicableStringEncoding.rawValue {
+            throw SaveEncodingError.cannotDecode(encoding)
+        }
+    }
+
+    /// Save as UTF-8 from now on (the file on disk is only rewritten by the next save). The BOM of a UTF-16 file does not carry over.
+    func convertToUTF8() {
+        guard format.encoding != .utf8 else { return }
+        format.encoding = .utf8
+        format.hasBOM = false
+        updateChangeCount(.changeDone)  // the encoding is part of the document: there is something to save now
     }
 
     // MARK: Change tracking
@@ -140,6 +176,66 @@ final class MarkdownDocument: NSDocument, ObservableObject {
     /// Save prompts, conflict sheets and Rename… attach to the workspace window showing this document.
     override var windowForSheet: NSWindow? {
         WorkspaceRegistry.shared.sheetWindow(for: self) ?? super.windowForSheet
+    }
+}
+
+/// The file format a document is saved in, observable so the status bar follows it without observing the text.
+@MainActor @Observable
+final class DocumentFormat {
+    var encoding: TextEncoding = .utf8
+    var lineEnding: LineEnding = .lf
+    var hasBOM = false
+
+    var label: String { MarkdownFile(lineEnding: lineEnding, encoding: encoding, hasBOM: hasBOM).formatLabel }
+
+    func set(_ file: MarkdownFile) {
+        encoding = file.encoding
+        lineEnding = file.lineEnding
+        hasBOM = file.hasBOM
+    }
+}
+
+/// Errors of the encoding features, as AppKit presents them (sheet on the document's window).
+enum SaveEncodingError {
+    static let domain = "io.github.xuanji86.MacDown2.encoding"
+
+    static func make(document: MarkdownDocument, encoding: TextEncoding, characters: [Character]) -> NSError {
+        let shown = characters.map { "“\($0)”" }.joined(separator: " ")
+        return NSError(domain: domain, code: 1, userInfo: [
+            NSLocalizedDescriptionKey: "无法以 \(encoding.displayName) 保存:文档里有这种编码表示不了的字符 \(shown)。",
+            NSLocalizedRecoverySuggestionErrorKey: "文件没有被改动,也不会丢字。可以改用 UTF-8 保存(它能表示所有字符)。",
+            NSLocalizedRecoveryOptionsErrorKey: ["改用 UTF-8 保存", "取消"],
+            NSRecoveryAttempterErrorKey: UTF8Recovery(document: document),
+        ])
+    }
+
+    static let reopenNeedsSave = NSError(domain: domain, code: 2, userInfo: [
+        NSLocalizedDescriptionKey: "有未保存的修改,不能重新打开。",
+        NSLocalizedRecoverySuggestionErrorKey: "先保存或还原修改,再选择编码。",
+    ])
+
+    static func cannotDecode(_ encoding: TextEncoding) -> NSError {
+        NSError(domain: domain, code: 3, userInfo: [
+            NSLocalizedDescriptionKey: "无法以 \(encoding.displayName) 打开这个文件。",
+            NSLocalizedRecoverySuggestionErrorKey: "文件内容在该编码下无效,或读出的文字无法原样写回。文档保持原样。",
+        ])
+    }
+
+    /// NSError's recovery attempter: "改用 UTF-8 保存" switches the document and saves it again.
+    private final class UTF8Recovery: NSObject {
+        weak var document: MarkdownDocument?
+        init(document: MarkdownDocument) { self.document = document }
+
+        override func attemptRecovery(fromError error: Error, optionIndex: Int) -> Bool {
+            guard optionIndex == 0 else { return false }
+            DispatchQueue.main.async { [document] in
+                MainActor.assumeIsolated {
+                    document?.convertToUTF8()
+                    document?.save(nil)
+                }
+            }
+            return true
+        }
     }
 }
 

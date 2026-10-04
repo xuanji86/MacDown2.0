@@ -65,7 +65,7 @@ struct DocumentView: View {
             }
             .coordinateSpace(.named("split"))
         }
-        .safeAreaInset(edge: .bottom, spacing: 0) { StatusBar(preview: preview, status: status, renderMode: flavor?.badge?.title ?? "Markdown", renderModeHelp: flavor?.badge?.help) }
+        .safeAreaInset(edge: .bottom, spacing: 0) { StatusBar(document: document, preview: preview, status: status, renderMode: flavor?.badge?.title ?? "Markdown", renderModeHelp: flavor?.badge?.help) }
         .frame(minWidth: 640, minHeight: 360)
         .toolbar { DocumentToolbar(actions: actions) }
         .focusedSceneValue(\.windowActions, actions)

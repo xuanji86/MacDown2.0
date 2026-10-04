@@ -37,6 +37,11 @@ struct EditorSettings: DynamicProperty {
     @AppStorage(EditorViewSettings.Key.maxWidth) var maxWidth = Double(EditorViewSettings().maxWidth)
     @AppStorage(EditorViewSettings.Key.showInvisibles) var showInvisibles = EditorViewSettings().showsInvisibles
     @AppStorage(EditorViewSettings.Key.smartHome) var smartHome = EditorViewSettings().smartHome
+    @AppStorage(EditorViewSettings.Key.smartQuotes) var smartQuotes = EditorViewSettings().smartQuotes
+    @AppStorage(EditorViewSettings.Key.smartDashes) var smartDashes = EditorViewSettings().smartDashes
+    @AppStorage(EditorViewSettings.Key.textReplacement) var textReplacement = EditorViewSettings().textReplacement
+    @AppStorage(EditorViewSettings.Key.spellingCorrection) var spellingCorrection = EditorViewSettings().spellingCorrection
+    @AppStorage(EditorViewSettings.Key.smartInsertDelete) var smartInsertDelete = EditorViewSettings().smartInsertDelete
     @AppStorage(EditorSettingKey.editorOnRight) var editorOnRight = false
 
     var behavior: EditorBehavior {
@@ -58,6 +63,11 @@ struct EditorSettings: DynamicProperty {
         v.maxWidth = CGFloat(maxWidth)
         v.showsInvisibles = showInvisibles
         v.smartHome = smartHome
+        v.smartQuotes = smartQuotes
+        v.smartDashes = smartDashes
+        v.textReplacement = textReplacement
+        v.spellingCorrection = spellingCorrection
+        v.smartInsertDelete = smartInsertDelete
         return v
     }
 

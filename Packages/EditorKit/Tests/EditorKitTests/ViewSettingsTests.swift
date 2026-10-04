@@ -229,3 +229,52 @@ struct InvisiblesTests {
         #expect(view.textLayoutManager != nil)
     }
 }
+
+@MainActor
+struct SubstitutionTests {
+    private func state(_ view: MarkdownTextView) -> [Bool] {
+        [view.isAutomaticQuoteSubstitutionEnabled, view.isAutomaticDashSubstitutionEnabled, view.isAutomaticTextReplacementEnabled,
+         view.isAutomaticSpellingCorrectionEnabled, view.smartInsertDeleteEnabled, view.isAutomaticLinkDetectionEnabled,
+         view.isAutomaticDataDetectionEnabled]
+    }
+
+    @Test func everySystemSubstitutionIsOffByDefault() {
+        let settings = EditorViewSettings()
+        #expect([settings.smartQuotes, settings.smartDashes, settings.textReplacement, settings.spellingCorrection, settings.smartInsertDelete] == Array(repeating: false, count: 5))
+        #expect(state(ViewTests.makeSizedView("")) == Array(repeating: false, count: 7))
+    }
+
+    @Test func eachSwitchTurnsOnOnlyItsOwnSubstitution() {
+        let view = ViewTests.makeSizedView("")
+        let writes: [(WritableKeyPath<EditorViewSettings, Bool>, Int)] = [
+            (\.smartQuotes, 0), (\.smartDashes, 1), (\.textReplacement, 2), (\.spellingCorrection, 3), (\.smartInsertDelete, 4),
+        ]
+        for (key, index) in writes {
+            var settings = EditorViewSettings()
+            settings[keyPath: key] = true
+            view.apply(settings: settings)
+            var expected = Array(repeating: false, count: 7)
+            expected[index] = true
+            #expect(state(view) == expected, "\(key)")
+        }
+        view.apply(settings: EditorViewSettings())
+        #expect(state(view) == Array(repeating: false, count: 7))
+    }
+
+    @Test func anUnrelatedSettingDoesNotTouchTheSubstitutions() {
+        let view = ViewTests.makeSizedView("")
+        view.isAutomaticQuoteSubstitutionEnabled = true  // e.g. toggled in Edit > Substitutions
+        var settings = EditorViewSettings()
+        settings.showsLineNumbers = true
+        view.apply(settings: settings)
+        #expect(view.isAutomaticQuoteSubstitutionEnabled)
+    }
+
+    @Test func theViewTypesStraightQuotesAndDashesAsIs() {
+        // With everything off the text view's own insertion keeps `"` and `--` as typed.
+        let view = ViewTests.makeSizedView("")
+        view.behavior.autoPair = false
+        view.insertText("\"a\" -- b", replacementRange: NSRange(location: NSNotFound, length: 0))
+        #expect(view.string == "\"a\" -- b")
+    }
+}

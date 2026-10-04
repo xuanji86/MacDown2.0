@@ -1,0 +1,6 @@
+"NSDesktopFolderUsageDescription" = "MacDown2 shows the Markdown files in your Desktop folder in its file tree.";
+"NSDocumentsFolderUsageDescription" = "MacDown2 shows the Markdown files in your Documents folder in its file tree.";
+"NSDownloadsFolderUsageDescription" = "MacDown2 shows the Markdown files in your Downloads folder in its file tree.";
+"NSFileProviderDomainUsageDescription" = "MacDown2 shows the Markdown files in your iCloud Drive and other cloud folders in its file tree.";
+"NSRemovableVolumesUsageDescription" = "MacDown2 shows the Markdown files on removable drives in its file tree.";
+"NSNetworkVolumesUsageDescription" = "MacDown2 shows the Markdown files on network volumes in its file tree.";

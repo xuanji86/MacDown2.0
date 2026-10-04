@@ -1,0 +1,6 @@
+"NSDesktopFolderUsageDescription" = "MacDown2 要在文件树里列出「桌面」文件夹中的 Markdown 文件。";
+"NSDocumentsFolderUsageDescription" = "MacDown2 要在文件树里列出「文稿」文件夹中的 Markdown 文件。";
+"NSDownloadsFolderUsageDescription" = "MacDown2 要在文件树里列出「下载」文件夹中的 Markdown 文件。";
+"NSFileProviderDomainUsageDescription" = "MacDown2 要在文件树里列出 iCloud 云盘和其他云端文件夹中的 Markdown 文件。";
+"NSRemovableVolumesUsageDescription" = "MacDown2 要在文件树里列出可移除磁盘中的 Markdown 文件。";
+"NSNetworkVolumesUsageDescription" = "MacDown2 要在文件树里列出网络卷中的 Markdown 文件。";
