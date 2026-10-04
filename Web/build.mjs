@@ -1,6 +1,6 @@
 // Builds the vendored web assets: render.bundle.js, preview.bundle.js (+ preview.html, preview-styles/*.css + styles.json),
 // katex/ (CSS + woff2 fonts), hljs-themes/, flavors.json, quarto.chunk.js + quarto-approx.css, mermaid.chunk.js,
-// print.css, THIRD_PARTY_LICENSES.txt.
+// sanitize.chunk.js, print.css, THIRD_PARTY_LICENSES.txt.
 // Usage: node build.mjs [outDir]   (default: the WebAssets package resources; drift check passes a temp dir)
 import { build } from 'esbuild';
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
@@ -92,6 +92,21 @@ const mermaid = await build({
   logLevel: 'warning',
 });
 
+// Sanitizer chunk: parse5 + the allowlist, for output that leaves the app (Copy HTML, export, PDF, CLI). JSCRenderer loads it for
+// a render with `sanitize: true`; the preview page never does, and the main bundle must not contain parse5 (drift check).
+const sanitize = await build({
+  entryPoints: [join(here, 'src/sanitize/index.ts')],
+  outfile: join(outDir, 'sanitize.chunk.js'),
+  bundle: true,
+  format: 'iife',
+  target: 'es2022',
+  minify: true,
+  legalComments: 'none',
+  metafile: true,
+  tsconfigRaw: '{}',
+  logLevel: 'warning',
+});
+
 // Preview styles: _base.css is prepended to every <style>.css; styles.json (the registry, also bundled into the page and
 // read by the app) says which hljs theme and light/dark partner each one has.
 const stylesDir = join(here, 'src/preview/preview-styles');
@@ -135,7 +150,7 @@ writeFileSync(join(outDir, 'flavors.json'), `${JSON.stringify(flavors, null, 2)}
 // License texts of every npm package that ended up in a bundle. Mermaid's dependency tree may nest packages
 // (node_modules/a/node_modules/b), so the innermost node_modules segment names the package and gives its directory.
 const packages = new Map();
-for (const input of [...Object.keys(metafile.inputs), ...Object.keys(quarto.metafile.inputs), ...Object.keys(mermaid.metafile.inputs)]) {
+for (const input of [...Object.keys(metafile.inputs), ...Object.keys(quarto.metafile.inputs), ...Object.keys(mermaid.metafile.inputs), ...Object.keys(sanitize.metafile.inputs)]) {
   const m = input.slice(Math.max(input.indexOf('node_modules/'), 0)).match(/^(.*node_modules\/(?:@[^/]+\/)?[^/]+)\//); // input paths are relative to the cwd
   if (m) packages.set(m[1], join(here, m[1]));
 }

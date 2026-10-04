@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import WebAssets
 @testable import MarkdownCore
 
 // Fixtures/own/hostile.md: script, event handlers, javascript:/data:/file: links, frames, SVG, meta refresh, forms, traversal
@@ -92,4 +93,26 @@ private func liveMarkup(in html: String) -> [String] {
     options.allowRawHTML = false
     let escaped = try await JSCRenderer().render(hostile(), options: options.forExport).html
     #expect(liveMarkup(in: escaped) == [])
+}
+
+@Test func sanitizedRenderFailsClosedWhenTheSanitizerChunkIsMissing() async throws {
+    let bare = try JSCRenderer(resolveChunk: { _ in nil })
+    let hostileText = "<img src=x onerror=alert(1)>\n"
+    await #expect(throws: RenderError.missingAsset("sanitize.chunk.js")) {
+        _ = try await bare.render(hostileText, options: RenderOptions().forExport)
+    }
+    // The preview's options never need the chunk, and the same renderer still serves them.
+    let preview = try await bare.render(hostileText, options: RenderOptions())
+    #expect(preview.html.contains("onerror"))
+
+    // A chunk that loads but never registers a sanitizer: the bundle itself refuses.
+    let empty = FileManager.default.temporaryDirectory.appending(path: "empty-sanitizer-\(UUID().uuidString).js")
+    try Data("/* registers nothing */".utf8).write(to: empty)
+    defer { try? FileManager.default.removeItem(at: empty) }
+    let silent = try JSCRenderer(resolveChunk: { $0 == "sanitize.chunk.js" ? empty : WebAssets.url($0) })
+    await #expect(throws: RenderError.self) { _ = try await silent.render(hostileText, options: RenderOptions().forExport) }
+
+    // The real chunk, found the usual way: sanitized.
+    let real = try await JSCRenderer().render(hostileText, options: RenderOptions().forExport)
+    #expect(!real.html.contains("onerror"))
 }

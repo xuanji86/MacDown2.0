@@ -15,7 +15,6 @@ import { frontMatter, type FrontMatterDisplay } from './plugins/front-matter.ts'
 import { pageBreak } from './plugins/page-break.ts';
 import { toc } from './plugins/toc.ts';
 import { underline } from './plugins/underline.ts';
-import { sanitizeHtml } from './sanitize.ts';
 import { hash53, slugify, textStats, type TextStats } from './text.ts';
 
 export interface RenderOptions {
@@ -34,7 +33,8 @@ export interface RenderOptions {
   // Text of files a flavor may read while rendering, by path relative to the document folder (the app reads them
   // beforehand; a flavor chunk finds them in `env.files`). Not part of the instance cache key.
   files?: Record<string, string>;
-  // Output that leaves the app (Copy HTML, export, PDF, CLI): active content removed from `html` (sanitize.ts). The preview does not set it.
+  // Output that leaves the app (Copy HTML, export, PDF, CLI): active content removed from `html` by sanitize.chunk.js, which must be
+  // loaded (JSCRenderer does it); without it the render throws rather than return the document's raw HTML. The preview does not set it.
   sanitize?: boolean;
 }
 
@@ -60,6 +60,14 @@ const registry = new Map<string, FlavorSetup>([['markdown', () => {}]]);
 const instances = new Map<string, MarkdownIt>();
 
 // Flavor chunks (e.g. quarto.chunk.js) are loaded after this bundle and register themselves here.
+// sanitize.chunk.js registers the HTML sanitizer here (parse5 is too big for this bundle, and the preview never needs it).
+let sanitizeFn: ((html: string) => string) | undefined;
+export const sanitizer = {
+  register(fn: (html: string) => string): void {
+    sanitizeFn = fn;
+  },
+};
+
 export const flavors = {
   register(id: string, setup: FlavorSetup): void {
     registry.set(id, setup);
@@ -202,7 +210,8 @@ export function renderResult(source: string, options: RenderOptions): RenderResu
     if (owner.map) tasks.push({ line: owner.map[0], mark: t.map[0] });
   }
   const fm = tokens.find((t) => t.type === 'front_matter');
-  const result: RenderResult = { html: options.sanitize ? sanitizeHtml(html) : html, blocks, tasks, outline: env.outline, stats: textStats(collectText(tokens)) };
+  if (options.sanitize && !sanitizeFn) throw new Error('sanitize was requested but sanitize.chunk.js is not loaded; refusing to return unsanitized HTML');
+  const result: RenderResult = { html: options.sanitize ? sanitizeFn!(html) : html, blocks, tasks, outline: env.outline, stats: textStats(collectText(tokens)) };
   if (fm) result.frontMatter = fm.meta as unknown as string;
   return result;
 }

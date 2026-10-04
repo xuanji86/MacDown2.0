@@ -1,4 +1,4 @@
-// Output that leaves the app (Copy HTML, export, PDF, CLI) goes through sanitizeHtml (an allowlist over a parse5 tree, sanitize.ts):
+// Output that leaves the app (Copy HTML, export, PDF, CLI) goes through sanitizeHtml (an allowlist over a parse5 tree, src/sanitize):
 // hostile.md in, no live markup out. The preview does not use it (CSP + stripActiveContent there), so the same document is also
 // rendered without it as a control. The corpus at the bottom is also run in real Chrome: every payload calls __p('name'), and after
 // sanitizing none of them may.
@@ -6,8 +6,8 @@ import { after, before, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { defaultTreeAdapter, html as ns, parseFragment, serialize } from 'parse5';
-import { renderResult } from '../src/render/index.ts';
-import { cleanCss, safeUrl, sanitizeHtml } from '../src/render/sanitize.ts';
+import { renderResult, sanitizer } from '../src/render/index.ts';
+import { cleanCss, safeUrl, sanitizeHtml } from '../src/sanitize/sanitize.ts';
 import { chromeAvailable, launch } from './helpers/chrome.mjs';
 
 const hostile = readFileSync(new URL('../../Packages/MarkdownCore/Tests/MarkdownCoreTests/Fixtures/own/hostile.md', import.meta.url), 'utf8');
@@ -22,6 +22,7 @@ const OPTIONS = {
   inlineDollarMath: false,
   frontMatterDisplay: 'hidden',
 };
+sanitizer.register(sanitizeHtml); // in the app sanitize.chunk.js does this; the chunk itself is tested in sanitize-chunk.test.mjs
 const clean = renderResult(hostile, { ...OPTIONS, sanitize: true }).html;
 const raw = renderResult(hostile, OPTIONS).html;
 
