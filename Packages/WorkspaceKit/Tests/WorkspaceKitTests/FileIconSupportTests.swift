@@ -18,6 +18,18 @@ struct FileIconSupportTests {
         #expect(stamps.stamp(of: "/w/other/b.md") != child && stamps.stamp(of: "/w/docs/a.md") != a)
     }
 
+    @Test func aFetchFromBeforeInvalidateAllMayNotStore() {
+        var stamps = FileIconStamps()
+        let before = stamps.stamp(of: "/w/a.md")
+        #expect(stamps.isCurrent(before))
+        stamps.invalidate(directories: ["/w"])
+        #expect(stamps.isCurrent(before))  // a folder change only makes the path stale; its result is still stored, then asked again
+        stamps.invalidateAll()
+        #expect(!stamps.isCurrent(before))  // the default app may have changed: this result must not repopulate the cache
+        #expect(before.generation != stamps.stamp(of: "/w/a.md").generation && stamps.stamp(of: "/w/a.md").generation == stamps.generation)
+        #expect(stamps.isCurrent(stamps.stamp(of: "/w/a.md")))
+    }
+
     @Test func theParentOfARootChildIsTheRoot() {
         #expect(FileIconStamps.parent(of: "/a.md") == "/")
         #expect(FileIconStamps.parent(of: "/w/a.md") == "/w")

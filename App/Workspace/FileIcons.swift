@@ -36,7 +36,9 @@ final class FileIcons: @unchecked Sendable {
 
     private let lock = NSLock()
     private var stamps = FileIconStamps()
-    private var byExtension: [String: NSImage] = [:]  // "<ext>|<d or l>"; "#folder" and "#file" are the placeholders
+    /// "<ext>|<d or l>"; "#folder" and "#file" are the placeholders. An icon is reused for lookups only in the generation it was
+    /// made in (`invalidateAll`: the default app for a type may have changed); older ones still serve as placeholders.
+    private var byExtension: [String: (image: NSImage, generation: Int)] = [:]
     private let byPath = NSCache<NSString, Entry>()
     private var inFlight = Set<String>()
     private var warmed = Set<Bool>()  // the appearances whose placeholders were asked for
@@ -57,9 +59,9 @@ final class FileIcons: @unchecked Sendable {
         if let entry {
             image = entry.image
         } else if isDirectory {
-            image = byExtension[Self.typeKey("#folder", dark)]
+            image = byExtension[Self.typeKey("#folder", dark)]?.image
         } else {
-            image = byExtension[Self.typeKey(url.pathExtension.lowercased(), dark)] ?? byExtension[Self.typeKey("#file", dark)]
+            image = (byExtension[Self.typeKey(url.pathExtension.lowercased(), dark)] ?? byExtension[Self.typeKey("#file", dark)])?.image
         }
         let needsFetch = entry?.stamp != stamp && inFlight.insert(key).inserted
         let needsWarm = warmed.insert(dark).inserted
@@ -93,8 +95,9 @@ final class FileIcons: @unchecked Sendable {
             Self.draw(dark: dark) {
                 let folder = Self.bitmap(NSWorkspace.shared.icon(for: .folder)), file = Self.bitmap(NSWorkspace.shared.icon(for: .data))
                 lock.lock()
-                byExtension[Self.typeKey("#folder", dark)] = folder
-                byExtension[Self.typeKey("#file", dark)] = file
+                let generation = stamps.generation
+                if let folder { byExtension[Self.typeKey("#folder", dark)] = (folder, generation) }
+                if let file { byExtension[Self.typeKey("#file", dark)] = (file, generation) }
                 lock.unlock()
             }
             DispatchQueue.main.async { NotificationCenter.default.post(name: Self.didChange, object: nil) }
@@ -112,12 +115,12 @@ final class FileIcons: @unchecked Sendable {
                 } else {
                     let typeKey = Self.typeKey(ext, dark)
                     lock.lock()
-                    image = byExtension[typeKey]
+                    if let cached = byExtension[typeKey], cached.generation == stamp.generation { image = cached.image }
                     lock.unlock()
                     if image == nil {
                         image = Self.bitmap(NSWorkspace.shared.icon(for: UTType(filenameExtension: ext) ?? .data))
                         lock.lock()
-                        byExtension[typeKey] = image
+                        if let image, stamps.isCurrent(stamp) { byExtension[typeKey] = (image, stamp.generation) }
                         lock.unlock()
                     }
                 }
@@ -125,7 +128,7 @@ final class FileIcons: @unchecked Sendable {
             let result = Entry(image: image, stamp: stamp)
             DispatchQueue.main.async { [self] in
                 lock.lock()
-                byPath.setObject(result, forKey: key as NSString)
+                if stamps.isCurrent(stamp) { byPath.setObject(result, forKey: key as NSString) }  // else: asked before an invalidateAll, ask again
                 inFlight.remove(key)
                 lock.unlock()
                 NotificationCenter.default.post(name: Self.didChange, object: nil, userInfo: ["path": path])

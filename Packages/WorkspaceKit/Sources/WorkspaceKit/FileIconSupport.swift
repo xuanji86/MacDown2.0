@@ -14,6 +14,8 @@ public struct FileIconStamps: Sendable {
         let epoch: Int
         let item: Int
         let parent: Int
+        /// The `invalidateAll` generation it was made in.
+        public var generation: Int { epoch }
     }
 
     private var epoch = 0
@@ -26,6 +28,13 @@ public struct FileIconStamps: Sendable {
     public func stamp(of path: String) -> Stamp {
         Stamp(epoch: epoch, item: counters[path] ?? 0, parent: counters[Self.parent(of: path)] ?? 0)
     }
+
+    /// A fetch started under `stamp` may still store its result: no `invalidateAll` has happened since (a result from before it
+    /// could carry the old default app's icon back into the cache).
+    public func isCurrent(_ stamp: Stamp) -> Bool { stamp.epoch == epoch }
+
+    /// Generation of the whole-cache invalidations; cached per-type icons are good only for the generation they were made in.
+    public var generation: Int { epoch }
 
     /// Directories whose listing changed (a `FolderWatcher` batch).
     public mutating func invalidate(directories: [String]) {
