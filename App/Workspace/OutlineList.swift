@@ -18,7 +18,8 @@ struct OutlineList: View {
         } else {
             ScrollViewReader { proxy in
                 List {
-                    ForEach(Array(outline.enumerated()), id: \.element.line) { index, item in
+                    // Identity is the position, not the line: headings pulled in by a Quarto include all share the include's line.
+                    ForEach(Array(outline.enumerated()), id: \.offset) { index, item in
                         Button { jump(item.line) } label: {
                             Text(item.text.isEmpty ? "—" : item.text)
                                 .fontWeight(item.level == base ? .semibold : .regular)
@@ -28,14 +29,14 @@ struct OutlineList: View {
                                 .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
-                        .id(item.line)
+                        .id(index)
                         .listRowBackground(index == current ? Color.accentColor.opacity(0.22) : nil)
                     }
                 }
                 .listStyle(.sidebar)
                 .scrollContentBackground(.hidden)
                 .onChange(of: current) { _, new in
-                    if let new { proxy.scrollTo(outline[new].line) }
+                    if let new { proxy.scrollTo(new) }
                 }
             }
         }

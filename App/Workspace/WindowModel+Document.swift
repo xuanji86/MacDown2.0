@@ -1,4 +1,5 @@
 import AppKit
+import MarkdownCore
 import OSLog
 import UniformTypeIdentifiers
 import WorkspaceKit
@@ -35,12 +36,33 @@ extension WindowModel {
         panel.nameFieldStringValue = String(localized: "\(base) copy") + "." + url.pathExtension
         panel.beginSheetModal(for: window) { response in
             guard response == .OK, let target = panel.url else { return }
-            do {
-                try document.data(ofType: document.fileType ?? MarkdownDocument.markdownType).write(to: target)
-                WorkspaceRegistry.shared.open([target])
-            } catch {
-                NSAlert(error: error).beginSheetModal(for: window)
+            Self.writeDuplicate(of: document, to: target, in: window)
+        }
+    }
+
+    /// Writes the copy in the original's encoding, built from the document's text without going through `data(ofType:)` (that is
+    /// the save path: its error is bound to the original). When the encoding cannot hold the text, the alert's first button
+    /// writes the copy as UTF-8; the original document is never touched.
+    private static func writeDuplicate(of document: MarkdownDocument, to target: URL, in window: NSWindow) {
+        var file = MarkdownFile(text: document.text, lineEnding: document.format.lineEnding, encoding: document.format.encoding, hasBOM: document.format.hasBOM)
+        do {
+            try file.encoded().write(to: target)
+            WorkspaceRegistry.shared.open([target])
+        } catch let MarkdownFile.EncodeError.unrepresentable(encoding, characters) {
+            let alert = NSAlert(error: SaveEncodingError.make(document: document, encoding: encoding, characters: characters))  // buttons: Save as UTF-8 Instead, Cancel
+            alert.beginSheetModal(for: window) { response in
+                guard response == .alertFirstButtonReturn else { return }
+                file.encoding = .utf8
+                file.hasBOM = false
+                do {
+                    try file.encoded().write(to: target)
+                    WorkspaceRegistry.shared.open([target])
+                } catch {
+                    NSAlert(error: error).beginSheetModal(for: window)
+                }
             }
+        } catch {
+            NSAlert(error: error).beginSheetModal(for: window)
         }
     }
 }
