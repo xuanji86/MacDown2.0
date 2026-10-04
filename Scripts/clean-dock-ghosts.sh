@@ -1,6 +1,7 @@
 #!/bin/sh
 # Swift test runners started from a terminal leave dead Dock tiles named after the terminal app (seen on macOS 27).
 # Restart the Dock only when an app shows more tiles than its running instances / pinned tile. Never fails the build.
+[ -n "${CI:-}" ] && exit 0  # no Dock / Automation permission on CI runners; osascript could hang
 dock=$(osascript -e 'tell application "System Events" to tell process "Dock" to get name of every UI element of list 1' 2>/dev/null) || exit 0
 running=$(lsappinfo list 2>/dev/null | awk -F'"' '/^ *[0-9]+\) "/{print $2}')
 pinned=$(defaults read com.apple.dock persistent-apps 2>/dev/null | awk -F' = ' '/"file-label"/{gsub(/[";]/,"",$2); print $2}')

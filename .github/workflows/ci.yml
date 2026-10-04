@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    # Xcode 27 preview image (macOS 27, arm64); free for public repos.
+    runs-on: xcode-27
+    timeout-minutes: 45
+    env:
+      # Pin Xcode 27.0 (Swift 6.4), same as local development. The Makefile's
+      # `xcode-select -p` honours DEVELOPER_DIR, and Xcode (not CLT) means no
+      # swift-testing plugin-path flag is added.
+      DEVELOPER_DIR: /Applications/Xcode_27.0.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24 # Web/ needs >=23.6 (native type stripping + tsc)
+          cache: npm
+          cache-dependency-path: Web/package-lock.json
+
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            build/DerivedData
+            Packages/*/.build
+          key: spm-${{ runner.os }}-${{ hashFiles('**/Package.resolved') }}
+          restore-keys: spm-${{ runner.os }}-
+
+      - name: Toolchain versions
+        run: |
+          xcodebuild -version
+          swift --version
+          node --version
+          xcode-select -p
+      - run: cd Web && npm ci
+      - run: make test
+      - run: make app
