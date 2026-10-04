@@ -20,6 +20,13 @@ public enum RenameName {
         return hasExtension(name) || ext.isEmpty ? name : "\(name).\(ext)"
     }
 
+    /// What the popover's Name field means: the field as it was shown means the file's exact current name (a name like `v1.2` or
+    /// one with a leading space must not be "tidied" by merely opening the popover); an edited field is normalized.
+    /// - Parameters: `shown` is the text the field started with; `current` the file's name, extension included.
+    public static func resolved(typed: String, shown: String, current: String) -> String {
+        typed == shown ? current : normalized(typed: typed, current: current)
+    }
+
     /// Where the selection of the inline editor ends: the stem of the name is selected, not its extension.
     public static func stemEnd(in name: String) -> String.Index {
         guard hasExtension(name), let dot = name.lastIndex(of: ".") else { return name.endIndex }

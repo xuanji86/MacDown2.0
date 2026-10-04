@@ -45,4 +45,12 @@ struct RenameNameTests {
         let numeric = "v1.2"
         #expect(RenameName.stemEnd(in: numeric) == numeric.endIndex)
     }
+
+    @Test func anUntouchedFieldKeepsTheExactFileName() {
+        // opening the popover and clicking away must not rename "v1.2" to "v1.2.2" or " notes.md" to "notes.md"
+        #expect(RenameName.resolved(typed: "v1.2", shown: "v1.2", current: "v1.2") == "v1.2")
+        #expect(RenameName.resolved(typed: " notes.md", shown: " notes.md", current: " notes.md") == " notes.md")
+        #expect(RenameName.resolved(typed: "Untitled", shown: "Untitled", current: "Untitled.md") == "Untitled.md")
+        #expect(RenameName.resolved(typed: "plan", shown: "notes.md", current: "notes.md") == "plan.md")
+    }
 }

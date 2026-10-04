@@ -17,6 +17,14 @@ struct MoveDestinationTests {
         #expect(throws: FileOperations.Failure.invalidName) { try FileOperations.destination(moving: notes, as: "a/b.md", into: other) }
     }
 
+    @Test func aFilesOwnNameIsNeverTidied() throws {
+        let t = try TempDir(); defer { t.cleanUp() }
+        let odd = try t.file("a/ notes.md"); let other = try t.dir("b")
+        #expect(try FileOperations.destination(moving: odd, as: " notes.md", into: odd.deletingLastPathComponent()).path == odd.path)
+        #expect(try FileOperations.destination(moving: odd, as: " notes.md", into: other).lastPathComponent == " notes.md")
+        #expect(try FileOperations.destination(moving: odd, as: " other.md ", into: other).lastPathComponent == "other.md")
+    }
+
     @Test func aFirstSaveNeedsAFreeValidName() throws {
         let t = try TempDir(); defer { t.cleanUp() }
         try t.file("taken.md")

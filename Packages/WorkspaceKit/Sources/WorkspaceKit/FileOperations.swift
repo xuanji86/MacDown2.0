@@ -91,7 +91,7 @@ public enum FileOperations {
         fileManager: FileManager = .default, isSameEntry: (URL, URL) -> Bool = FileOperations.isSameEntry
     ) throws -> URL {
         try requireUnprotected(url, home: home)
-        let name = try validName(newName)
+        let name = newName == url.lastPathComponent ? newName : try validName(newName)  // its own name is never "tidied"
         let target = directory.appending(path: name, directoryHint: url.hasDirectoryPath ? .isDirectory : .notDirectory)
         if target.path != url.path, fileManager.fileExists(atPath: target.path) {
             let isCaseOnly = target.path.lowercased() == url.path.lowercased()

@@ -16,6 +16,8 @@ final class RenameDraft {
     let startFolder: URL
     let startTags: [String]
     let workspace: [URL]
+    /// The Name field as it was first shown (what "untouched" means).
+    let shownName: String
     var name: String
     var folder: URL
     var tags: [String]
@@ -26,7 +28,8 @@ final class RenameDraft {
         self.url = url
         isUntitled = url.isUntitled
         currentFileName = isUntitled ? (document.displayName ?? "Untitled") + ".md" : url.lastPathComponent
-        name = isUntitled ? (document.displayName ?? "Untitled") : url.lastPathComponent
+        shownName = isUntitled ? (document.displayName ?? "Untitled") : url.lastPathComponent
+        name = shownName
         let folder = isUntitled ? (fallback ?? FileManager.default.homeDirectoryForCurrentUser) : url.deletingLastPathComponent()
         startFolder = folder
         self.folder = folder
@@ -97,7 +100,7 @@ extension WindowModel {
     /// for an untitled document, then the Finder tags. A failure shows the usual alert; nothing is half-applied but the tags.
     private func apply(_ draft: RenameDraft) {
         let url = draft.url
-        let name = RenameName.normalized(typed: draft.name, current: draft.currentFileName)
+        let name = RenameName.resolved(typed: draft.name, shown: draft.shownName, current: draft.currentFileName)
         guard !name.isEmpty else { return }
         let changed = name != draft.currentFileName || draft.folder.fileKey != draft.startFolder.fileKey || draft.tags != draft.startTags
         guard draft.isUntitled || changed else { return }
