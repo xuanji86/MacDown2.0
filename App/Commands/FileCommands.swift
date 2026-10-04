@@ -7,14 +7,19 @@ import SwiftUI
 /// stay the heading shortcuts (a menu cannot bind one key to two commands depending on focus), so a tab number needs Control.
 struct FileCommands: Commands {
     @FocusedValue(\.workspace) private var workspace
+    @Environment(\.openWindow) private var openWindow
     private let recents = WorkspaceRegistry.shared.recents
 
     var body: some Commands {
-        CommandGroup(after: .newItem) {
-            Button("New Document…") { WorkspaceRegistry.shared.showNewDocumentPanel() }
-                .keyboardShortcut("n", modifiers: [.command, .shift])
+        CommandGroup(replacing: .newItem) {
+            Button("New") { WorkspaceRegistry.shared.newUntitled() }
+                .keyboardShortcut("n")
+            Button("New Window") { openWindow(id: WorkspaceScene.id) }  // a new window comes with an untitled tab
+                .keyboardShortcut("n", modifiers: [.command, .option])
             Button("Open…") { WorkspaceRegistry.shared.showOpenPanel() }
                 .keyboardShortcut("o")
+            Button("Open Folder…") { WorkspaceRegistry.shared.showOpenFolderPanel() }
+                .keyboardShortcut("o", modifiers: [.command, .shift])
             Menu("Open Recent") {
                 ForEach(recents.urls, id: \.self) { url in
                     Button(url.lastPathComponent) { WorkspaceRegistry.shared.open([url]) }
@@ -27,9 +32,15 @@ struct FileCommands: Commands {
             Button("Close Tab") { workspace?.closeActiveTab() }
                 .keyboardShortcut("w")
                 .disabled(workspace == nil)
-            Button("Close Window") { workspace?.closeWindow() }
-                .keyboardShortcut("w", modifiers: [.command, .shift])
-                .disabled(workspace == nil)
+            // Cmd-Shift-W leaves workspace mode (back to browsing); outside a workspace it is the usual Close Window.
+            if workspace?.sidebar.isWorkspace == true {
+                Button("Close Workspace") { workspace?.sidebar.closeWorkspace() }
+                    .keyboardShortcut("w", modifiers: [.command, .shift])
+            } else {
+                Button("Close Window") { workspace?.closeWindow() }
+                    .keyboardShortcut("w", modifiers: [.command, .shift])
+                    .disabled(workspace == nil)
+            }
             Divider()
             Button("Save") { workspace?.save() }
                 .keyboardShortcut("s")

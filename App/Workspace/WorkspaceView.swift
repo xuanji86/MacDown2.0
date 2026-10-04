@@ -17,11 +17,11 @@ struct WorkspaceView: View {
         Binding(
             get: { model.sidebarVisible ? .all : .detailOnly },
             // While a saved state is being applied SwiftUI still reports the layout it was first built with (`.all`).
-            set: { if !model.isRestoring { model.sidebarVisible = $0 != .detailOnly } }
+            set: { if !model.isRestoring { model.userSetSidebar(visible: $0 != .detailOnly) } }
         )
     }
 
-    private var title: String { model.controller.activeURL?.lastPathComponent ?? "MacDown2" }
+    private var title: String { model.activeDocument?.displayName ?? "MacDown2" }
 
     var body: some View {
         NavigationSplitView(columnVisibility: visibility) {
@@ -40,6 +40,11 @@ struct WorkspaceView: View {
             }
             .safeAreaBar(edge: .top, spacing: 0) {
                 if !model.controller.session.tabs.isEmpty { TabBar(model: model) }
+            }
+            // Folders dropped on the window enter workspace mode; Markdown files open as tabs.
+            .dropDestination(for: URL.self) { urls, _ in
+                model.sidebar.drop(urls)
+                return !urls.isEmpty
             }
         }
         .navigationTitle(title)
@@ -61,6 +66,7 @@ struct WorkspaceView: View {
             model.isRestoring = false
         }
         .onChange(of: model.state) { WorkspaceRegistry.shared.persist() }
+        .onChange(of: model.controller.activeURL) { _, url in model.sidebar.follow(url) }
     }
 
     /// Outline click: the caret and both panes go to the heading's line, whatever the scroll sync settings.
@@ -117,7 +123,7 @@ private struct EmptyWorkspaceView: View {
             Text("没有打开的文件").font(.title3).foregroundStyle(.secondary)
             HStack {
                 Button("打开…") { WorkspaceRegistry.shared.showOpenPanel() }
-                Button("新建文档…") { WorkspaceRegistry.shared.showNewDocumentPanel() }
+                Button("新建") { WorkspaceRegistry.shared.newUntitled() }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

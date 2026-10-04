@@ -25,13 +25,18 @@ struct TabBar: View {
         Color(nsColor: ThemeLibrary.resolve(name: themeName, followSystem: followsSystem, systemIsDark: colorScheme == .dark).background)
     }
 
+    /// A file's name; an untitled document's "Untitled N".
+    private static func title(of tab: TabSession.Tab) -> String {
+        tab.url.isUntitled ? (WorkspaceRegistry.shared.document(for: tab.url)?.displayName ?? "Untitled") : tab.url.lastPathComponent
+    }
+
     var body: some View {
         let session = model.controller.session
         ScrollView(.horizontal) {
             HStack(spacing: 2) {
                 ForEach(session.tabs) { tab in
                     TabItem(
-                        tab: tab, isActive: tab.id == session.activeID, fill: activeFill,
+                        tab: tab, title: Self.title(of: tab), isActive: tab.id == session.activeID, fill: activeFill,
                         edited: WorkspaceRegistry.shared.document(for: tab.url)?.editedFlag,
                         isDropTarget: dropTarget == tab.id,
                         select: { model.controller.activate(tab.url) },
@@ -60,6 +65,7 @@ struct TabBar: View {
 
 private struct TabItem: View {
     let tab: TabSession.Tab
+    let title: String
     let isActive: Bool
     let fill: Color
     let edited: EditedFlag?
@@ -70,7 +76,6 @@ private struct TabItem: View {
     @State private var hovering = false
 
     private var isEdited: Bool { edited?.value ?? false }
-    private var title: String { tab.url.lastPathComponent }
 
     var body: some View {
         HStack(spacing: 6) {

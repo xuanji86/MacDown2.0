@@ -30,7 +30,8 @@ struct DocumentView: View {
 
     var body: some View {
         let layout = layout
-        let fileURL = fileURL
+        let tabURL = fileURL
+        let fileURL: URL? = tabURL.isUntitled ? nil : tabURL  // an untitled document has no folder to resolve images or includes in
         let flavor = AppExtensions.flavor(for: fileURL)  // observable: re-evaluated when an extension is switched
         let actions = WindowActions(
             editor: editor, layout: layout, setLayout: setLayout,
@@ -49,7 +50,7 @@ struct DocumentView: View {
             ZStack(alignment: .topLeading) {
                 EditorPane(
                     document: document, scrollSync: scrollSync, editor: editor, status: status, flavor: flavor,
-                    onUserEdit: { [model, fileURL] in model.controller.pin(fileURL) }
+                    onUserEdit: { [model, tabURL] in model.controller.pin(tabURL) }
                 )
                     .frame(width: layout.mode == .both ? editorWidth : total, height: height)
                     .offset(x: swapped ? total - editorWidth : 0)

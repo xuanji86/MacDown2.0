@@ -9,8 +9,14 @@ import WorkspaceKit
 @MainActor @Observable
 final class WindowModel {
     let controller: WorkspaceController
+    let sidebar: SidebarModel
     var sidebarSection = SidebarSection.files
-    var sidebarVisible = true
+    /// Hidden in a new window until the user has chosen otherwise (the last choice is kept in `AppDefaults.store`).
+    var visibility = SidebarVisibility.forNewWindow(defaults: AppDefaults.store)
+    var sidebarVisible: Bool {
+        get { visibility.isVisible }
+        set { visibility.isVisible = newValue }
+    }
     var splitMode = SplitLayout.Mode.both.rawValue
     var editorFraction = 0.5
 
@@ -25,7 +31,24 @@ final class WindowModel {
 
     init(registry: WorkspaceRegistry = .shared) {
         // Deliberately free of side effects: SwiftUI may build this more than once before it keeps one (`register` does the rest).
-        controller = WorkspaceController(ledger: registry.ledger, backend: registry)
+        let controller = WorkspaceController(ledger: registry.ledger, backend: registry)
+        self.controller = controller
+        sidebar = SidebarModel(controller: controller)
+        sidebar.window = { [weak self] in self?.window }
+        // A workspace is something the user asked to see: the Files page opens; closing it puts the sidebar back as it was.
+        sidebar.onWorkspaceEntered = { [weak self] in
+            self?.visibility.workspaceEntered()
+            self?.sidebarSection = .files
+        }
+        sidebar.onWorkspaceLeft = { [weak self] in self?.visibility.workspaceLeft() }
+    }
+
+    /// Cmd-\ or the toolbar button: this window keeps the choice and so do windows opened from now on.
+    func userSetSidebar(visible: Bool) { visibility.userSet(visible, defaults: AppDefaults.store) }
+
+    /// What `OpenRouter` needs to route an open request.
+    var snapshot: WindowSnapshot {
+        WindowSnapshot(id: controller.id, openKeys: controller.openKeys, rootKeys: sidebar.folders.rootKeys)
     }
 
     var layout: SplitLayout {
@@ -38,17 +61,38 @@ final class WindowModel {
 
     var state: WorkspaceWindowState {
         WorkspaceWindowState(
-            id: controller.id, session: controller.session, sidebarSection: sidebarSection,
-            sidebarVisible: sidebarVisible, splitMode: splitMode, editorFraction: editorFraction
+            id: controller.id, session: controller.session.withoutUntitled, sidebarSection: sidebarSection,
+            sidebarVisible: sidebarVisible, splitMode: splitMode, editorFraction: editorFraction,
+            workspaceRoots: sidebar.folders.roots, showAllFiles: sidebar.showAllFiles,
+            sidebarVisibleBeforeWorkspace: visibility.beforeWorkspace
         )
     }
 
     func apply(_ saved: WorkspaceWindowState) {
         sidebarSection = saved.sidebarSection
-        sidebarVisible = saved.sidebarVisible
+        visibility = SidebarVisibility(isVisible: saved.sidebarVisible, beforeWorkspace: saved.sidebarVisibleBeforeWorkspace)
         splitMode = SplitLayout.Mode(rawValue: saved.splitMode)?.rawValue ?? SplitLayout.Mode.both.rawValue
         editorFraction = min(max(saved.editorFraction, SplitLayout.minFraction), SplitLayout.maxFraction)
         controller.restore(saved.session)
+        sidebar.restore(roots: saved.workspaceRoots, showAll: saved.showAllFiles)
+        sidebar.follow(controller.activeURL, immediately: true)
+    }
+
+    /// Workspace chip > Add Folder…
+    func addWorkspaceFolders() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = true
+        panel.prompt = String(localized: "添加")
+        let done: (NSApplication.ModalResponse) -> Void = { [sidebar] response in
+            if response == .OK { sidebar.openFolders(panel.urls) }
+        }
+        if let window { panel.beginSheetModal(for: window, completionHandler: done) } else { panel.begin(completionHandler: done) }
+    }
+
+    func revealWorkspaceInFinder() {
+        NSWorkspace.shared.activateFileViewerSelecting(sidebar.folders.roots)
     }
 
     var activeDocument: MarkdownDocument? { controller.activeURL.flatMap { WorkspaceRegistry.shared.document(for: $0) } }

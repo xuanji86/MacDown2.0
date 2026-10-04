@@ -15,11 +15,21 @@ public struct WorkspaceWindowState: Codable, Equatable, Sendable, Identifiable {
     /// `SplitLayout.Mode.rawValue`; the app validates it.
     public var splitMode: String
     public var editorFraction: Double
+    /// Workspace folders; empty = browse mode.
+    public var workspaceRoots: [URL]
+    /// The sidebar's "All" switch (every file type, dimmed when not Markdown).
+    public var showAllFiles: Bool
+    /// `sidebarVisible` as it was before the workspace was opened (restored when it closes); nil outside a workspace.
+    public var sidebarVisibleBeforeWorkspace: Bool?
 
     public init(
         id: UUID = UUID(), session: TabSession = TabSession(), sidebarSection: SidebarSection = .files,
-        sidebarVisible: Bool = true, splitMode: String = "both", editorFraction: Double = 0.5
+        sidebarVisible: Bool = true, splitMode: String = "both", editorFraction: Double = 0.5,
+        workspaceRoots: [URL] = [], showAllFiles: Bool = false, sidebarVisibleBeforeWorkspace: Bool? = nil
     ) {
+        self.sidebarVisibleBeforeWorkspace = sidebarVisibleBeforeWorkspace
+        self.workspaceRoots = workspaceRoots
+        self.showAllFiles = showAllFiles
         self.id = id
         self.session = session
         self.sidebarSection = sidebarSection
@@ -37,7 +47,10 @@ public struct WorkspaceWindowState: Codable, Equatable, Sendable, Identifiable {
             sidebarSection: (try? c.decodeIfPresent(SidebarSection.self, forKey: .sidebarSection)) ?? .files,
             sidebarVisible: try c.decodeIfPresent(Bool.self, forKey: .sidebarVisible) ?? true,
             splitMode: try c.decodeIfPresent(String.self, forKey: .splitMode) ?? "both",
-            editorFraction: min(max(try c.decodeIfPresent(Double.self, forKey: .editorFraction) ?? 0.5, 0), 1)
+            editorFraction: min(max(try c.decodeIfPresent(Double.self, forKey: .editorFraction) ?? 0.5, 0), 1),
+            workspaceRoots: (try? c.decodeIfPresent([URL].self, forKey: .workspaceRoots)) ?? [],
+            showAllFiles: (try? c.decodeIfPresent(Bool.self, forKey: .showAllFiles)) ?? false,
+            sidebarVisibleBeforeWorkspace: try? c.decodeIfPresent(Bool.self, forKey: .sidebarVisibleBeforeWorkspace)
         )
     }
 }

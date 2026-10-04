@@ -7,12 +7,21 @@ extension URL {
     /// Stable for the life of a tab: `standardizedFileURL` drops the `/private` of `/private/tmp|var|etc` only while the file
     /// exists, so a renamed or deleted file would get a different key than it was opened with. The prefix is dropped here
     /// by rule instead.
+    ///
+    /// An untitled document has no file: its tab is keyed by a made-up `untitled:<uuid>` URL, whose key is the URL itself.
     public var fileKey: String {
+        guard isFileURL else { return absoluteString }
         let path = standardizedFileURL.path
         guard path.hasPrefix("/private/") else { return path }
         let rest = path.dropFirst("/private".count)
         return ["/tmp", "/var", "/etc"].contains { rest == $0 || rest.hasPrefix($0 + "/") } ? String(rest) : path
     }
+}
+
+extension URL {
+    /// The identity of an untitled document's tab (never a real location).
+    public static func untitled(_ id: UUID) -> URL { URL(string: "untitled:\(id.uuidString.lowercased())")! }
+    public var isUntitled: Bool { scheme == "untitled" }
 }
 
 /// Names the tree and the watcher skip (PLAN 4.11). `names` match exactly, `suffixes` only match directories
