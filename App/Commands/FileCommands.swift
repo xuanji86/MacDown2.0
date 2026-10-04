@@ -60,6 +60,11 @@ struct FileCommands: Commands {
                 Button("Browse All Versions…") { workspace?.browseVersions() }
             }
             .disabled(workspace?.activeDocument == nil)
+            // The same menu as the status bar's encoding label, which stays reachable when the bar is hidden.
+            Menu("编码") {
+                if let document = workspace?.activeDocument { EncodingMenuItems(document: document) }
+            }
+            .disabled(workspace?.activeDocument == nil)
         }
     }
 }

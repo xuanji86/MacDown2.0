@@ -1,5 +1,12 @@
 import SwiftUI
 
+/// `@AppStorage` keys of the two optional bits of window chrome (View menu, Settings ▸ Editor ▸ 布局). Both default to
+/// hidden, like the original MacDown's bare window.
+enum WindowChromeKey {
+    static let statusBar = "window.showStatusBar"
+    static let divider = "window.showDivider"
+}
+
 /// Editor and preview side by side (or either alone), laid out by `SplitLayout`. Does not observe the document itself,
 /// so typing re-renders only `PreviewPane` (which does), not this view or the editor.
 ///
@@ -20,6 +27,8 @@ struct DocumentView: View {
     @AppStorage(ScrollSyncPreferences.syncKey) private var syncScrolling = true
     @AppStorage(ScrollSyncPreferences.followCaretKey) private var previewFollowsCaret = false
     @AppStorage(EditorSettingKey.editorOnRight) private var editorOnRight = false
+    @AppStorage(WindowChromeKey.statusBar) private var showsStatusBar = false
+    @AppStorage(WindowChromeKey.divider) private var showsDivider = false
 
     private var layout: SplitLayout { model.layout }
 
@@ -65,7 +74,11 @@ struct DocumentView: View {
             }
             .coordinateSpace(.named("split"))
         }
-        .safeAreaInset(edge: .bottom, spacing: 0) { StatusBar(document: document, preview: preview, status: status, renderMode: flavor?.badge?.title ?? "Markdown", renderModeHelp: flavor?.badge?.help) }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if showsStatusBar {
+                StatusBar(document: document, preview: preview, status: status, renderMode: flavor?.badge?.title ?? "Markdown", renderModeHelp: flavor?.badge?.help)
+            }
+        }
         .frame(minWidth: 640, minHeight: 360)
         .toolbar { DocumentToolbar(actions: actions) }
         .focusedSceneValue(\.windowActions, actions)
@@ -74,9 +87,9 @@ struct DocumentView: View {
         .onChange(of: previewFollowsCaret, initial: true) { _, on in scrollSync.followsCaret = on }
     }
 
-    /// One-point separator with a wider invisible grab area.
+    /// One-point separator (drawn only with "show divider" on) with a wider invisible grab area (always there).
     private func divider(at x: Double, total: Double, height: Double, editorOnRight: Bool) -> some View {
-        Rectangle().fill(.separator).frame(width: 1, height: height)
+        Rectangle().fill(showsDivider ? AnyShapeStyle(.separator) : AnyShapeStyle(.clear)).frame(width: 1, height: height)
             .overlay {
                 Color.clear.frame(width: 9).contentShape(Rectangle())
                     .pointerStyle(.columnResize)

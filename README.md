@@ -41,7 +41,7 @@ What survives is the part that mattered: the dark editor beside a white page, th
 | **Export** | Single-file HTML with embedded images, paginated PDF, print, copy as HTML. |
 | **Quick Look** | Press Space in Finder to see the rendered document. |
 | **Quarto** | `.qmd` support ships as a built-in extension, on by default. An approximate preview of callouts, `:::` divs, cross-references, citations, shortcodes and `{{< include >}}`; code cells are highlighted, never executed. |
-| **And** | A Settings window, a document outline, a status bar with line, column and word count (Chinese counted by character), and Sparkle for updates once releases begin. |
+| **And** | A Settings window, a document outline, an optional status bar with line, column and word count (Chinese counted by character; View ▸ Show Status Bar), and Sparkle for updates once releases begin. |
 
 ## Install
 

@@ -6,6 +6,7 @@ import SwiftUI
 struct FormatCommands: Commands {
     @FocusedValue(\.windowActions) private var actions
     @FocusedValue(\.workspace) private var workspace
+    @AppStorage(WindowChromeKey.statusBar, store: AppDefaults.store) private var showsStatusBar = false
 
     private func item(_ title: String, _ command: MarkdownCommand) -> some View {
         Button(title) { actions?.editor.perform(command) }
@@ -55,6 +56,7 @@ struct FormatCommands: Commands {
             Button("Cycle Editor and Preview") { actions?.cycleLayout() }
                 .keyboardShortcut("l", modifiers: [.command, .control])
                 .disabled(actions == nil)
+            Button(showsStatusBar ? "隐藏状态栏" : "显示状态栏") { showsStatusBar.toggle() }
         }
     }
 }

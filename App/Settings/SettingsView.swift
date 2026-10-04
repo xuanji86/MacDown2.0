@@ -129,6 +129,8 @@ private struct EditorPage: View {
     @AppStorage(ScrollSyncPreferences.syncKey) private var syncScrolling = true
     @AppStorage(ScrollSyncPreferences.followCaretKey) private var previewFollowsCaret = false
     @AppStorage(SplitMode.settingKey) private var newWindowLayout = SplitMode.both
+    @AppStorage(WindowChromeKey.statusBar) private var showsStatusBar = false
+    @AppStorage(WindowChromeKey.divider) private var showsDivider = false
     private var editor = EditorSettings()
 
     // lazy: scanned once per launch on first use (a few hundred families, ~ms); cache invalidation on font install not handled.
@@ -168,6 +170,12 @@ private struct EditorPage: View {
                 }
                 .pickerStyle(.segmented)
                 Text("新窗口以此布局开始。重新打开的窗口和曾调整过布局的文件夹沿用各自上次的布局;命令行的 --editor-only、--preview-only、--both 优先。")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Section("窗口") {
+                Toggle("显示编辑区与预览区之间的分隔线", isOn: $showsDivider)
+                Toggle("显示状态栏(行列、字数、编码)", isOn: $showsStatusBar)
+                Text("默认都隐藏,与原版 MacDown 一致。隐藏状态栏后,编码可在 文件 ▸ 编码 中更改;分隔线隐藏时仍可在两栏交界处拖动调整宽度。")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section("输入") {

@@ -1,6 +1,17 @@
 import AppKit
 import ExtensionAPI
 
+/// Scroll view that stays in the overlay style even with System Settings ▸ "Show scroll bars: Always" (and when the user
+/// flips that setting later; AppKit re-applies the system style on its own, so only the getter/setter can pin it). The
+/// legacy style reserves a ~15 pt track that shows as a pale strip between the dark editor and the preview; the original
+/// MacDown has none. The scroller still appears while scrolling.
+final class OverlayScrollView: NSScrollView {
+    override var scrollerStyle: NSScroller.Style {
+        get { .overlay }
+        set { super.scrollerStyle = .overlay }
+    }
+}
+
 /// `visibleLines` are whole consecutive lines, `firstLine` the 0-based index of the first (`DocumentFlavor.editorDecorations`).
 public typealias DecorationProvider = @MainActor (_ visibleLines: [Substring], _ firstLine: Int) -> [DecorationSpan]
 
@@ -37,7 +48,8 @@ public final class MarkdownTextView: NSTextView {
     public static func makeScrollView(theme: EditorTheme = .default) -> (scrollView: NSScrollView, textView: MarkdownTextView) {
         let textView = MarkdownTextView(usingTextLayoutManager: true)
         assert(textView.textLayoutManager != nil, "editor must be backed by TextKit 2")
-        let scrollView = NSScrollView()
+        let scrollView = OverlayScrollView()
+        scrollView.scrollerStyle = .overlay
         scrollView.hasVerticalScroller = true
         scrollView.drawsBackground = true
         scrollView.borderType = .noBorder
