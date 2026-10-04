@@ -17,6 +17,7 @@ struct MacDown2App: App {
         }
         .defaultAppStorage(AppDefaults.store)
         .defaultSize(width: 1100, height: 700)  // wide enough for the whole toolbar
+        .windowToolbarStyle(.expanded)  // title on top, the toolbar as its own row below
         // Windows come back from WorkspaceRegistry's own record (tabs, sidebar, split), the same on every system setting;
         // SwiftUI must neither restore windows itself nor skip the first one when it thinks it restored "no windows".
         .handlesExternalEvents(matching: [])  // open-file events are the app delegate's (WorkspaceRegistry.open), not a new window each
