@@ -67,6 +67,8 @@ struct WorkspaceView: View {
         }
         .onChange(of: model.state) { WorkspaceRegistry.shared.persist() }
         .onChange(of: model.controller.activeURL) { _, url in model.sidebar.follow(url) }
+        // Preview links to Markdown files under a workspace folder open in the app (PreviewNavigationDecider).
+        .onChange(of: model.sidebar.folders.roots, initial: true) { _, roots in preview.workspaceRoots = roots }
     }
 
     /// Outline click: the caret and both panes go to the heading's line, whatever the scroll sync settings.
