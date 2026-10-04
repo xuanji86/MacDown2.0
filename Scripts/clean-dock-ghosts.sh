@@ -11,6 +11,8 @@ dock=$("$tool" "$(pgrep -x Dock)" 2>/dev/null) || exit 0
 running=$(lsappinfo list 2>/dev/null | awk -F'"' '/^ *[0-9]+\) "/{print $2}')
 pinned=$(defaults read com.apple.dock persistent-apps 2>/dev/null | awk -F' = ' '/"file-label"/{gsub(/[";]/,"",$2); print $2}')
 printf '%s\n' "$dock" | sort | uniq -c | while read -r n name; do
+  # Only terminals/editors that run the tools grow ghosts; other apps may legitimately show two tiles (pinned + a web app).
+  case "$name" in Warp|Terminal|iTerm|iTerm2|Ghostty|"Visual Studio Code"|Cursor) ;; *) continue ;; esac
   r=$(printf '%s\n' "$running" | grep -cxF "$name")
   p=$(printf '%s\n' "$pinned" | grep -cxF "$name")
   if [ $((r + p)) -gt 0 ] && [ "$n" -gt "$((r > p ? r : p))" ]; then
