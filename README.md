@@ -11,7 +11,7 @@
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0-1a73e8?style=flat-square" alt="License: GPL-3.0"></a>
   <img src="https://img.shields.io/badge/macOS-26%2B-000000?style=flat-square&logo=apple&logoColor=white" alt="macOS 26+">
-  <img src="https://img.shields.io/badge/Apple%20Silicon-only-000000?style=flat-square" alt="Apple Silicon only">
+  <img src="https://img.shields.io/badge/Apple%20Silicon%20%2B%20Intel-000000?style=flat-square" alt="Apple Silicon and Intel">
   <img src="https://img.shields.io/badge/Swift-6-F05138?style=flat-square&logo=swift&logoColor=white" alt="Swift 6">
 </p>
 
@@ -25,7 +25,7 @@
 
 Over a decade ago, Mou (Chen Luo) set the shape of Markdown writing on the Mac: source on the left, a live preview on the right, nothing in between. MacDown (Tzu-ping Chung) carried that shape forward as open source and became the Markdown editor a generation of Mac users reached for. MacDown2.0 is its spiritual successor — the same two panes, the same keyboard muscle memory, the same refusal to become a WYSIWYG editor or a notes app.
 
-It is also a clean break. Nothing was ported. MacDown2.0 is written from a blank file in Swift 6 and SwiftUI for macOS 26 and Apple Silicon only, with Liquid Glass, TextKit 2, tree-sitter and markdown-it underneath. No compatibility shims, no framework held over from another decade — just what a Markdown editor should feel like on a current Mac.
+It is also a clean break. Nothing was ported. MacDown2.0 is written from a blank file in Swift 6 and SwiftUI for macOS 26 on Apple Silicon and Intel, with Liquid Glass, TextKit 2, tree-sitter and markdown-it underneath. No compatibility shims, no framework held over from another decade — just what a Markdown editor should feel like on a current Mac.
 
 What survives is the part that mattered: the dark editor beside a white page, the shortcuts your hands already know, and the restraint to stay a Markdown editor.
 
@@ -59,7 +59,7 @@ Until the first release, build it yourself — it takes one command.
 
 ## Build from source
 
-Requires Xcode 27 on macOS 26 (Apple Silicon). Node.js 23.6+ is needed only if you change the JavaScript renderer under `Web/`.
+Requires Xcode 27 on macOS 26 (Apple Silicon or Intel). Node.js 23.6+ is needed only if you change the JavaScript renderer under `Web/`.
 
 ```sh
 git clone https://github.com/xuanji86/MacDown2.0.git

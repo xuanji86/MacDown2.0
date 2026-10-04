@@ -58,13 +58,30 @@ fi
 
 rm -rf "$OUT"; mkdir -p "$STAGE"
 
-# ---- 1. Release build (version stamped via build settings; the checked-in project stays at its dev version) ----
+# ---- 1. Release build (version stamped via build settings; the checked-in project stays at its dev version).
+#         -destination generic/platform=macOS is what makes it build every ARCHS entry: a concrete "My Mac"
+#         destination builds only the host architecture. ----
 step "Release build $VERSION (build $BUILD_NUMBER)"
-xcodebuild -project MacDown2.xcodeproj -scheme MacDown2 -configuration Release -derivedDataPath "$DERIVED" \
+xcodebuild -project MacDown2.xcodeproj -scheme MacDown2 -configuration Release -destination 'generic/platform=macOS' -derivedDataPath "$DERIVED" \
   MARKETING_VERSION="$VERSION" CURRENT_PROJECT_VERSION="$BUILD_NUMBER" build >"$OUT/xcodebuild.log" 2>&1 \
   || { tail -30 "$OUT/xcodebuild.log"; die "build failed (full log: $OUT/xcodebuild.log)"; }
 ditto "$DERIVED/Build/Products/Release/$APP.app" "$STAGE/$APP.app"
 APP_PATH=$STAGE/$APP.app
+
+# ---- 1b. Universal binary: every Mach-O in the bundle (app, Quick Look appex, Sparkle framework / Autoupdate /
+#          Updater.app / XPC services) must carry both arm64 and x86_64 (Intel Macs that run macOS 26 are supported).
+step "Checking architectures (arm64 + x86_64)"
+MACHO_COUNT=0
+while IFS= read -r f; do
+  [[ "$(file -b "$f")" == Mach-O* ]] || continue
+  archs=" $(lipo -archs "$f") "
+  [[ "$archs" == *" arm64 "* && "$archs" == *" x86_64 "* ]] || die "not universal (arm64 + x86_64): ${f#"$APP_PATH"/} ->$archs"
+  MACHO_COUNT=$((MACHO_COUNT + 1)); echo "  ${archs# } ${f#"$APP_PATH"/}"
+done < <(find "$APP_PATH" -type f | sort)
+# Guard against the loop silently checking nothing: these must have been among the files seen.
+[ -f "$APP_PATH/Contents/MacOS/$APP" ] && [ -d "$APP_PATH/Contents/PlugIns/MacDown2QuickLook.appex" ] \
+  && [ -f "$APP_PATH/Contents/Frameworks/Sparkle.framework/Sparkle" ] || die "expected app / appex / Sparkle binaries missing"
+[ "$MACHO_COUNT" -ge 7 ] || die "only $MACHO_COUNT Mach-O files found; expected app, appex, Sparkle and its helpers"
 
 # ---- 2. Ad-hoc sign, innermost first. No --deep: it would re-sign the Quick Look appex without its sandbox
 #         entitlement (which pluginkit requires); --preserve-metadata keeps what the build put on each bundle.
