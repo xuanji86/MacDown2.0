@@ -16,6 +16,11 @@
   --heading-weight: 700;
   --heading-rule: none;
   --page-padding: 40px 32px 72px;
+  --alert-note: #1a3f8f;
+  --alert-tip: #1f6b3a;
+  --alert-important: #5b3a99;
+  --alert-warning: #8a5a00;
+  --alert-caution: #a61e1e;
 }
 p, li { text-align: justify; hyphens: auto; }
 h1 { font-size: 1.9em; text-align: center; }

@@ -9,8 +9,9 @@ import { errorText, post } from './bridge.ts';
 import { loadChunk } from './chunk-loader.ts';
 import { planPatch } from './dom-patch.ts';
 import { rewriteImages } from './images.ts';
+import { rewriteLinks, startAnchorScrolling, stripActiveContent } from './links.ts';
 import { renderMermaid } from './mermaid-loader.ts';
-import { pageYToLine, scrollToLine as scrollBlocksToLine, startScrollReporting, type BlockHandle } from './scroll.ts';
+import { pageYToLine, recordAnchor, scrollToLine as scrollBlocksToLine, startAnchoring, startScrollReporting, type BlockHandle } from './scroll.ts';
 import { alignSegments, splitBlocks, type Segment } from './split-html.ts';
 import { DEFAULT_STYLE, styleLinks } from './styles.ts';
 
@@ -32,9 +33,12 @@ let state: State | null = null;
 
 // Parsing happens in an inert document: images there do not load, so rewritten src values are the only ones fetched.
 const scratch = document.implementation.createHTMLDocument('').createElement('div');
+let docBase: string | null = null; // the document folder as a file URL with a trailing slash; relative links resolve against it
 function parse(html: string): Node[] {
   scratch.innerHTML = html;
+  stripActiveContent(scratch);
   rewriteImages(scratch);
+  rewriteLinks(scratch, docBase);
   const nodes = Array.from(scratch.childNodes);
   scratch.replaceChildren();
   return nodes;
@@ -170,6 +174,7 @@ export function update(md: string, optionsJSON: string): string {
     if (mode !== 'patch') doc().dataset.flavor = options.flavor;
     const t3 = performance.now();
     errorBar().hidden = true;
+    anchorAfterRender();
     renderMermaid(doc()); // async; draws the diagrams that are new in the DOM, the metadata below does not wait for it
     const ms = (a: number, b: number): number => Math.round((b - a) * 100) / 100;
     return JSON.stringify({ ...meta, perf: { mode, created, render: ms(t0, t1), split: ms(t1, t2), apply: ms(t2, t3), patch: ms(t1, t3), total: ms(t0, t3) } });
@@ -180,6 +185,23 @@ export function update(md: string, optionsJSON: string): string {
     post({ type: 'error', stage: 'render', message });
     return JSON.stringify({ error: message });
   }
+}
+
+// A render must not move the page, but whatever lays out late afterwards (images, Mermaid, fonts) keeps the top line in
+// place (scroll.ts). The anchor is taken in the next frame, once the new DOM has been laid out, before the observer fires.
+let anchorQueued = false;
+let observing = false;
+function anchorAfterRender(): void {
+  if (!observing) {
+    observing = true;
+    startAnchoring(doc()); // the script runs in <head>, the article exists from the first render on
+  }
+  if (anchorQueued) return;
+  anchorQueued = true;
+  requestAnimationFrame(() => {
+    anchorQueued = false;
+    recordAnchor(state?.blocks ?? []);
+  });
 }
 
 // Flavor chunks and stylesheets (PLAN 4.4.3): the app names the ones the document's flavor needs before every update. A
@@ -208,6 +230,14 @@ export async function useFlavor(flavor: { chunks: string[]; stylesheets: string[
 
 // Forget the block table: the next update rebuilds the whole page (document directory changed, theme swap, ...).
 export function invalidate(): void {
+  state = null;
+}
+
+// The document folder (`file:///.../`, null for no folder). Relative links are resolved against it when a block enters the
+// page, so a different folder means the kept blocks hold stale hrefs: the next update rebuilds.
+export function setBase(base: string | null): void {
+  if (base === docBase) return;
+  docBase = base;
   state = null;
 }
 
@@ -248,6 +278,7 @@ export function setStyle(light: string, dark: string | null): void {
 }
 
 startScrollReporting(() => state?.blocks ?? []);
+startAnchorScrolling();
 addEventListener('error', (e) => post({ type: 'error', stage: 'script', message: `${e.message} (${e.filename}:${e.lineno})` }));
 addEventListener('unhandledrejection', (e) => post({ type: 'error', stage: 'script', message: errorText(e.reason) }));
 document.addEventListener('securitypolicyviolation', (e) => post({ type: 'error', stage: 'csp', message: `${e.violatedDirective} blocked ${e.blockedURI}` }));

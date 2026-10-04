@@ -12,9 +12,11 @@ public struct FlavorID: RawRepresentable, Hashable, Sendable, Codable, Expressib
 public enum MarkdownExtension: String, Codable, Sendable, CaseIterable {
     case tables, strikethrough, autolink, smartPunctuation
     case mark, sup, sub, underline, footnotes, taskLists, math, toc, frontMatter, cjkEmphasis
+    /// `:smile:` short codes (GitHub's names). Off by default; GitHub alerts (`> [!NOTE]`) are always on and have no switch.
+    case emoji
 }
 
-/// What the preview shows for a leading YAML front matter block (the raw text is always in `RenderResult.frontMatter`).
+/// What the preview shows for a leading front matter block, YAML between `---` or TOML between `+++` (Hugo); the raw text is always in `RenderResult.frontMatter`.
 public enum FrontMatterDisplay: String, Codable, Sendable, CaseIterable {
     case hidden, table
 }
@@ -47,7 +49,7 @@ public struct RenderResult: Sendable, Codable, Hashable {
     public var blocks: [BlockMap]
     public var outline: [OutlineItem]
     public var stats: TextStats
-    /// Raw YAML between the `---` fences; nil when there is none or `.frontMatter` is off.
+    /// Raw text between the `---` (YAML) or `+++` (TOML) fences; nil when there is none or `.frontMatter` is off.
     public var frontMatter: String?
 }
 

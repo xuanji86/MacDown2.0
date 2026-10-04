@@ -1,12 +1,14 @@
 // Renderer entry point. Bundled as an IIFE exposing `globalThis.MacDown2`; the same bundle
 // runs in the preview WebView and in JavaScriptCore (Quick Look, CLI, export, tests).
-import markdownit, { type MarkdownIt, type StateCore, type Token } from 'markdown-it';
+import markdownit, { type MarkdownIt, type RendererRule, type StateCore, type Token } from 'markdown-it';
+import { alert } from '@mdit/plugin-alert';
 import { footnote } from '@mdit/plugin-footnote';
 import { katex } from '@mdit/plugin-katex';
 import { mark } from '@mdit/plugin-mark';
 import { sub } from '@mdit/plugin-sub';
 import { sup } from '@mdit/plugin-sup';
 import { tasklist } from '@mdit/plugin-tasklist';
+import emojiPlugin from 'markdown-it-emoji/lib/full.mjs';
 import { cjkEmphasis } from './plugins/cjk-emphasis.ts';
 import { codeBlocks } from './plugins/code.ts';
 import { frontMatter, type FrontMatterDisplay } from './plugins/front-matter.ts';
@@ -18,7 +20,7 @@ export interface RenderOptions {
   flavor: string;
   renderChunks?: string[];
   // 'tables' | 'strikethrough' | 'autolink' | 'smartPunctuation' | 'mark' | 'sup' | 'sub' | 'underline'
-  // | 'footnotes' | 'taskLists' | 'math' | 'toc' | 'frontMatter' | 'cjkEmphasis'
+  // | 'footnotes' | 'taskLists' | 'math' | 'toc' | 'frontMatter' | 'cjkEmphasis' | 'emoji'
   extensions: string[];
   hardBreaks: boolean;
   allowRawHTML: boolean;
@@ -39,7 +41,7 @@ export interface RenderResult {
   blocks: BlockMap[];
   outline: OutlineItem[];
   stats: TextStats;
-  frontMatter?: string; // raw YAML between the `---` fences; absent when there is none or the extension is off
+  frontMatter?: string; // raw text between the `---` (YAML) or `+++` (TOML, Hugo) fences; absent when there is none or the extension is off
 }
 
 type FlavorSetup = (md: MarkdownIt, options: RenderOptions) => void;
@@ -74,6 +76,9 @@ function annotate(state: StateCore, headingAnchors: boolean): void {
   const tokens = state.tokens;
   for (let i = 0; i < tokens.length; i++) {
     const t = tokens[i];
+    // GitHub alert: the plugin starts the block one line late (after the `[!NOTE]` marker line), which would leave that line
+    // out of the block's range and its hash; the title token carries the real first line.
+    if (t.type === 'alert_open' && t.map && tokens[i + 1]?.map) t.map[0] = tokens[i + 1].map![0];
     if (t.map && t.nesting >= 0 && t.type !== 'inline') {
       t.attrSet('data-line', String(t.map[0]));
       t.attrSet('data-line-end', String(t.map[1]));
@@ -89,6 +94,12 @@ function annotate(state: StateCore, headingAnchors: boolean): void {
     }
   }
 }
+
+// GitHub shows the marker as "Note", "Tip", ...; the plugin would print whatever case the author typed.
+const alertTitle: RendererRule = (tokens, idx) => {
+  const kind = tokens[idx].content.toLowerCase();
+  return `<p class="markdown-alert-title">${kind[0].toUpperCase()}${kind.slice(1)}</p>\n`;
+};
 
 function instance(o: RenderOptions): MarkdownIt {
   const setup = registry.get(o.flavor);
@@ -129,6 +140,8 @@ function instance(o: RenderOptions): MarkdownIt {
     md.renderer.rules.math_block = (tokens, idx, opts, env, slf) =>
       mathBlock(tokens, idx, opts, env, slf).replace(/^<p/, `<p${slf.renderAttrs(tokens[idx])}`);
   }
+  if (ext.has('emoji')) md.use(emojiPlugin, { shortcuts: {} }); // `:smile:` only; `:)` and friends would rewrite plain text
+  md.use(alert, { titleRenderer: alertTitle }); // `> [!NOTE]` … `[!TIP]`, `[!IMPORTANT]`, `[!WARNING]`, `[!CAUTION]`
   if (ext.has('mark')) md.use(mark);
   if (ext.has('sup')) md.use(sup);
   if (ext.has('sub')) md.use(sub);

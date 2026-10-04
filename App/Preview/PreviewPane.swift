@@ -71,6 +71,13 @@ final class PreviewModel {
         }
     }
 
+    /// Folders of the open workspace; a relative link to a `.md`/`.qmd` anywhere under them (or under the document's folder)
+    /// opens in the app instead of asking the system.
+    var workspaceRoots: [URL] {
+        get { documentRoot.workspaceRoots }
+        set { documentRoot.workspaceRoots = newValue }
+    }
+
     private let documentRoot = DocumentRoot()
     private let messages = PreviewMessageHandler()
     /// The Markdown / Rendering settings; the document's flavor is added per render (`resolvedOptions`).
@@ -95,7 +102,7 @@ final class PreviewModel {
         var configuration = WebPage.Configuration()
         configuration.urlSchemeHandlers[URLScheme(PreviewAssetHandler.scheme)!] = PreviewAssetHandler(documentRoot: documentRoot)
         configuration.userContentController.add(messages, name: "macdown2")
-        page = WebPage(configuration: configuration, navigationDecider: ExternalLinkDecider())
+        page = WebPage(configuration: configuration, navigationDecider: PreviewNavigationDecider(root: documentRoot))
         #if DEBUG
         page.isInspectable = true
         #endif
@@ -224,11 +231,13 @@ final class PreviewModel {
             needsRebuild = false
             let started = ContinuousClock.now
             let (optionsJSON, flavorFiles) = resolvedOptions(for: next)
+            // Relative links resolve against the document's folder (as a file URL, trailing slash); see Web/src/preview/links.ts.
+            let base = documentDirectory.map { URL(filePath: $0.path, directoryHint: .isDirectory).absoluteString }
             do {
                 // A chunk that fails to load is reported by `update` itself (the flavor is then unknown).
                 let result = try await page.callJavaScript(
-                    "await MacDown2Preview.useFlavor(flavor).catch(() => {}); if (rebuild) MacDown2Preview.invalidate(); return MacDown2Preview.update(md, options)",
-                    arguments: ["md": next, "options": optionsJSON, "rebuild": rebuild, "flavor": flavorFiles]
+                    "await MacDown2Preview.useFlavor(flavor).catch(() => {}); MacDown2Preview.setBase(base); if (rebuild) MacDown2Preview.invalidate(); return MacDown2Preview.update(md, options)",
+                    arguments: ["md": next, "options": optionsJSON, "rebuild": rebuild, "flavor": flavorFiles, "base": base.map { $0 as Any } ?? NSNull()]
                 )
                 let elapsed = ContinuousClock.now - started
                 // Render failures are reported over the bridge (`handle`); success carries blocks/outline/stats/perf.
@@ -278,14 +287,5 @@ struct PreviewPane: View {
                 for await text in document.$text.values { model.schedule(text) }
             }
             .onChange(of: documentURL, initial: true) { _, url in model.documentDirectory = url?.deletingLastPathComponent() }
-    }
-}
-
-/// Keeps the preview page in place: only our own scheme loads in the view; web links open in the browser.
-struct ExternalLinkDecider: WebPage.NavigationDeciding {
-    func decidePolicy(for action: WebPage.NavigationAction, preferences: inout WebPage.NavigationPreferences) async -> WKNavigationActionPolicy {
-        guard let url = action.request.url, url.scheme != PreviewAssetHandler.scheme, url.scheme != "about" else { return .allow }
-        if action.navigationType == .linkActivated { NSWorkspace.shared.open(url) }
-        return .cancel
     }
 }

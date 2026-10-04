@@ -5,4 +5,9 @@
   --font-mono: Menlo, monospace;
   --font-size: 14px;
   --line-height: 1.6;
+  --alert-note: #0969da;
+  --alert-tip: #1a7f37;
+  --alert-important: #8250df;
+  --alert-warning: #9a6700;
+  --alert-caution: #cf222e;
 }
