@@ -2,8 +2,9 @@ import EditorKit
 import SwiftUI
 
 /// The original MacDown's toolbar: its own row under the title (`.windowToolbarStyle(.expanded)` on the scene), as flat
-/// icons without macOS 26's glass capsules, the groups spread across the full width by flexible spacers:
-/// indent | inline styles | headings | lists | quote, code | link, image | copy HTML | layout.
+/// icons without macOS 26's glass capsules. As in the original, indent, inline styles and headings stay clustered at the
+/// left with a small fixed gap, and only the groups after them are spread across the full width by flexible spacers:
+/// [indent | inline styles | headings] ~ lists ~ quote, code ~ link, image ~ copy HTML ~ layout.
 struct DocumentToolbar: ToolbarContent {
     let actions: WindowActions
 
@@ -39,21 +40,23 @@ struct DocumentToolbar: ToolbarContent {
 
     private var divider: some View { Divider().frame(height: 14) }
 
+    /// The fixed gap between the left cluster's groups. Measured on the original (maximized, 2000 px capture): the gaps
+    /// indent to B and U to H1 are both ~40 px between icon centres, a B-I-U step is ~29 px, so ~1.4 steps; every flexible
+    /// gap after H3 is ~315 px (~11 steps) and grows with the window.
+    private var clusterGap: some View { Color.clear.frame(width: Self.clusterGapWidth, height: 1) }
+    private static let clusterGapWidth: CGFloat = 16
+
     var body: some ToolbarContent {
         group {
             symbol("Unindent", "decrease.indent", .outdent, shortcut: "⌘[")
             symbol("Indent", "increase.indent", .indent, shortcut: "⌘]")
-        }
-        ToolbarSpacer(.flexible)
-        group {
+            clusterGap
             button("Bold", .bold, shortcut: "⌘B") { Text("B").font(.system(size: 17, weight: .bold)) }
             divider
             button("Italic", .italic, shortcut: "⌘I") { Text("I").font(.system(size: 17, design: .serif)).italic() }
             divider
             button("Underline", .underline, shortcut: "⌘U") { Text("U").font(.system(size: 17)).underline() }
-        }
-        ToolbarSpacer(.flexible)
-        group {
+            clusterGap
             heading(1)
             divider
             heading(2)

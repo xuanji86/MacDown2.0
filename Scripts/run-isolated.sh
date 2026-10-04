@@ -81,7 +81,7 @@ done
 
 before="$(app_pids)"
 extra=()
-for name in MACDOWN2_TEST_UNTITLED_TEXT MACDOWN2_TEST_TERMINATE_AFTER; do  # Debug-only drivers (App/IsolatedTestHooks.swift)
+for name in MACDOWN2_TEST_UNTITLED_TEXT MACDOWN2_TEST_TERMINATE_AFTER MACDOWN2_TEST_WINDOW_FRAME; do  # Debug-only drivers (App/IsolatedTestHooks.swift)
   [ -n "${!name:-}" ] && extra+=(--env "$name=${!name}")
 done
 open -n -a "$APP" --env "MACDOWN2_DEFAULTS_SUITE=$suite" --env "MACDOWN2_ALLOWED_ROOT=$root" ${extra[@]+"${extra[@]}"} ${copies[@]+"${copies[@]}"}
