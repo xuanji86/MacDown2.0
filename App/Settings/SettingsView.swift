@@ -4,6 +4,7 @@ import ExtensionAPI
 import MarkdownCore
 import SwiftUI
 import WebAssets
+import WorkspaceKit
 
 /// The ⌘, window (PLAN §4.8). Only settings that something already honours are shown; the rest of each page arrives
 /// with its feature.
@@ -84,6 +85,7 @@ private struct EditorPage: View {
     @AppStorage(AppearanceKey.editorThemeFollowsSystem) private var themeFollows = false
     @AppStorage(ScrollSyncPreferences.syncKey) private var syncScrolling = true
     @AppStorage(ScrollSyncPreferences.followCaretKey) private var previewFollowsCaret = false
+    @AppStorage(SplitMode.settingKey) private var newWindowLayout = SplitMode.both
     private var editor = EditorSettings()
 
     // lazy: scanned once per launch on first use (a few hundred families, ~ms); cache invalidation on font install not handled.
@@ -114,6 +116,16 @@ private struct EditorPage: View {
                     Text("最大宽度:\(Int(editor.maxWidth)) px")
                 }
                 .disabled(!editor.limitWidth)
+            }
+            Section("布局") {
+                Picker("启动布局", selection: $newWindowLayout) {
+                    Text("双栏").tag(SplitMode.both)
+                    Text("仅编辑").tag(SplitMode.editorOnly)
+                    Text("仅预览").tag(SplitMode.previewOnly)
+                }
+                .pickerStyle(.segmented)
+                Text("新窗口以此布局开始。重新打开的窗口和曾调整过布局的文件夹沿用各自上次的布局;命令行的 --editor-only、--preview-only、--both 优先。")
+                    .font(.caption).foregroundStyle(.secondary)
             }
             Section("输入") {
                 Toggle("自动配对括号和引号", isOn: editor.$autoPair)

@@ -17,7 +17,8 @@ final class WindowModel {
         get { visibility.isVisible }
         set { visibility.isVisible = newValue }
     }
-    var splitMode = SplitLayout.Mode.both.rawValue
+    /// New windows start with the Settings choice (a restored one overwrites it in `apply`).
+    var splitMode = SplitMode.setting(in: AppDefaults.store)
     var editorFraction = 0.5
 
     // AppKit side, filled in once the window exists.
@@ -52,17 +53,34 @@ final class WindowModel {
     }
 
     var layout: SplitLayout {
-        get { SplitLayout(mode: SplitLayout.Mode(rawValue: splitMode) ?? .both, editorFraction: editorFraction) }
+        get { SplitLayout(mode: splitMode, editorFraction: editorFraction) }
         set {
-            splitMode = newValue.mode.rawValue
+            splitMode = newValue.mode
             editorFraction = newValue.editorFraction
         }
+    }
+
+    /// The toolbar, the View menu or ⌃⌘L: this window keeps it, and so does the workspace folder, for the next window that opens it.
+    func userSetLayout(_ new: SplitLayout) {
+        layout = new
+        let roots = sidebar.folders.roots.map(\.fileKey)
+        guard !roots.isEmpty else { return }
+        var memory = LayoutMemory(defaults: AppDefaults.store)
+        memory.remember(new.mode, forRoots: roots)
+        memory.save(to: AppDefaults.store)
+    }
+
+    /// A folder was just opened as the workspace of this (new or blank) window: it comes back as it last was. A flag on the command
+    /// line (`cli`) wins over that, and over the layout the window has.
+    func startLayout(cli: SplitMode?, workspace folders: [URL] = []) {
+        let remembered = LayoutMemory(defaults: AppDefaults.store).mode(forRoots: folders.map(\.fileKey))
+        splitMode = SplitMode.resolve(cli: cli, remembered: remembered, restored: splitMode.rawValue, setting: SplitMode.setting(in: AppDefaults.store))
     }
 
     var state: WorkspaceWindowState {
         WorkspaceWindowState(
             id: controller.id, session: controller.session.withoutUntitled, sidebarSection: sidebarSection,
-            sidebarVisible: sidebarVisible, splitMode: splitMode, editorFraction: editorFraction,
+            sidebarVisible: sidebarVisible, splitMode: splitMode.rawValue, editorFraction: editorFraction,
             workspaceRoots: sidebar.folders.roots, showAllFiles: sidebar.showAllFiles,
             sidebarVisibleBeforeWorkspace: visibility.beforeWorkspace
         )
@@ -71,7 +89,8 @@ final class WindowModel {
     func apply(_ saved: WorkspaceWindowState) {
         sidebarSection = saved.sidebarSection
         visibility = SidebarVisibility(isVisible: saved.sidebarVisible, beforeWorkspace: saved.sidebarVisibleBeforeWorkspace)
-        splitMode = SplitLayout.Mode(rawValue: saved.splitMode)?.rawValue ?? SplitLayout.Mode.both.rawValue
+        // A record that does not name a valid layout (corrupted, from another version) is as if there were none.
+        splitMode = SplitMode.resolve(cli: nil, remembered: nil, restored: saved.splitMode, setting: SplitMode.setting(in: AppDefaults.store))
         editorFraction = min(max(saved.editorFraction, SplitLayout.minFraction), SplitLayout.maxFraction)
         controller.restore(saved.session)
         sidebar.restore(roots: saved.workspaceRoots, showAll: saved.showAllFiles)

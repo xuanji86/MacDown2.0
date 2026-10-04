@@ -24,7 +24,7 @@ struct DocumentView: View {
     private var layout: SplitLayout { model.layout }
 
     private func setLayout(_ new: SplitLayout) {
-        model.layout = new
+        model.userSetLayout(new)
         if !new.showsEditor { editor.resignFocus() }  // never type into an invisible editor
     }
 

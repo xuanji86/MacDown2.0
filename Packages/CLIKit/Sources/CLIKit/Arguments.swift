@@ -1,4 +1,5 @@
 import Foundation
+import WorkspaceKit
 
 /// sysexits.h values, as promised in `--help`.
 public enum ExitCode {
@@ -30,12 +31,25 @@ public struct OpenArgs: Equatable {
     /// As typed; `-` means "the text on stdin".
     public var paths: [String] = []
     public var dryRun = false
+    /// `--both`, `--editor-only`, `--preview-only`: the layout of the window the files open in; nil = the app decides.
+    public var layout: SplitMode?
 }
 
 public struct RenderArgs: Equatable {
     public var input = ""
     public var output: String?
     public var standalone = false
+}
+
+extension SplitMode {
+    /// The command line spelling.
+    var flag: String {
+        switch self {
+        case .both: "--both"
+        case .editorOnly: "--editor-only"
+        case .previewOnly: "--preview-only"
+        }
+    }
 }
 
 /// Hand-written on purpose (PLAN 4.10): two subcommands and four flags do not justify a dependency.
@@ -58,6 +72,12 @@ public enum Arguments {
             case "-h", "--help": return .help
             case "--version": return .version
             case "--dry-run": out.dryRun = true
+            case "--both", "--editor-only", "--preview-only":
+                let mode = SplitMode.allCases.first { $0.flag == arg }!
+                if let earlier = out.layout, earlier != mode {
+                    throw CLIError(ExitCode.usage, "\(earlier.flag) and \(arg) cannot be combined: pick one layout")
+                }
+                out.layout = mode
             default: throw unknown(arg)
             }
         }
@@ -100,7 +120,8 @@ public enum Arguments {
     macdown2: command line for MacDown2.0
 
     USAGE
-      macdown2 [--dry-run] [<file-or-folder>…]   open in MacDown2.0 (a folder opens as a workspace)
+      macdown2 [--dry-run] [--both|--editor-only|--preview-only] [<file-or-folder>…]
+                                                 open in MacDown2.0 (a folder opens as a workspace)
       macdown2 open [--dry-run] [--] <path>…     the same, spelled out
       macdown2 render <file> [-o out.html] [--standalone]
                                                  render to HTML here, without starting the app
@@ -114,6 +135,10 @@ public enum Arguments {
 
     OPTIONS
       --dry-run      print the `open` command instead of running it (piped text is still saved)
+      --both, --editor-only, --preview-only
+                     the layout of the window the files open in (editor and preview, editor only, preview only);
+                     one of them at most, and it needs a file or folder. Without one, the window uses its own last
+                     layout, or the "Layout for new windows" setting. Works whether the app is running or not.
       -o, --output   write the HTML to a file instead of stdout
       --standalone   a complete page with the preview style inlined (default: the HTML fragment only);
                      .qmd files render as Quarto unless it is switched off in MacDown2.0 > Settings

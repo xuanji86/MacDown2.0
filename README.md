@@ -64,9 +64,12 @@ The app ships a `macdown2` tool. Install it from the app menu (**MacDown2.0 › 
 ```sh
 macdown2 notes.md docs/      # open files; a folder opens as a workspace
 cat draft.md | macdown2      # piped text is saved to ~/Library/Caches/io.github.xuanji86.MacDown2/stdin/ and opened
+macdown2 --preview-only a.md # open with the preview only (also --editor-only, --both)
 macdown2 render a.md --standalone -o a.html    # render without starting the app
 macdown2 --help
 ```
+
+`--both`, `--editor-only` and `--preview-only` set the layout of the window the files open in, whether the app is already running or not (one of them at most, and a file or folder is needed). Without a flag, a new window uses **Settings › Editor › Layout**, a folder opened again brings back the layout it last had, and a restored window keeps its own.
 
 Exit status: 0 ok, 64 bad arguments, 66 file problem, 70 rendering failed.
 
