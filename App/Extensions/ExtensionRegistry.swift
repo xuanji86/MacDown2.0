@@ -11,7 +11,11 @@ enum AppExtensions {
     /// qmd search joins here from M2.
     static let builtin: [any MacDown2Extension.Type] = [QuartoExtension.self]
 
-    static let host = ExtensionHostImpl(defaults: preferences)
+    /// Reads the login shell only when something calls `snapshot()`/`reread()`: extensions through their host, and the
+    /// Settings ▸ General "re-read" button. Creating it (even at launch) starts nothing.
+    static let loginShell = LoginShellEnvironment()
+
+    static let host = ExtensionHostImpl(defaults: preferences, toolEnvironment: loginShell)
     static let registry = ExtensionRegistry(builtin, defaults: preferences, provider: host)
 
     /// Preference store shared with the Quick Look extension and CLI through the App Group suite.

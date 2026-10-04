@@ -11,7 +11,7 @@ import WorkspaceKit
 struct SettingsView: View {
     var body: some View {
         TabView {
-            Tab("General", systemImage: "gearshape") { PlaceholderPage("更多通用设置将随后续功能加入。") }
+            Tab("General", systemImage: "gearshape") { GeneralPage() }
             Tab("Editor", systemImage: "square.and.pencil") { EditorPage() }
             Tab("Markdown", systemImage: "text.badge.checkmark") { MarkdownPage() }
             Tab("Rendering", systemImage: "eye") { RenderingPage() }
@@ -23,12 +23,55 @@ struct SettingsView: View {
     }
 }
 
-private struct PlaceholderPage: View {
-    let text: String
-    init(_ text: String) { self.text = text }
+// MARK: General
+
+private struct GeneralPage: View {
+    var body: some View {
+        Form {
+            ToolEnvironmentSection()
+            Section { Text("更多通用设置将随后续功能加入。").foregroundStyle(.secondary) }
+        }
+        .formStyle(.grouped)
+    }
+}
+
+/// PLAN 4.16: where the environment for external tools (quarto, qmd, python, R) came from. Looking at this row never reads
+/// the login shell (`state()` only reports); the button is an explicit request and does.
+private struct ToolEnvironmentSection: View {
+    @State private var state: ToolEnvironmentState = .notNeeded
 
     var body: some View {
-        Form { Text(text).foregroundStyle(.secondary) }.formStyle(.grouped)
+        Section {
+            LabeledContent("状态") { Text(summary).multilineTextAlignment(.trailing) }
+            if case .ready(let snapshot) = state, case .fallback = snapshot.source {
+                Text("改用本 App 自身的环境,并追加 /opt/homebrew/bin、/usr/local/bin、~/.local/bin。").font(.caption).foregroundStyle(.secondary)
+            }
+            Button("重新抓取") {
+                state = .loading
+                Task {
+                    await AppExtensions.loginShell.reread()
+                    state = await AppExtensions.loginShell.state()
+                }
+            }
+            .disabled(state == .loading)
+        } header: {
+            Text("外部工具环境")
+        } footer: {
+            Text("Quarto、qmd 等扩展会在登录 shell 的环境里启动外部程序(这样才找得到 Homebrew 的 PATH)。只有已启用的扩展真正用到工具时才会读取一次;你改过 shell 配置后可在此重新抓取。")
+        }
+        .task { state = await AppExtensions.loginShell.state() }
+    }
+
+    private var summary: String {
+        switch state {
+        case .notNeeded: "尚未需要"
+        case .loading: "读取中…"
+        case .ready(let snapshot):
+            switch snapshot.source {
+            case .loginShell(let path): "\(path) · \(String(format: "%.2f", snapshot.seconds)) s · PATH \(snapshot.path.count) 项"
+            case .fallback(let reason): "环境抓取失败(\(reason)) · PATH \(snapshot.path.count) 项"
+            }
+        }
     }
 }
 

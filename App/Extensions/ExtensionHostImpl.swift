@@ -8,9 +8,13 @@ import Observation
 @MainActor @Observable
 final class ExtensionHostImpl: ExtensionHostProvider {
     @ObservationIgnored private let defaults: UserDefaults
+    @ObservationIgnored fileprivate let toolEnvironment: any ToolEnvironment
     private var flavorRegistrations: [(owner: ExtensionID, flavor: any DocumentFlavor)] = []
 
-    init(defaults: UserDefaults) { self.defaults = defaults }
+    init(defaults: UserDefaults, toolEnvironment: any ToolEnvironment) {
+        self.defaults = defaults
+        self.toolEnvironment = toolEnvironment
+    }
 
     /// Flavors of all currently active extensions, in registration order (consulted when a document is opened).
     var flavors: [any DocumentFlavor] { flavorRegistrations.map(\.flavor) }
@@ -30,6 +34,7 @@ final class ExtensionHostImpl: ExtensionHostProvider {
         let owner: ExtensionID
         unowned let backend: ExtensionHostImpl
         let settings: ExtensionSettingsStore
+        var toolEnvironment: any ToolEnvironment { backend.toolEnvironment }
 
         init(owner: ExtensionID, backend: ExtensionHostImpl) {
             self.owner = owner

@@ -35,9 +35,21 @@ private final class Counter: @unchecked Sendable {
     func note(_ name: String) { lock.withLock { names.append(name) } }
 }
 
+/// PLAN 6.1: a spawner that counts. Nothing in Quarto's current surface may ever reach it (no probing, no environment).
+private final class SpawnCounter: ProcessSpawner, @unchecked Sendable {
+    private let lock = NSLock()
+    private var n = 0
+    var spawns: Int { lock.withLock { n } }
+    func run(executable: String, arguments: [String], directory: String) async throws -> ProcessOutput {
+        lock.withLock { n += 1 }
+        return ProcessOutput(stdout: Data(), status: 1)
+    }
+}
+
 @MainActor private final class CountingHost: ExtensionHost {
     let provider: CountingProvider
     let settings: ExtensionSettingsStore
+    var toolEnvironment: any ToolEnvironment { provider.toolEnvironment }
     init(provider: CountingProvider, id: ExtensionID) {
         self.provider = provider
         settings = ExtensionSettingsStore(defaults: provider.defaults, extension: id)
@@ -47,6 +59,8 @@ private final class Counter: @unchecked Sendable {
 
 @MainActor private final class CountingProvider: ExtensionHostProvider {
     let defaults: UserDefaults
+    let spawner = SpawnCounter()
+    lazy var toolEnvironment = LoginShellEnvironment(spawner: spawner)
     var hostRequests = 0
     var revocations = 0
     var registered: [any DocumentFlavor] = []
@@ -104,6 +118,8 @@ private final class Counter: @unchecked Sendable {
     #expect(registry.active == ["quarto"])
     #expect(provider.hostRequests == 1)
     #expect(provider.registered.map(\.id) == ["quarto"])  // the only thing activate does (no tool probing, no environment)
+    #expect(provider.spawner.spawns == 0)
+    #expect(await provider.toolEnvironment.state() == .notNeeded)
     #expect(defaults.bool(forKey: "extension.quarto.enabled"))
 }
 
@@ -127,6 +143,7 @@ private final class Counter: @unchecked Sendable {
     #expect(registry.active.isEmpty)
     #expect(provider.hostRequests == 0)  // activate never ran
     #expect(provider.registered.isEmpty)
+    #expect(provider.spawner.spawns == 0)  // no processes, no login-shell environment
 
     let counter = Counter()
     let html = try await render(provider: provider, counter: counter)
