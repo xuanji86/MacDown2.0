@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import WorkspaceKit
 
 /// Debug-only drivers for `Scripts/run-isolated.sh` launches, so behaviour that normally needs a keystroke can be checked
 /// without sending the desktop any input: both are inert unless the launch is isolated, and Release builds have neither.
@@ -8,6 +9,11 @@ import Foundation
 ///   MACDOWN2_TEST_TERMINATE_AFTER=<secs>  quit through the normal Cmd-Q path (the unsaved-documents review) after a delay
 ///   MACDOWN2_TEST_OPEN_SETTINGS=1         open the Settings window (as ⌘, does) once the app is up
 ///   MACDOWN2_TEST_TOOL_ENV_REREAD=1       also run the Settings "重新抓取" (re-read login-shell environment) action first
+///   MACDOWN2_TEST_SEARCH=<query>          the first workspace window shows the sidebar's search page and runs this query (waits
+///                                         up to 5 s for a workspace folder or active document to search in)
+///   MACDOWN2_TEST_SEARCH_REGEX=1          with the above: the regex switch is on
+///   MACDOWN2_TEST_SEARCH_OPEN=<n[,n...]>  with the above: once the results are in, opens the n-th hit (1-based) as a tab and
+///                                         selects the match in the editor, as Return on it would; several: one a second
 ///   MACDOWN2_TEST_WINDOW_FRAME=<"x y w h" | max>  every workspace window takes this frame in screen points (bottom-left
 ///                                         origin), or the main screen's visible frame ("max": what zoom gives), once
 ///   MACDOWN2_TEST_EDIT_TEXT=<text>        <text> is appended to the first open file document, as if typed (it becomes unsaved), ...
@@ -21,6 +27,7 @@ enum IsolatedTestHooks {
         return ProcessInfo.processInfo.environment[name]
     }
     private nonisolated(unsafe) static var typed = false
+    private nonisolated(unsafe) static var searched = false
     private nonisolated(unsafe) static var framed = Set<Int>()
     #endif
 
@@ -30,6 +37,28 @@ enum IsolatedTestHooks {
         typed = true
         doc.text = text
         doc.noteUserEdit()
+        #endif
+    }
+
+    @MainActor static func showSearch(in model: WindowModel, open: @escaping @MainActor (SearchHit) -> Void) {
+        #if DEBUG
+        guard !searched, let query = value("MACDOWN2_TEST_SEARCH") else { return }
+        searched = true
+        let openIndexes = (value("MACDOWN2_TEST_SEARCH_OPEN") ?? "").split(separator: ",").compactMap { Int($0) }
+        Task { @MainActor in
+            for _ in 0..<50 where model.search.scopeTitle.isEmpty { try? await Task.sleep(for: .milliseconds(100)) }
+            model.showSearch()
+            model.search.isRegex = value("MACDOWN2_TEST_SEARCH_REGEX") == "1"
+            model.search.query = query
+            model.search.start()
+            guard !openIndexes.isEmpty else { return }
+            await model.search.task?.value
+            let hits = model.search.hits
+            for index in openIndexes where hits.indices.contains(index - 1) {
+                open(hits[index - 1])
+                try? await Task.sleep(for: .seconds(1))  // each one after the editor has switched
+            }
+        }
         #endif
     }
 

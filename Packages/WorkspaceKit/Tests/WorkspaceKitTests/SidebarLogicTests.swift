@@ -121,8 +121,7 @@ struct TreeFilterTests {
 
     @Test func aBigDirectoryListsAndFiltersQuickly() throws {
         let t = try TempDir(); defer { t.cleanUp() }
-        for i in 0..<5000 { FileManager.default.createFile(atPath: t.url.appending(path: "note-\(i).md").path, contents: Data()) }
-        for i in 0..<50 { try t.dir("folder-\(i)") }
+        try t.bigDirectory()
         let clock = ContinuousClock()
         var model = FileTreeModel(roots: [t.url])
         let listing = clock.measure { model = FileTreeModel(roots: [t.url]) }

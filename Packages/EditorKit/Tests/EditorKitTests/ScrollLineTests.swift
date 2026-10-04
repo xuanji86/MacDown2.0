@@ -46,6 +46,27 @@ struct ScrollLineTests {
         #expect(view.caretLine == 3)
     }
 
+    @Test func revealSelectsTheMatchWithinItsLine() {
+        let view = ViewTests.makeSizedView("a\nfoo bar baz\n\n中文 hit")
+        view.reveal(line: 1, columns: 4..<7)
+        #expect(view.selectedRange() == NSRange(location: 6, length: 3))
+        #expect((view.string as NSString).substring(with: view.selectedRange()) == "bar")
+        view.reveal(line: 3, columns: 3..<6)
+        #expect((view.string as NSString).substring(with: view.selectedRange()) == "hit")
+        view.reveal(line: 3, columns: nil)
+        #expect(view.selectedRange() == NSRange(location: 15, length: 0))
+    }
+
+    @Test func revealClampsToTheLineWhenTheFileChanged() {
+        let view = ViewTests.makeSizedView("short\nnext line")
+        view.reveal(line: 0, columns: 3..<40)  // the line is only 5 long now
+        #expect(view.selectedRange() == NSRange(location: 3, length: 2))
+        view.reveal(line: 0, columns: 30..<40)
+        #expect(view.selectedRange() == NSRange(location: 5, length: 0))
+        view.reveal(line: 99, columns: 0..<2)  // past the end: the last line
+        #expect((view.string as NSString).substring(with: view.selectedRange()) == "ne")
+    }
+
     @Test func scrollingToALineAndReadingItBack() {
         let text = (0..<2000).map { "line \($0) of the document" }.joined(separator: "\n")
         let view = ViewTests.makeSizedView(text)

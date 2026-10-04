@@ -25,7 +25,7 @@ struct WorkspaceView: View {
 
     var body: some View {
         NavigationSplitView(columnVisibility: visibility) {
-            SidebarView(model: model, preview: preview, status: status, jump: jump(toLine:))
+            SidebarView(model: model, preview: preview, status: status, jump: jump(toLine:), openHit: open(hit:pinned:))
                 .navigationSplitViewColumnWidth(min: 200, ideal: 240, max: 400)
         } detail: {
             Group {
@@ -65,11 +65,20 @@ struct WorkspaceView: View {
         .task {
             try? await Task.sleep(for: .milliseconds(600))
             model.isRestoring = false
+            IsolatedTestHooks.showSearch(in: model) { open(hit: $0, pinned: true) }
         }
         .onChange(of: model.state) { WorkspaceRegistry.shared.persist() }
         .onChange(of: model.controller.activeURL) { _, url in model.sidebar.follow(url) }
         // Preview links to Markdown files under a workspace folder open in the app (PreviewNavigationDecider).
         .onChange(of: model.sidebar.folders.roots, initial: true) { _, roots in preview.workspaceRoots = roots }
+    }
+
+    /// Search result: opens the file (a click = the preview tab, Return = a regular one) and selects the match once the editor
+    /// shows it. A file that is not Markdown goes to its own app and gets no selection.
+    private func open(hit: SearchHit, pinned: Bool) {
+        model.sidebar.open(hit.file, pinned: pinned)
+        guard model.controller.holds(hit.file), let line = hit.line else { return }
+        editor.reveal(key: hit.file.fileKey, line: line - 1, columns: hit.columns, focus: model.layout.showsEditor)
     }
 
     /// Outline click: the caret and both panes go to the heading's line, whatever the scroll sync settings.
