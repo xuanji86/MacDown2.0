@@ -19,6 +19,28 @@ final class EditorHandle {
         if focus { textView.window?.makeFirstResponder(textView) }
     }
 
+    // MARK: Search results
+
+    /// A result waiting for its file to be on screen (`RevealTracker`; `EditorPane` reports which document the editor shows).
+    private var tracker = RevealTracker()
+
+    /// Selects the match at `line` (0-based) of the file `key` as soon as the editor shows that file.
+    func reveal(key: String, line: Int, columns: Range<Int>?, focus: Bool) {
+        perform(tracker.request(RevealRequest(key: key, line: line, columns: columns, focus: focus)))
+    }
+
+    /// `EditorPane`: the editor now shows the document with this file key.
+    func documentBound(key: String?) { perform(tracker.bound(key: key)) }
+
+    /// `EditorPane`: the shown document's URL may have changed under it (first save, rename).
+    func syncDocumentKey(_ key: String?) { perform(tracker.sync(key: key)) }
+
+    private func perform(_ request: RevealRequest?) {
+        guard let request, let textView else { return }
+        textView.reveal(line: request.line, columns: request.columns)
+        if request.focus { textView.window?.makeFirstResponder(textView) }
+    }
+
     func resignFocus() {
         if let textView, textView.window?.firstResponder === textView { textView.window?.makeFirstResponder(nil) }
     }

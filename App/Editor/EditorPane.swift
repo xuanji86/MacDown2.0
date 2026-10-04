@@ -43,6 +43,8 @@ struct EditorPane: NSViewRepresentable {
         context.coordinator.undoManager = document.undoManager
         status?.selectionChanged(in: textView)  // the caret is not necessarily at 1:1 after loading the text
         context.coordinator.observeDocument()
+        context.coordinator.editor = editor
+        editor?.documentBound(key: document.fileURL?.fileKey)
         return scrollView
     }
 
@@ -51,6 +53,7 @@ struct EditorPane: NSViewRepresentable {
         // text changes). The undo manager is the document's own: every document keeps its undo stack across tab switches.
         context.coordinator.onUserEdit = onUserEdit
         context.coordinator.bind(to: document)
+        editor?.syncDocumentKey(document.fileURL?.fileKey)  // the same document under a new URL (first save, rename)
         guard let textView = context.coordinator.textView else { return }
         textView.behavior = settings.behavior
         textView.apply(settings: settings.view)
@@ -73,6 +76,7 @@ struct EditorPane: NSViewRepresentable {
         var undoManager: UndoManager?
         var onUserEdit: (() -> Void)?
         var status: EditorStatus?
+        var editor: EditorHandle?
         var decoratedFlavor: FlavorID?
         private var sync: ExternalTextSync
         private var subscription: AnyCancellable?
@@ -107,6 +111,7 @@ struct EditorPane: NSViewRepresentable {
                     textView.scrollRangeToVisible(textView.selectedRange())
                     status?.selectionChanged(in: textView)
                 }
+                editor?.documentBound(key: document.fileURL?.fileKey)  // a search result may be waiting for this file
                 return
             }
             undoManager = document.undoManager

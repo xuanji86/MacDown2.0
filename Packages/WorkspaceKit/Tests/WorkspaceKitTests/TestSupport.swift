@@ -27,6 +27,14 @@ struct TempDir {
     }
 }
 
+extension TempDir {
+    /// The big-directory fixture: 5,000 `note-<i>.md` files and 50 `folder-<i>` folders (5,050 entries); `body` is a file's text.
+    func bigDirectory(body: (Int) -> String = { _ in "" }) throws {
+        for i in 0..<5000 { FileManager.default.createFile(atPath: url.appending(path: "note-\(i).md").path, contents: Data(body(i).utf8)) }
+        for i in 0..<50 { try dir("folder-\(i)") }
+    }
+}
+
 /// Thread-safe collector for callbacks that arrive on a background queue.
 final class Collector<T: Sendable>: @unchecked Sendable {
     private let lock = NSLock()

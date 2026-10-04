@@ -342,6 +342,25 @@ public final class MarkdownTextView: NSTextView {
         scroll(toLine: Double(line))
     }
 
+    /// A search result: selects `columns` (UTF-16 offsets within `line`, 0-based; clamped to the line, so a file that changed
+    /// since the search cannot select past it), shows it a few lines below the top and flashes it like Find does. Without
+    /// `columns` the caret goes to the start of the line.
+    public func reveal(line: Int, columns: Range<Int>?) {
+        let text = (textStorage?.string ?? "") as NSString
+        let start = offsetOfLine(line)
+        let newline = text.range(of: "\n", range: NSRange(location: start, length: text.length - start))
+        let end = newline.location == NSNotFound ? text.length : newline.location
+        var range = NSRange(location: start, length: 0)
+        if let columns {
+            let lower = min(start + columns.lowerBound, end), upper = min(start + columns.upperBound, end)
+            range = NSRange(location: lower, length: upper - lower)
+        }
+        setSelectedRange(range)
+        scroll(toLine: Double(max(0, line - 3)))
+        scrollRangeToVisible(range)
+        if range.length > 0 { showFindIndicator(for: range) }
+    }
+
     /// Scroll so that `line` is at the top of the visible area (no animation).
     public func scroll(toLine line: Double) {
         guard let layout = textLayoutManager, let content = layout.textContentManager,

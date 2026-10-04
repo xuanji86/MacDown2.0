@@ -2,7 +2,7 @@ import Foundation
 
 /// Which sidebar page a window shows (the segmented control at the top of the sidebar).
 public enum SidebarSection: String, Codable, CaseIterable, Sendable {
-    case files, outline
+    case files, search, outline
 }
 
 /// What a workspace window restores after a relaunch: its tabs (files, which one is a preview, which is active), the

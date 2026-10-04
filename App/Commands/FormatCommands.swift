@@ -44,6 +44,11 @@ struct FormatCommands: Commands {
                 .keyboardShortcut("c", modifiers: [.command, .option])
                 .disabled(actions == nil)
         }
+        CommandGroup(after: .textEditing) {
+            Button("在文件中搜索") { workspace?.showSearch() }
+                .keyboardShortcut("f", modifiers: [.command, .shift])
+                .disabled(workspace == nil)
+        }
         CommandGroup(after: .toolbar) {
             Divider()
             SplitLayoutItems(actions: actions)

@@ -10,6 +10,7 @@ import WorkspaceKit
 final class WindowModel {
     let controller: WorkspaceController
     let sidebar: SidebarModel
+    let search: SearchModel
     var sidebarSection = SidebarSection.files
     /// Hidden in a new window until the user has chosen otherwise (the last choice is kept in `AppDefaults.store`).
     var visibility = SidebarVisibility.forNewWindow(defaults: AppDefaults.store)
@@ -35,6 +36,11 @@ final class WindowModel {
         let controller = WorkspaceController(ledger: registry.ledger, backend: registry)
         self.controller = controller
         sidebar = SidebarModel(controller: controller)
+        // The workspace folders, or in browse mode the folder of the active document; the sidebar's own file filter and ignore rules.
+        search = SearchModel(scope: { [sidebar] in
+            let roots = SearchScope.roots(workspace: sidebar.folders, location: sidebar.location.directory)
+            return (roots.filter { AppDefaults.isolation?.allows($0) ?? true }, sidebar.tree.options)
+        })
         sidebar.window = { [weak self] in self?.window }
         // A workspace is something the user asked to see: the Files page opens; closing it puts the sidebar back as it was.
         sidebar.onWorkspaceEntered = { [weak self] in
@@ -120,6 +126,13 @@ final class WindowModel {
     func showOutline() {
         sidebarSection = .outline
         sidebarVisible = true
+    }
+
+    /// ⌘⇧F: the search page, the sidebar shown, the field ready for typing.
+    func showSearch() {
+        sidebarSection = .search
+        sidebarVisible = true
+        search.requestFocus()
     }
 
     /// ⌘W: closes the active tab; with no tab left it closes the window.

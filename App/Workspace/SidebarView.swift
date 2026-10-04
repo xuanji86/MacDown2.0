@@ -1,17 +1,21 @@
 import SwiftUI
 import WorkspaceKit
 
-/// The single sidebar (design C): a Files / Outline switch on top, the page below. Cmd-Ctrl-O jumps to the outline page.
+/// The single sidebar (design C): a Files / Search / Outline switch on top, the page below. Cmd-Shift-F jumps to the search
+/// page, Cmd-Ctrl-O to the outline page.
 struct SidebarView: View {
     @Bindable var model: WindowModel
     let preview: PreviewModel
     let status: EditorStatus
     let jump: (Int) -> Void
+    /// Opens a search result and selects the match (`true` = regular tab, `false` = preview tab).
+    let openHit: (SearchHit, Bool) -> Void
 
     var body: some View {
         VStack(spacing: 0) {
             Picker("侧栏", selection: $model.sidebarSection) {
                 Text("文件").tag(SidebarSection.files)
+                Text("搜索").tag(SidebarSection.search)
                 Text("大纲").tag(SidebarSection.outline)
             }
             .pickerStyle(.segmented)
@@ -22,6 +26,8 @@ struct SidebarView: View {
             switch model.sidebarSection {
             case .files:
                 FilesPage(model: model)
+            case .search:
+                SearchPage(model: model, open: openHit)
             case .outline:
                 OutlineList(preview: preview, status: status, jump: jump)
             }
@@ -126,24 +132,34 @@ private struct FilterField: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel("清除筛选")
             }
-            Button { sidebar.showAllFiles.toggle() } label: {
-                Text("全部")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(sidebar.showAllFiles ? Color.white : Color.secondary)
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 2)
-                    .background(Capsule().fill(sidebar.showAllFiles ? Color.accentColor : Color.primary.opacity(0.08)))
-            }
-            .buttonStyle(.plain)
-            .help("显示所有文件类型（非 Markdown 文件半透明，单击用默认 App 打开）")
-            .accessibilityLabel("显示所有文件")
-            .accessibilityValue(sidebar.showAllFiles ? "开" : "关")
-            .accessibilityAddTraits(.isToggle)
+            AllFilesToggle(sidebar: sidebar)
         }
         .padding(.horizontal, 8)
         .frame(height: 26)
         .background(RoundedRectangle(cornerRadius: 8).fill(Color.primary.opacity(0.06)))
         .padding(.horizontal, 10)
         .padding(.bottom, 6)
+    }
+}
+
+/// The "All" capsule in the filter and search fields: every file type instead of the Markdown family (non-Markdown dimmed
+/// and opened in their own app). One switch for both pages.
+struct AllFilesToggle: View {
+    @Bindable var sidebar: SidebarModel
+
+    var body: some View {
+        Button { sidebar.showAllFiles.toggle() } label: {
+            Text("全部")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(sidebar.showAllFiles ? Color.white : Color.secondary)
+                .padding(.horizontal, 7)
+                .padding(.vertical, 2)
+                .background(Capsule().fill(sidebar.showAllFiles ? Color.accentColor : Color.primary.opacity(0.08)))
+        }
+        .buttonStyle(.plain)
+        .help("所有文件类型：树里非 Markdown 文件半透明、单击用默认 App 打开；搜索也会包含它们")
+        .accessibilityLabel("显示所有文件")
+        .accessibilityValue(sidebar.showAllFiles ? "开" : "关")
+        .accessibilityAddTraits(.isToggle)
     }
 }
