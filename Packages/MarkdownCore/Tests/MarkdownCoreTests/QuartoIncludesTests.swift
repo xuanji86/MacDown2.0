@@ -106,3 +106,45 @@ private func reader(_ files: [String: String], asked: ((String) -> Void)? = nil)
     #expect(read("../" + outside.lastPathComponent) == nil)
     #expect(QuartoIncludes.fileReader(directory: nil)("sub/child.qmd") == nil)
 }
+
+@Test func theIncludeCacheReadsAgainOnlyWhatChangedAndReportsOutsideChanges() throws {
+    let dir = FileManager.default.temporaryDirectory.appending(path: "IncludeFileCacheTests-\(UUID().uuidString)", directoryHint: .isDirectory)
+    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let child = dir.appending(path: "child.qmd")
+    let date = Date(timeIntervalSince1970: 1_700_000_000)  // whole seconds: survives being set again exactly
+    try Data("one".utf8).write(to: child)
+    try FileManager.default.setAttributes([.modificationDate: date], ofItemAtPath: child.path)
+    let cache = IncludeFileCache(directory: dir)
+    func render() -> [String: String] {
+        defer { cache.endRender() }
+        return QuartoIncludes.files(for: "{{< include child.qmd >}}\n\n{{< include later.qmd >}}", readFile: cache.read)
+    }
+    #expect(render() == ["child.qmd": "one"])
+    #expect(!cache.changed())
+
+    // Same size and date: served from memory even though the bytes on disk are different now.
+    try Data("two".utf8).write(to: child)
+    try FileManager.default.setAttributes([.modificationDate: date], ofItemAtPath: child.path)
+    #expect(render() == ["child.qmd": "one"] && !cache.changed())
+
+    // A new date: seen by `changed` without a render, and read afresh by the next one.
+    try FileManager.default.setAttributes([.modificationDate: date.addingTimeInterval(60)], ofItemAtPath: child.path)
+    #expect(cache.changed())
+    #expect(render() == ["child.qmd": "two"] && !cache.changed())
+
+    // A file that was missing appears; one that goes away is noticed too.
+    try Data("later".utf8).write(to: dir.appending(path: "later.qmd"))
+    #expect(cache.changed())
+    #expect(render() == ["child.qmd": "two", "later.qmd": "later"] && !cache.changed())
+    try FileManager.default.removeItem(at: child)
+    #expect(cache.changed())
+    #expect(render() == ["later.qmd": "later"] && !cache.changed())
+
+    // An include the text no longer has stops being watched.
+    _ = QuartoIncludes.files(for: "no includes", readFile: cache.read)
+    cache.endRender()
+    try Data("changed".utf8).write(to: dir.appending(path: "later.qmd"))
+    #expect(!cache.changed())
+    #expect(IncludeFileCache(directory: nil).read("child.qmd") == nil)
+}

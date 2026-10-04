@@ -50,6 +50,7 @@ public struct QuickLookPage: Sendable {
         var options = defaults.map { RenderPreferences(defaults: $0).options } ?? RenderOptions()
         options.allowRawHTML = false  // whatever the app's setting says: the host runs scripts (see above)
         options.headingAnchors = true
+        options.sourceLines = false
         var styleSheets: [String] = []
         if let manifest {
             let (flavor, chunks) = manifest.resolve(utType: utType, isEnabled: isEnabled)
@@ -58,7 +59,7 @@ public struct QuickLookPage: Sendable {
             styleSheets = manifest.entries[flavor]?.stylesheets ?? []
         }
         let result = try await renderer.render(source, options: options)
-        var body = HTMLExporter.stripSourceLines(result.html)
+        var body = result.html
         var attachments: [Attachment] = []
         var loaded: [String: String?] = [:]  // path -> cid (nil = refused), so a repeated image is read once
         var imageBytes = 0
@@ -186,8 +187,17 @@ public struct QuickLookPage: Sendable {
     static func decode(_ data: Data) -> (text: String, truncated: Bool) {
         let truncated = data.count > maxBytes
         var bytes = truncated ? data.prefix(maxBytes) : data
-        if truncated, let newline = bytes.lastIndex(of: 0x0A) { bytes = bytes[..<newline] }  // never cut a multibyte character in half
-        if bytes.starts(with: [0xFF, 0xFE]) || bytes.starts(with: [0xFE, 0xFF]),
+        let le = bytes.starts(with: [0xFF, 0xFE]), be = bytes.starts(with: [0xFE, 0xFF])
+        if truncated, le || be {
+            // A newline is the unit 0A 00 (LE) or 00 0A (BE) at an even offset; a lone 0x0A byte can be half of any other character.
+            let units = Array(bytes)
+            let end = units.count - units.count % 2
+            let cut = stride(from: end - 2, through: 0, by: -2).first { le ? units[$0] == 0x0A && units[$0 + 1] == 0 : units[$0] == 0 && units[$0 + 1] == 0x0A }
+            bytes = Data(units[..<(cut ?? end)])
+        } else if truncated, let newline = bytes.lastIndex(of: 0x0A) {
+            bytes = bytes[..<newline]  // never cut a multibyte character in half
+        }
+        if le || be,
            let text = String(data: Data(bytes), encoding: .utf16) { return (text, truncated) }
         let text = String(decoding: bytes, as: UTF8.self)
         return (text.hasPrefix("\u{FEFF}") ? String(text.dropFirst()) : text, truncated)

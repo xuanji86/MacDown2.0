@@ -9,13 +9,8 @@ public enum HTMLExporter {
     /// MIME type; nil when it cannot be read (the `<img>` is then left as written).
     public typealias ImageSource = @Sendable (_ relativePath: String) -> (data: Data, mime: String)?
 
-    /// The renderer tags blocks with source lines for scroll sync; that is noise in an exported file or on a clipboard.
-    public static func stripSourceLines(_ html: String) -> String {
-        html.replacingOccurrences(of: #" data-line(?:-end)?="\d+""#, with: "", options: .regularExpression)
-    }
-
     /// - Parameters:
-    ///   - body: `RenderResult.html`.
+    ///   - body: `RenderResult.html` of a render with `RenderOptions.forExport` (no source-line attributes).
     ///   - style: `(light, dark)` as returned by `PreviewStyles.resolve`.
     ///   - inlineImages: nil keeps `<img src>` as written; otherwise every document-relative one it can read becomes a
     ///     `data:` URI, so the file does not depend on the folder it came from.
@@ -27,7 +22,7 @@ public enum HTMLExporter {
         body: String, title: String, style: (light: String, dark: String?) = PreviewStyles.resolve(id: PreviewStyles.defaultID, followSystem: false),
         inlineImages: ImageSource? = nil, flavor: String = "markdown", stylesheets: [String] = [], blockRemoteImages: Bool = false, userCSS: String? = nil
     ) -> String {
-        var body = stripSourceLines(body)
+        var body = body
         if let inlineImages { body = inlineRelativeImages(in: body, source: inlineImages) }
         let math = body.contains(#"class="katex"#) ? "<style>\(katexCSS())</style>\n" : ""
         // print.css (paper rules: no desk colour, wrapping code, page breaks) comes after everything that is the document's own
