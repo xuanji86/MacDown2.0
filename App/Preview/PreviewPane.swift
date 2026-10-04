@@ -81,6 +81,7 @@ final class PreviewModel {
         didSet {
             guard documentDirectory != oldValue else { return }
             documentRoot.url = documentDirectory
+            includes = IncludeFileCache(directory: documentDirectory)
             // Images already rendered point at macdown2-res://doc/... and failed or showed another file: rebuild once.
             needsRebuild = true
             if let lastMarkdown { schedule(lastMarkdown) }
@@ -95,6 +96,8 @@ final class PreviewModel {
     }
 
     private let documentRoot = DocumentRoot()
+    /// The Quarto include files the renders read, so a render re-reads only what changed and a folder event can tell an include moved on.
+    private var includes = IncludeFileCache(directory: nil)
     private let messages = PreviewMessageHandler()
     /// The Markdown / Rendering settings; the document's flavor is added per render (`resolvedOptions`).
     private var options: RenderOptions
@@ -162,8 +165,15 @@ final class PreviewModel {
     /// Options for rendering `markdown` now (settings + flavor + the files the flavor reads), as the page's JSON, and
     /// the chunks and stylesheets to have loaded first.
     private func resolvedOptions(for markdown: String) -> (json: String, flavor: [String: [String]]) {
-        let resolved = options.rendering(as: flavor, markdown: markdown, readFile: QuartoIncludes.fileReader(directory: documentDirectory))
+        let resolved = options.rendering(as: flavor, markdown: markdown, readFile: includes.read)
+        includes.endRender()
         return (Self.json(resolved), ["chunks": resolved.renderChunks, "stylesheets": flavor?.previewStylesheets ?? []])
+    }
+
+    /// The document's text as the editor has it now. Text the page already shows or is about to (a task checkbox click renders its
+    /// own result at once, and the edit then reaches here too) is not rendered a second time; `schedule` always renders.
+    func textChanged(_ markdown: String) {
+        if markdown != lastMarkdown { schedule(markdown) }
     }
 
     /// Debounced (~150 ms) so typing bursts render once.
@@ -202,13 +212,19 @@ final class PreviewModel {
     /// gone), load the page afresh and render again at the same line. Why not just re-render: inside one page load WebKit
     /// hands an `<img>` with a URL it already loaded the old picture, whatever the response headers say (checked: the
     /// handler's `no-store` does not help), and the only other cure is rewriting URLs inside the page's own code.
-    /// Cheap when nothing it showed changed; one flash when something did.
+    /// Cheap when nothing it showed changed; one flash when something did. A Quarto include file that changed needs no reload,
+    /// only a render (its text is part of the options the page is given).
     func refreshChangedResources() {
+        guard let lastMarkdown else { return }
         let changed = documentRoot.changedServedFiles()
-        guard !changed.isEmpty, lastMarkdown != nil else { return }
-        log.info("preview: \(changed.count) image(s) changed on disk, reloading the page")
-        documentRoot.forgetServedFiles()
-        Task { await reloadPage() }
+        if !changed.isEmpty {
+            log.info("preview: \(changed.count) image(s) changed on disk, reloading the page")
+            documentRoot.forgetServedFiles()
+            Task { await reloadPage() }
+        } else if includes.changed() {
+            log.info("preview: an include file changed on disk, rendering again")
+            schedule(lastMarkdown)
+        }
     }
 
     /// A setting that lives in the page's own CSP changed (Block remote images): the page is read again with the new policy.
@@ -283,6 +299,7 @@ final class PreviewModel {
            let new = onToggleTask?(task, checked, shown.text) {
             // Render the new text now instead of after the typing debounce: a second click inside that window would be stale.
             lastMarkdown = new
+            debounce?.cancel()  // a render of older text still waiting would otherwise land after this one
             Task { [weak self] in await self?.push(new) }
         } else {
             log.info("preview task toggle refused (line \(line), version \(version))")
@@ -307,7 +324,9 @@ final class PreviewModel {
             }
         }
         loading = task
-        return await task.value
+        let loaded = await task.value
+        if !loaded, loading == task { loading = nil }  // a failed load is tried again by the next push or scroll, not remembered
+        return loaded
     }
 
     /// Before the first render, so a non-default style never shows a white frame first.
@@ -404,7 +423,7 @@ struct PreviewPane: View {
             .onChange(of: blockRemoteImages, initial: true) { model.reloadForPolicyChange() }
             // Restarts with the document: the page stays, the text it renders is the active tab's.
             .task(id: ObjectIdentifier(document)) {
-                for await text in document.$text.values { model.schedule(text) }
+                for await text in document.$text.values { model.textChanged(text) }
             }
             // Only the document shown here is followed; the monitor of a document in a background tab does not reach a preview.
             .task(id: ObjectIdentifier(document)) {

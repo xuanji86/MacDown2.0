@@ -278,6 +278,21 @@ private func hrefs(in html: String) throws -> [String] {
     #expect(!QuickLookPage.decode(Data(repeating: 0x61, count: QuickLookPage.maxBytes)).truncated)
 }
 
+@Test func oversizedUTF16DocumentIsCutAtAWholeLine() {
+    // U+0A15 (Gujarati) has 0x0A as its high byte in LE and U+010A has it as the low byte in BE: a byte scan for 0x0A would cut
+    // inside a character and the UTF-16 decode would fail.
+    let line = "\u{0A15}\u{010A}中文 line of text\n"
+    let doc = "# top\n" + String(repeating: line, count: QuickLookPage.maxBytes / line.utf16.count / 2 + 100)
+    for (bom, encoding) in [([UInt8(0xFF), 0xFE], String.Encoding.utf16LittleEndian), ([0xFE, 0xFF], .utf16BigEndian)] {
+        let data = Data(bom + Array(doc.data(using: encoding)!.prefix(QuickLookPage.maxBytes + 1 - 2)))
+        let (text, truncated) = QuickLookPage.decode(data)
+        #expect(truncated)
+        #expect(text.hasPrefix("# top\n"))
+        #expect(text.hasSuffix("line of text"), "\(encoding)")  // a whole line, decoded as UTF-16 (not UTF-8 mojibake)
+        #expect(!text.contains("\u{FFFD}"))
+    }
+}
+
 @Test func decodeHandlesBOMsAndUTF16() {
     #expect(QuickLookPage.decode(Data([0xEF, 0xBB, 0xBF, 0x23, 0x20, 0x41])).text == "# A")
     #expect(QuickLookPage.decode("# 中".data(using: .utf16)!).text == "# 中")  // utf16 data carries a BOM

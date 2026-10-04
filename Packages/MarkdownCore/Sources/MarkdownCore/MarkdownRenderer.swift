@@ -43,11 +43,15 @@ public struct RenderOptions: Sendable, Codable, Hashable {
     /// Output that leaves the app (Copy HTML, export, PDF, `macdown2 render`): script, frames, event handlers and script URLs are
     /// removed from `RenderResult.html`. Off for the preview, which keeps the document's raw HTML and defends itself with a CSP.
     public var sanitize = false
+    /// Tag blocks with `data-line` / `data-line-end` (scroll sync and DOM patching in the preview). Off for output that leaves the
+    /// app: the renderer then never writes them, instead of someone cutting them out of the finished HTML (where text can look the same).
+    public var sourceLines = true
 
     /// These options for output that leaves the app: Copy HTML, export, PDF, print, `macdown2 render`.
     public var forExport: RenderOptions {
         var options = self
         options.sanitize = true
+        options.sourceLines = false
         return options
     }
 

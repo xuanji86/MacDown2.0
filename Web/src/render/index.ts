@@ -29,6 +29,9 @@ export interface RenderOptions {
   codeHighlighting: boolean;
   codeLineNumbers: boolean;
   inlineDollarMath: boolean; // `$…$`; `$$…$$`, `\(…\)` and `\[…\]` are always on with `math`
+  // Tag blocks with `data-line` / `data-line-end` (scroll sync, DOM patch); default on. Off for output that leaves the app: the
+  // attributes are never written, so nothing has to be cut out of finished HTML afterwards (text could look like them).
+  sourceLines?: boolean;
   frontMatterDisplay: FrontMatterDisplay;
   // Text of files a flavor may read while rendering, by path relative to the document folder (the app reads them
   // beforehand; a flavor chunk finds them in `env.files`). Not part of the instance cache key.
@@ -89,7 +92,7 @@ function plainText(inline: Token | undefined): string {
 
 // Runs last in the core chain: tags block tokens with source line ranges (scroll sync, DOM patch),
 // assigns heading ids and collects the outline.
-function annotate(state: StateCore, headingAnchors: boolean): void {
+function annotate(state: StateCore, headingAnchors: boolean, sourceLines: boolean): void {
   const env = state.env as Env;
   const seen = new Map<string, number>();
   const tokens = state.tokens;
@@ -98,7 +101,7 @@ function annotate(state: StateCore, headingAnchors: boolean): void {
     // GitHub alert: the plugin starts the block one line late (after the `[!NOTE]` marker line), which would leave that line
     // out of the block's range and its hash; the title token carries the real first line.
     if (t.type === 'alert_open' && t.map && tokens[i + 1]?.map) t.map[0] = tokens[i + 1].map![0];
-    if (t.map && t.nesting >= 0 && t.type !== 'inline') {
+    if (sourceLines && t.map && t.nesting >= 0 && t.type !== 'inline') {
       t.attrSet('data-line', String(t.map[0]));
       t.attrSet('data-line-end', String(t.map[1]));
     }
@@ -133,6 +136,7 @@ function instance(o: RenderOptions): MarkdownIt {
     o.codeLineNumbers,
     o.inlineDollarMath,
     o.frontMatterDisplay,
+    o.sourceLines !== false,
   ])}`;
   const cached = instances.get(key);
   if (cached) return cached;
@@ -172,7 +176,7 @@ function instance(o: RenderOptions): MarkdownIt {
   if (ext.has('frontMatter')) md.use(frontMatter, o.frontMatterDisplay === 'table' ? 'table' : 'hidden');
   md.use(codeBlocks, { highlight: o.codeHighlighting, lineNumbers: o.codeLineNumbers });
   setup(md, o);
-  md.core.ruler.push('macdown2_annotate', (state) => annotate(state, o.headingAnchors));
+  md.core.ruler.push('macdown2_annotate', (state) => annotate(state, o.headingAnchors, o.sourceLines !== false));
   instances.set(key, md);
   return md;
 }

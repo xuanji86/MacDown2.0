@@ -4,14 +4,21 @@ import WebAssets
 @testable import MarkdownCore
 
 private func render(_ markdown: String) async throws -> String {
-    try await JSCRenderer().render(markdown, options: RenderOptions()).html
+    try await JSCRenderer().render(markdown, options: RenderOptions().forExport).html
 }
 
-@Test func stripsSourceLineAttributes() async throws {
-    let html = try await render("# T\n\npara\n")
-    #expect(html.contains("data-line"))  // the renderer does tag blocks
-    #expect(!HTMLExporter.stripSourceLines(html).contains("data-line"))
-    #expect(HTMLExporter.stripSourceLines(#"<p data-line="3" data-line-end="4" id="x">"#) == #"<p id="x">"#)
+@Test func exportCarriesNoSourceLineAttributesButKeepsTextThatLooksLikeThem() async throws {
+    let source = "# T\n\npara `x data-line=\"3\" data-line-end=\"4\"` and data-line=\"5\" in prose\n\n```\n<p data-line=\"7\">\n```\n"
+    let preview = try await JSCRenderer().render(source, options: RenderOptions()).html
+    #expect(preview.contains(#"<h1 data-line="0" data-line-end="1""#))  // the preview does tag blocks
+    let html = try await render(source)
+    #expect(!html.contains("<h1 data-line"))
+    #expect(!html.contains("<p data-line"))
+    #expect(html.contains(#"x data-line="3" data-line-end="4""#))  // the sanitizer writes a literal `"` in text: it is content, not an attribute
+    #expect(html.contains(#"and data-line="5" in prose"#))
+    #expect(html.contains("&lt;p data-line=\"7\"&gt;"))
+    let page = HTMLExporter.document(body: html, title: "t")
+    #expect(page.contains(#"x data-line="3" data-line-end="4""#))
 }
 
 @Test func documentIsStandaloneWithStyleAndEscapedTitle() async throws {

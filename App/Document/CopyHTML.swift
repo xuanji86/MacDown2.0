@@ -10,7 +10,7 @@ private let log = Logger(subsystem: "io.github.xuanji86.MacDown2", category: "co
 enum CopyHTML {
     private static var renderer: JSCRenderer?
 
-    /// The document as rendered HTML (source-line attributes included), with the current Markdown / Rendering settings
+    /// The document as rendered HTML, with the current Markdown / Rendering settings
     /// unless `options` says otherwise. One renderer serves both copy and export, and both are output that leaves the app: script,
     /// frames, event handlers and script URLs a hostile document carries are removed (the preview has a CSP instead).
     /// `fileURL` decides the flavor (a .qmd renders with the Quarto chunk while that extension is on) and where includes are read.
@@ -22,7 +22,7 @@ enum CopyHTML {
 
     static func copy(_ markdown: String, fileURL: URL? = nil, to pasteboard: NSPasteboard = .general) async {
         do {
-            let html = HTMLExporter.stripSourceLines(try await render(markdown, fileURL: fileURL))
+            let html = try await render(markdown, fileURL: fileURL)
             pasteboard.clearContents()
             pasteboard.setString(html, forType: .html)
             pasteboard.setString(html, forType: .string)

@@ -49,7 +49,7 @@ enum Render {
                 flavor: flavor.rawValue, stylesheets: stylesheets, userCSS: userCSS
             )
         } else {
-            let html = HTMLExporter.stripSourceLines(result.html)
+            let html = result.html
             text = html.hasSuffix("\n") || html.isEmpty ? html : html + "\n"
         }
 
