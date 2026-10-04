@@ -6,8 +6,10 @@
 // their DOM nodes (selection, image decode, scroll position, hover state all survive), only changed ones are
 // swapped. Each block's nodes are followed by an invisible <!--md2--> comment so a block can be found again.
 import { errorText, post } from './bridge.ts';
+import { loadChunk } from './chunk-loader.ts';
 import { planPatch } from './dom-patch.ts';
 import { rewriteImages } from './images.ts';
+import { renderMermaid } from './mermaid-loader.ts';
 import { pageYToLine, scrollToLine as scrollBlocksToLine, startScrollReporting, type BlockHandle } from './scroll.ts';
 import { alignSegments, splitBlocks, type Segment } from './split-html.ts';
 import { DEFAULT_STYLE, styleLinks } from './styles.ts';
@@ -168,6 +170,7 @@ export function update(md: string, optionsJSON: string): string {
     if (mode !== 'patch') doc().dataset.flavor = options.flavor;
     const t3 = performance.now();
     errorBar().hidden = true;
+    renderMermaid(doc()); // async; draws the diagrams that are new in the DOM, the metadata below does not wait for it
     const ms = (a: number, b: number): number => Math.round((b - a) * 100) / 100;
     return JSON.stringify({ ...meta, perf: { mode, created, render: ms(t0, t1), split: ms(t1, t2), apply: ms(t2, t3), patch: ms(t1, t3), total: ms(t0, t3) } });
   } catch (e) {
@@ -180,29 +183,8 @@ export function update(md: string, optionsJSON: string): string {
 }
 
 // Flavor chunks and stylesheets (PLAN 4.4.3): the app names the ones the document's flavor needs before every update. A
-// chunk (a script that registers the flavor with render.bundle.js) is loaded once per page, with the page's CSP nonce;
+// chunk (a script that registers the flavor with render.bundle.js) is loaded once per page (chunk-loader.ts);
 // a flavor stylesheet is linked while its flavor is in use and dropped otherwise. With no flavor, nothing is loaded.
-const loadedChunks = new Map<string, Promise<void>>();
-
-function loadChunk(src: string): Promise<void> {
-  let loading = loadedChunks.get(src);
-  if (!loading) {
-    loading = new Promise<void>((resolve, reject) => {
-      const el = document.createElement('script');
-      el.nonce = (document.querySelector('script[nonce]') as HTMLScriptElement | null)?.nonce ?? '';
-      el.src = src;
-      el.onload = () => resolve();
-      el.onerror = () => {
-        loadedChunks.delete(src); // let the next update try again
-        reject(new Error(`could not load ${src}`));
-      };
-      document.head.append(el);
-    });
-    loadedChunks.set(src, loading);
-  }
-  return loading;
-}
-
 export async function useFlavor(flavor: { chunks: string[]; stylesheets: string[] }): Promise<void> {
   await Promise.all(flavor.chunks.map(loadChunk));
   const wanted = new Set(flavor.stylesheets);
@@ -250,7 +232,9 @@ export function setStyle(light: string, dark: string | null): void {
   const old = Array.from(document.head.querySelectorAll('link[data-md2-style]'));
   let pending = links.length;
   const loaded = (): void => {
-    if (--pending === 0) old.forEach((l) => l.remove());
+    if (--pending > 0) return;
+    old.forEach((l) => l.remove());
+    renderMermaid(doc()); // light <-> dark changes the Mermaid theme
   };
   for (const l of links) {
     const el = document.createElement('link');

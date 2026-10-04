@@ -1,5 +1,6 @@
 // Builds the vendored web assets: render.bundle.js, preview.bundle.js (+ preview.html, preview-styles/*.css + styles.json),
-// katex/ (CSS + woff2 fonts), hljs-themes/, flavors.json, quarto.chunk.js + quarto-approx.css, THIRD_PARTY_LICENSES.txt.
+// katex/ (CSS + woff2 fonts), hljs-themes/, flavors.json, quarto.chunk.js + quarto-approx.css, mermaid.chunk.js,
+// THIRD_PARTY_LICENSES.txt.
 // Usage: node build.mjs [outDir]   (default: the WebAssets package resources; drift check passes a temp dir)
 import { build } from 'esbuild';
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
@@ -58,6 +59,23 @@ const CHUNK_BUDGET = 120 * 1024; // PLAN 4.1.2
 const chunkSize = statSync(join(outDir, 'quarto.chunk.js')).size;
 if (chunkSize > CHUNK_BUDGET) throw new Error(`quarto.chunk.js is ${chunkSize} bytes, over the ${CHUNK_BUDGET} budget`);
 
+// Mermaid chunk (PLAN 4.1.2): the preview page loads it with a nonce'd <script> and the print page evaluates it, only when
+// a document has a mermaid block. It is big (every diagram type, d3, layout engines) and deliberately in neither
+// bundle above; Scripts/check-web-drift.sh asserts it does not leak into them.
+const mermaid = await build({
+  entryPoints: [join(here, 'src/mermaid/index.ts')],
+  outfile: join(outDir, 'mermaid.chunk.js'),
+  bundle: true,
+  format: 'iife',
+  globalName: 'MacDown2Mermaid',
+  target: 'es2022',
+  minify: true,
+  legalComments: 'none',
+  metafile: true,
+  tsconfigRaw: '{}',
+  logLevel: 'warning',
+});
+
 // Preview styles: _base.css is prepended to every <style>.css; styles.json (the registry, also bundled into the page and
 // read by the app) says which hljs theme and light/dark partner each one has.
 const stylesDir = join(here, 'src/preview/preview-styles');
@@ -98,18 +116,19 @@ for (const dir of readdirSync(join(here, 'src'))) {
 }
 writeFileSync(join(outDir, 'flavors.json'), `${JSON.stringify(flavors, null, 2)}\n`);
 
-// License texts of every npm package that ended up in a bundle.
-const packages = new Set();
-for (const input of [...Object.keys(metafile.inputs), ...Object.keys(quarto.metafile.inputs)]) {
-  const m = input.match(/node_modules\/((?:@[^/]+\/)?[^/]+)\//);
-  if (m) packages.add(m[1]);
+// License texts of every npm package that ended up in a bundle. Mermaid's dependency tree may nest packages
+// (node_modules/a/node_modules/b), so the innermost node_modules segment names the package and gives its directory.
+const packages = new Map();
+for (const input of [...Object.keys(metafile.inputs), ...Object.keys(quarto.metafile.inputs), ...Object.keys(mermaid.metafile.inputs)]) {
+  const m = input.slice(Math.max(input.indexOf('node_modules/'), 0)).match(/^(.*node_modules\/(?:@[^/]+\/)?[^/]+)\//); // input paths are relative to the cwd
+  if (m) packages.set(m[1], join(here, m[1]));
 }
-const notices = [...packages].sort().map((name) => {
-  const root = join(here, 'node_modules', name);
-  const { version, license } = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
+const notices = [...packages.values()].sort().map((root) => {
+  const { name, version, license } = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
   const file = readdirSync(root).find((f) => /^licen[sc]e/i.test(f));
   if (!file) throw new Error(`${name}: no LICENSE file to bundle`);
-  return `${name} ${version} (${license})\n\n${readFileSync(join(root, file), 'utf8').trim()}\n`;
+  const label = typeof license === 'string' ? ` (${license})` : ''; // khroma ships a LICENSE file but no license field
+  return `${name} ${version}${label}\n\n${readFileSync(join(root, file), 'utf8').trim()}\n`;
 });
 notices.push(readFileSync(join(here, 'src/render/katex-fonts-license.txt'), 'utf8').trim() + '\n');
 notices.push(readFileSync(join(here, 'src/quarto/vendored/LICENSE.txt'), 'utf8').trim() + '\n');

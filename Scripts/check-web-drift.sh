@@ -13,3 +13,13 @@ for bundle in render.bundle.js preview.bundle.js; do
     echo "error: $bundle contains Quarto code; it belongs in quarto.chunk.js" >&2; exit 1
   fi
 done
+# Same for Mermaid: `flowchart-v2` is one of its diagram ids, so it only occurs where Mermaid itself is bundled.
+for bundle in render.bundle.js preview.bundle.js; do
+  if grep -q flowchart-v2 "$res/$bundle"; then
+    echo "error: $bundle contains Mermaid; it belongs in mermaid.chunk.js" >&2; exit 1
+  fi
+done
+grep -q flowchart-v2 "$res/mermaid.chunk.js" || { echo "error: mermaid.chunk.js does not contain Mermaid" >&2; exit 1; }
+# Main bundle budget (PLAN 4.1.2: <= 800 KB minified).
+size=$(wc -c < "$res/render.bundle.js")
+[ "$size" -le $((800 * 1024)) ] || { echo "error: render.bundle.js is $size bytes, over its 800 KB budget" >&2; exit 1; }

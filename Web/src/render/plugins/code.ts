@@ -1,6 +1,8 @@
 // Fenced code blocks: optional highlight.js (class output; themes are CSS files), optional per-line
 // spans for CSS-counter line numbers, and a `data-lang` attribute the preview CSS can show as a label.
 // `data-line` lands on <pre> (the top-level element), not on <code> as markdown-it's default does.
+// A ```mermaid fence is an ordinary code block plus `class="mermaid-source"`: where scripts run (preview, print) the
+// mermaid chunk swaps it for the diagram, everywhere else (HTML export, copy, Quick Look, JSC) it simply stays code.
 import type { MarkdownIt, Token } from 'markdown-it';
 import hljs from 'highlight.js/lib/core';
 import bash from 'highlight.js/lib/languages/bash';
@@ -79,9 +81,13 @@ export function codeBlocks(md: MarkdownIt, { highlight, lineNumbers }: CodeOptio
       : md.utils.escapeHtml(t.content);
     if (lineNumbers && t.content !== '') body = wrapLines(body);
 
-    const pre = { attrs: [...(t.attrs ?? [])] } as Token;
+    const pre = { attrs: (t.attrs ?? []).map((a) => [...a]) } as Token;
     if (lang) pre.attrs!.push(['data-lang', lang]);
-    if (lineNumbers) pre.attrs!.push(['class', 'line-numbers']);
+    for (const cls of [lang === 'mermaid' ? 'mermaid-source' : '', lineNumbers ? 'line-numbers' : '']) {
+      const have = pre.attrs!.find(([k]) => k === 'class'); // a flavor (markdown-it-attrs) may have set one already
+      if (cls && have) have[1] += ` ${cls}`;
+      else if (cls) pre.attrs!.push(['class', cls]);
+    }
     const codeClass = [known ? 'hljs' : '', lang ? `language-${lang}` : ''].filter(Boolean).join(' ');
     const code = codeClass ? ` class="${md.utils.escapeHtml(codeClass)}"` : '';
     return `<pre${slf.renderAttrs(pre)}><code${code}>${body}</code></pre>\n`;
