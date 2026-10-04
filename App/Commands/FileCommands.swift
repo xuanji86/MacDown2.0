@@ -7,12 +7,15 @@ import SwiftUI
 /// stay the heading shortcuts (a menu cannot bind one key to two commands depending on focus), so a tab number needs Control.
 struct FileCommands: Commands {
     @FocusedValue(\.workspace) private var workspace
+    @Environment(\.openWindow) private var openWindow
     private let recents = WorkspaceRegistry.shared.recents
 
     var body: some Commands {
-        CommandGroup(after: .newItem) {
-            Button("New Document…") { WorkspaceRegistry.shared.showNewDocumentPanel() }
-                .keyboardShortcut("n", modifiers: [.command, .shift])
+        CommandGroup(replacing: .newItem) {
+            Button("New") { WorkspaceRegistry.shared.newUntitled() }
+                .keyboardShortcut("n")
+            Button("New Window") { openWindow(id: WorkspaceScene.id) }  // a new window comes with an untitled tab
+                .keyboardShortcut("n", modifiers: [.command, .option])
             Button("Open…") { WorkspaceRegistry.shared.showOpenPanel() }
                 .keyboardShortcut("o")
             Button("Open Folder…") { WorkspaceRegistry.shared.showOpenFolderPanel() }

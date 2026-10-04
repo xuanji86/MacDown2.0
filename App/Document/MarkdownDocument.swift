@@ -27,6 +27,51 @@ final class MarkdownDocument: NSDocument, ObservableObject {
 
     override class var autosavesInPlace: Bool { true }
 
+    /// Identity of an untitled document (Cmd-N): its tab is keyed `URL.untitled(untitledID)` until the first save gives it a
+    /// file. nil for a document read from a file.
+    private(set) var untitledID: UUID?
+    private(set) var untitledNumber: Int?
+    /// The user has typed into it (even if it is empty again).
+    private var hasBeenEdited = false
+
+    static func makeUntitled(number: Int) -> MarkdownDocument {
+        let doc = MarkdownDocument()
+        doc.untitledID = UUID()
+        doc.untitledNumber = number
+        doc.fileType = markdownType  // the first save writes Markdown
+        return doc
+    }
+
+    /// The key of this document's tab: its file, or the made-up untitled URL.
+    var tabURL: URL? { fileURL ?? untitledID.map(URL.untitled) }
+
+    /// An untitled document nobody typed into: opening a file replaces it, closing it asks nothing.
+    var isPristine: Bool { fileURL == nil && untitledID != nil && !hasBeenEdited && !isDocumentEdited && text.isEmpty }
+
+    override var displayName: String! {
+        get { fileURL == nil ? untitledNumber.map(UntitledNames.title) ?? super.displayName : super.displayName }
+        set { super.displayName = newValue }
+    }
+
+    /// First save: "<first heading>.md" (else "Untitled.md"), Markdown only.
+    override func prepareSavePanel(_ savePanel: NSSavePanel) -> Bool {
+        if fileURL == nil {
+            savePanel.allowedContentTypes = [.markdown]
+            savePanel.nameFieldStringValue = UntitledNames.suggestedFileName(for: text)
+            if let folder = WorkspaceRegistry.shared.defaultSaveFolder(for: self) { savePanel.directoryURL = folder }
+        }
+        return super.prepareSavePanel(savePanel)
+    }
+
+    override var shouldRunSavePanelWithAccessoryView: Bool { fileURL != nil }
+
+    /// An untitled document's autosave is a draft in ~/Library/Autosave Information, outside every temp folder: an isolated
+    /// launch (tests) must not write there.
+    override func autosave(withImplicitCancellability implicitlyCancellable: Bool, completionHandler: @escaping (Error?) -> Void) {
+        if fileURL == nil, AppDefaults.isIsolated { return completionHandler(nil) }
+        super.autosave(withImplicitCancellability: implicitlyCancellable, completionHandler: completionHandler)
+    }
+
     // Declared here, not through `NSDocumentClass` in Info.plist: with a document class in the plist AppKit treats the app as
     // document-based and makes a window-less untitled document at launch, which keeps SwiftUI from opening its first window.
     override class var readableTypes: [String] { [markdownType, quartoType] }
@@ -63,6 +108,7 @@ final class MarkdownDocument: NSDocument, ObservableObject {
     /// undo manager, but that does not reliably happen for a window-less document (an undo group the text view leaves
     /// open never reaches it), so the document is marked edited explicitly. Idempotent: autosave clears the mark.
     func noteUserEdit() {
+        hasBeenEdited = true
         if !isDocumentEdited { updateChangeCount(.changeDone) }
     }
 
@@ -83,7 +129,8 @@ final class MarkdownDocument: NSDocument, ObservableObject {
 
     override var fileURL: URL? {
         didSet {
-            guard let old = oldValue, let new = fileURL, old.fileKey != new.fileKey else { return }
+            // A first save turns the untitled key into the file's: the tab, the ledger and the recents follow.
+            guard let new = fileURL, let old = oldValue ?? untitledID.map(URL.untitled), old.fileKey != new.fileKey else { return }
             NotificationCenter.default.post(name: .markdownDocumentMoved, object: self, userInfo: ["old": old, "new": new])
         }
     }

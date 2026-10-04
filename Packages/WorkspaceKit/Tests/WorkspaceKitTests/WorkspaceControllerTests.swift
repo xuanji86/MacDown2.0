@@ -27,6 +27,17 @@ final class FakeBackend: DocumentBackend {
         log.append("unload \(url.lastPathComponent)")
     }
     func didActivate(_ url: URL?, in window: UUID) { log.append("activate \(url?.lastPathComponent ?? "-")") }
+
+    var pristine = Set<String>()
+    var untitledCount = 0
+    func makeUntitled() -> URL {
+        let url = URL.untitled(UUID())
+        untitledCount += 1
+        pristine.insert(url.fileKey)
+        loaded.insert(url.fileKey)
+        return url
+    }
+    func isPristineUntitled(_ url: URL) -> Bool { pristine.contains(url.fileKey) }
 }
 
 @MainActor

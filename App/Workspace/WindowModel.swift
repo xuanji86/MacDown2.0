@@ -11,7 +11,12 @@ final class WindowModel {
     let controller: WorkspaceController
     let sidebar: SidebarModel
     var sidebarSection = SidebarSection.files
-    var sidebarVisible = true
+    /// Hidden in a new window until the user has chosen otherwise (the last choice is kept in `AppDefaults.store`).
+    var visibility = SidebarVisibility.forNewWindow(defaults: AppDefaults.store)
+    var sidebarVisible: Bool {
+        get { visibility.isVisible }
+        set { visibility.isVisible = newValue }
+    }
     var splitMode = SplitLayout.Mode.both.rawValue
     var editorFraction = 0.5
 
@@ -30,7 +35,16 @@ final class WindowModel {
         self.controller = controller
         sidebar = SidebarModel(controller: controller)
         sidebar.window = { [weak self] in self?.window }
+        // A workspace is something the user asked to see: the Files page opens; closing it puts the sidebar back as it was.
+        sidebar.onWorkspaceEntered = { [weak self] in
+            self?.visibility.workspaceEntered()
+            self?.sidebarSection = .files
+        }
+        sidebar.onWorkspaceLeft = { [weak self] in self?.visibility.workspaceLeft() }
     }
+
+    /// Cmd-\ or the toolbar button: this window keeps the choice and so do windows opened from now on.
+    func userSetSidebar(visible: Bool) { visibility.userSet(visible, defaults: AppDefaults.store) }
 
     /// What `OpenRouter` needs to route an open request.
     var snapshot: WindowSnapshot {
@@ -47,15 +61,16 @@ final class WindowModel {
 
     var state: WorkspaceWindowState {
         WorkspaceWindowState(
-            id: controller.id, session: controller.session, sidebarSection: sidebarSection,
+            id: controller.id, session: controller.session.withoutUntitled, sidebarSection: sidebarSection,
             sidebarVisible: sidebarVisible, splitMode: splitMode, editorFraction: editorFraction,
-            workspaceRoots: sidebar.folders.roots, showAllFiles: sidebar.showAllFiles
+            workspaceRoots: sidebar.folders.roots, showAllFiles: sidebar.showAllFiles,
+            sidebarVisibleBeforeWorkspace: visibility.beforeWorkspace
         )
     }
 
     func apply(_ saved: WorkspaceWindowState) {
         sidebarSection = saved.sidebarSection
-        sidebarVisible = saved.sidebarVisible
+        visibility = SidebarVisibility(isVisible: saved.sidebarVisible, beforeWorkspace: saved.sidebarVisibleBeforeWorkspace)
         splitMode = SplitLayout.Mode(rawValue: saved.splitMode)?.rawValue ?? SplitLayout.Mode.both.rawValue
         editorFraction = min(max(saved.editorFraction, SplitLayout.minFraction), SplitLayout.maxFraction)
         controller.restore(saved.session)

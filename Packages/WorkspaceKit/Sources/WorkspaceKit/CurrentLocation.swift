@@ -15,7 +15,7 @@ public struct CurrentLocation: Equatable, Sendable {
 
     /// The active document changed (or was saved/moved). nil = untitled, keep what is shown.
     public mutating func follow(documentURL: URL?) {
-        if let documentURL { directory = documentURL.deletingLastPathComponent() }
+        if let documentURL, documentURL.isFileURL { directory = documentURL.deletingLastPathComponent() }  // an untitled tab has no folder
     }
 
     /// Path bar click, or "up".

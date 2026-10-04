@@ -1,7 +1,7 @@
 #!/bin/bash
 # Launch the Debug build as a throwaway instance that cannot touch the user's real MacDown2 state.
 #
-#   Scripts/run-isolated.sh <file.md|dir...>  copy the files / folders into a fresh temp dir, launch the app on them (a folder
+#   Scripts/run-isolated.sh [file.md|dir...] copy the files / folders into a fresh temp dir, launch the app on them (a folder
 #                                          opens as a workspace), print
 #                                          PID / SUITE / ROOT / FILE / WINDOW lines (WINDOW <id> <w> <h>)
 #   Scripts/run-isolated.sh --stop <pid>   quit that instance, delete its defaults suite and its temp dir
@@ -65,7 +65,6 @@ stop() {
 }
 
 if [ "${1:-}" = "--stop" ]; then stop "${2:-}"; exit 0; fi
-[ "$#" -ge 1 ] || die "usage: $0 <file...> | --stop <pid>"
 [ -d "$APP" ] || die "no app at $APP (run \`make app\`, or set MACDOWN2_APP)"
 
 suite="$SUITE_PREFIX$(uuidgen | tr 'A-Z' 'a-z')"
@@ -81,7 +80,11 @@ for f in "$@"; do
 done
 
 before="$(app_pids)"
-open -n -a "$APP" --env "MACDOWN2_DEFAULTS_SUITE=$suite" --env "MACDOWN2_ALLOWED_ROOT=$root" "${copies[@]}"
+extra=()
+for name in MACDOWN2_TEST_UNTITLED_TEXT MACDOWN2_TEST_TERMINATE_AFTER; do  # Debug-only drivers (App/IsolatedTestHooks.swift)
+  [ -n "${!name:-}" ] && extra+=(--env "$name=${!name}")
+done
+open -n -a "$APP" --env "MACDOWN2_DEFAULTS_SUITE=$suite" --env "MACDOWN2_ALLOWED_ROOT=$root" ${extra[@]+"${extra[@]}"} ${copies[@]+"${copies[@]}"}
 
 pid=""
 for _ in $(seq 1 100); do
@@ -104,5 +107,5 @@ done
 echo "PID=$pid"
 echo "SUITE=$suite"
 echo "ROOT=$root"
-for c in "${copies[@]}"; do echo "FILE=$c"; done
+for c in ${copies[@]+"${copies[@]}"}; do echo "FILE=$c"; done
 if [ -n "$windows" ]; then printf '%s\n' "$windows" | sed 's/^/WINDOW=/'; else echo "WINDOW=(none yet; run build/winid $pid)"; fi

@@ -17,11 +17,11 @@ struct WorkspaceView: View {
         Binding(
             get: { model.sidebarVisible ? .all : .detailOnly },
             // While a saved state is being applied SwiftUI still reports the layout it was first built with (`.all`).
-            set: { if !model.isRestoring { model.sidebarVisible = $0 != .detailOnly } }
+            set: { if !model.isRestoring { model.userSetSidebar(visible: $0 != .detailOnly) } }
         )
     }
 
-    private var title: String { model.controller.activeURL?.lastPathComponent ?? "MacDown2" }
+    private var title: String { model.activeDocument?.displayName ?? "MacDown2" }
 
     var body: some View {
         NavigationSplitView(columnVisibility: visibility) {
@@ -123,7 +123,7 @@ private struct EmptyWorkspaceView: View {
             Text("没有打开的文件").font(.title3).foregroundStyle(.secondary)
             HStack {
                 Button("打开…") { WorkspaceRegistry.shared.showOpenPanel() }
-                Button("新建文档…") { WorkspaceRegistry.shared.showNewDocumentPanel() }
+                Button("新建") { WorkspaceRegistry.shared.newUntitled() }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

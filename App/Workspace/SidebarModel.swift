@@ -28,6 +28,9 @@ final class SidebarModel {
 
     @ObservationIgnored let controller: WorkspaceController
     @ObservationIgnored var window: () -> NSWindow? = { nil }
+    /// The window shows the sidebar when a workspace opens and puts it back when it closes.
+    @ObservationIgnored var onWorkspaceEntered: () -> Void = {}
+    @ObservationIgnored var onWorkspaceLeft: () -> Void = {}
     @ObservationIgnored let stores = SidebarStores.shared
     @ObservationIgnored private let follower = Debouncer(delay: .milliseconds(150))
     @ObservationIgnored private var generation = 0
@@ -84,12 +87,15 @@ final class SidebarModel {
         for url in allowed { folders.add(url) }
         filter = ""
         syncRoots()
+        onWorkspaceEntered()
     }
 
     func closeWorkspace() {
+        let wasWorkspace = isWorkspace
         folders.close()
         filter = ""
         syncRoots()
+        if wasWorkspace { onWorkspaceLeft() }
     }
 
     // MARK: Current location

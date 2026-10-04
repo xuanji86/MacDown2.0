@@ -43,6 +43,7 @@ final class WorkspaceRegistry: DocumentBackend {
     /// Reads the saved windows; the windows that appear first claim them (`register`).
     func prepareLaunch() {
         restoreQueue = WindowRestoration.decode(AppDefaults.store.data(forKey: Self.defaultsKey))
+        IsolatedTestHooks.scheduleTermination()
         Task {
             try? await Task.sleep(for: Self.launchGrace)
             launchGraceOver = true
@@ -54,7 +55,35 @@ final class WorkspaceRegistry: DocumentBackend {
     // MARK: Documents (DocumentBackend)
 
     func document(for url: URL) -> MarkdownDocument? {
-        NSDocumentController.shared.documents.lazy.compactMap { $0 as? MarkdownDocument }.first { $0.fileURL?.fileKey == url.fileKey }
+        NSDocumentController.shared.documents.lazy.compactMap { $0 as? MarkdownDocument }.first { $0.tabURL?.fileKey == url.fileKey }
+    }
+
+    func makeUntitled() -> URL {
+        let taken = Set(NSDocumentController.shared.documents.compactMap { ($0 as? MarkdownDocument).flatMap { $0.fileURL == nil ? $0.untitledNumber : nil } })
+        let doc = MarkdownDocument.makeUntitled(number: UntitledNames.firstFree(taken: taken))
+        NSDocumentController.shared.addDocument(doc)
+        return doc.tabURL!
+    }
+
+    /// Where the first save of an untitled document starts: the workspace folder or the folder the sidebar shows in the window
+    /// that holds it (an isolated launch: its temp folder); nil = whatever the panel remembers.
+    func defaultSaveFolder(for doc: MarkdownDocument) -> URL? {
+        let holders = doc.tabURL.map { ledger.holders(of: $0.fileKey) } ?? []
+        let model = orderedModels().first { holders.contains($0.controller.id) }
+        let folder = model?.sidebar.folders.roots.first ?? model?.sidebar.location.directory
+        return folder ?? AppDefaults.isolation?.allowedRoot
+    }
+
+    func isPristineUntitled(_ url: URL) -> Bool { url.isUntitled && document(for: url)?.isPristine == true }
+
+    /// Cmd-N: a new untitled tab in the front window; no window yet = a new window (which comes with one).
+    func newUntitled() {
+        guard let front = orderedModels().first else {
+            requestWindow()
+            return
+        }
+        front.controller.newUntitled()
+        front.window?.makeKeyAndOrderFront(nil)
     }
 
     func isDirty(_ url: URL) -> Bool { document(for: url)?.isDocumentEdited ?? false }
@@ -118,7 +147,7 @@ final class WorkspaceRegistry: DocumentBackend {
     /// screen: with no usable window AppKit falls back to an application-modal alert (`runModal`), a nested event loop
     /// that stalls whoever asked, so a minimized or hidden window is brought back first.
     func sheetWindow(for doc: MarkdownDocument) -> NSWindow? {
-        guard let key = doc.fileURL?.fileKey else { return nil }
+        guard let key = doc.tabURL?.fileKey else { return nil }
         let holders = ledger.holders(of: key)
         let window = sheetHost[key].flatMap { models[$0]?.window }
             ?? orderedModels().first { holders.contains($0.controller.id) && $0.window != nil }?.window
@@ -135,6 +164,7 @@ final class WorkspaceRegistry: DocumentBackend {
             model.controller.documentMoved(from: old, to: new)
         }
         NSDocumentController.shared.noteNewRecentDocumentURL(new)
+        SidebarStores.shared.noteOpened(new)
         recents.refresh()
     }
 
@@ -149,7 +179,16 @@ final class WorkspaceRegistry: DocumentBackend {
         persist()
         DispatchQueue.main.async { [self] in
             if !restoreQueue.isEmpty { requestWindow() } else { drainPending(into: model) }
+            blankWindowGetsUntitled(model)
         }
+    }
+
+    /// A window with nothing in it (a launch with nothing to restore or open, Cmd-Option-N, the Dock icon with no window) gets an
+    /// untitled tab, as the original MacDown does. A workspace window stays as it is: its tree is the way in.
+    private func blankWindowGetsUntitled(_ model: WindowModel) {
+        guard model.controller.session.tabs.isEmpty, !model.sidebar.isWorkspace, pendingURLs.isEmpty, models[model.controller.id] != nil else { return }
+        model.controller.newUntitled()
+        IsolatedTestHooks.typeIntoUntitled(model)
     }
 
     /// The hosting `NSWindow` exists: give it its window controller and its close review.
@@ -195,7 +234,8 @@ final class WorkspaceRegistry: DocumentBackend {
         if let fileMenu, let item = fileMenu.items.first(where: Self.isNewWindowItem) { fileMenu.performActionForItem(at: fileMenu.index(of: item)) }
     }
 
-    private static func isNewWindowItem(_ item: NSMenuItem) -> Bool { item.keyEquivalent == "n" && item.keyEquivalentModifierMask == .command }
+    /// File > New Window (Cmd-Option-N).
+    private static func isNewWindowItem(_ item: NSMenuItem) -> Bool { item.keyEquivalent == "n" && item.keyEquivalentModifierMask == [.command, .option] }
 
     // MARK: Opening files
 
@@ -236,8 +276,6 @@ final class WorkspaceRegistry: DocumentBackend {
     private func perform(_ plan: OpenPlan, in model: WindowModel) {
         if !plan.folders.isEmpty {
             model.sidebar.openFolders(plan.folders)
-            model.sidebarSection = .files
-            model.sidebarVisible = true
         }
         perform(plan.urls, in: model)
     }
@@ -269,8 +307,6 @@ final class WorkspaceRegistry: DocumentBackend {
             guard response == .OK else { return }
             if let front = orderedModels().first {
                 front.sidebar.openFolders(panel.urls, replacing: true)
-                front.sidebarSection = .files
-                front.sidebarVisible = true
                 front.window?.makeKeyAndOrderFront(nil)
             } else {
                 open(panel.urls)
@@ -324,23 +360,6 @@ final class WorkspaceRegistry: DocumentBackend {
         panel.canChooseDirectories = false
         let done: (NSApplication.ModalResponse) -> Void = { [self] response in
             if response == .OK { open(panel.urls) }
-        }
-        if let window = orderedModels().first?.window { panel.beginSheetModal(for: window, completionHandler: done) } else { panel.begin(completionHandler: done) }
-    }
-
-    /// File > New Document…: names a file, creates it empty (an existing one is opened as it is) and opens it. Documents
-    /// are always files, so there is no untitled state to lose.
-    func showNewDocumentPanel() {
-        let panel = NSSavePanel()
-        panel.allowedContentTypes = [.markdown]
-        panel.nameFieldStringValue = "Untitled.md"
-        panel.prompt = String(localized: "Create")
-        let done: (NSApplication.ModalResponse) -> Void = { [self] response in
-            guard response == .OK, let url = panel.url else { return }
-            if !FileManager.default.fileExists(atPath: url.path) {
-                do { try Data().write(to: url) } catch { NSAlert(error: error).runModal(); return }
-            }
-            open([url])
         }
         if let window = orderedModels().first?.window { panel.beginSheetModal(for: window, completionHandler: done) } else { panel.begin(completionHandler: done) }
     }

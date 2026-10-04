@@ -14,6 +14,10 @@ public protocol DocumentBackend: AnyObject {
     func unload(_ url: URL)
     /// `url` became the window's current document (nil: the window shows none).
     func didActivate(_ url: URL?, in window: UUID)
+    /// A new empty document with no file ("Untitled", "Untitled 2"…); returns the URL its tab is keyed by (`URL.untitled`).
+    func makeUntitled() -> URL
+    /// An untitled document nobody has typed into and that is empty: opening a file replaces it.
+    func isPristineUntitled(_ url: URL) -> Bool
 }
 
 /// One workspace window's tabs: `TabSession` decides, this carries out the effects against the document layer and keeps
@@ -41,18 +45,29 @@ public final class WorkspaceController {
     }
 
     public var activeURL: URL? { session.activeURL }
-    public var openKeys: Set<String> { Set(session.tabs.map(\.id)) }
+    /// The files open in this window, for routing. A pristine untitled tab does not count: it is a blank page that opening
+    /// something replaces.
+    public var openKeys: Set<String> { Set(session.tabs.filter { !backend.isPristineUntitled($0.url) }.map(\.id)) }
     public func holds(_ url: URL) -> Bool { session.tabs.contains { $0.id == url.fileKey } }
 
     // MARK: Opening
 
     /// Opens `url` as a tab; the file is read first, so an unreadable one changes nothing and throws.
     public func open(_ url: URL, as mode: Mode) throws {
-        if !holds(url) { try backend.load(url) }
+        let isNew = !holds(url)
+        if isNew { try backend.load(url) }
+        // A blank untitled document gives way to the first file that really opens (not to one that was already open).
+        let replaceable = isNew ? session.tabs.map(\.url).filter { backend.isPristineUntitled($0) } : []
         if mode == .preview, let preview = session.previewURL, preview.fileKey != url.fileKey, backend.isDirty(preview) {
             run(session.edited(preview))  // a preview with unsaved changes is never replaced: it becomes a regular tab
         }
         run(mode == .preview ? session.singleClick(url) : session.doubleClick(url))
+        for blank in replaceable { run(session.close(blank)) }  // after the new tab is up: the window never loses its only tab
+    }
+
+    /// Cmd-N: a new untitled document in a tab of this window.
+    public func newUntitled() {
+        run(session.doubleClick(backend.makeUntitled()))
     }
 
     /// Restores a saved session: files that no longer open are dropped.

@@ -46,6 +46,9 @@ public struct TabSession: Codable, Equatable, Sendable {
         activeID = tabs.contains { $0.id == active } ? active : tabs.first?.id
     }
 
+    /// What a relaunch restores: untitled documents are not saved with the window.
+    public var withoutUntitled: TabSession { pruned { !$0.isUntitled } }
+
     /// The session without the tabs `keeping` rejects (files that no longer open); the active tab falls back to the
     /// first remaining one.
     public func pruned(keeping: (URL) -> Bool) -> TabSession {
