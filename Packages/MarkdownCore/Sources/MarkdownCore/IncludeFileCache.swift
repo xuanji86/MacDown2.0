@@ -35,15 +35,20 @@ public final class IncludeFileCache {
     /// The reader for `QuartoIncludes.files(for:readFile:)` (same rules as `QuartoIncludes.fileReader`); `endRender()` afterwards.
     public func read(_ path: String) -> String? {
         asked.insert(path)
-        guard let directory else { return nil }
-        // The stamp is taken before the read, so a change in between shows up as one. A symlink is stamped as its target.
-        let url: URL
-        if case .file(let file) = DocumentFileResolver.resolve(path: "/" + path, root: directory) { url = file } else { url = directory.appending(path: path) }
+        guard let url = locate(path) else { return nil }
+        // The stamp is taken before the read, so a change in between shows up as one.
         let stamp = Stamp(url)
         if let entry = entries[path], entry.url == url, entry.stamp == stamp { return entry.text }
         let text = readFile(path)
         entries[path] = Entry(url: url, stamp: stamp, text: text)
         return text
+    }
+
+    /// The file `path` is, now: what it resolves to (a symlink is its target), or where it would be if it is missing.
+    private func locate(_ path: String) -> URL? {
+        guard let directory else { return nil }
+        if case .file(let file) = DocumentFileResolver.resolve(path: "/" + path, root: directory) { return file }
+        return directory.appending(path: path)
     }
 
     /// A render is done: what it did not ask for (an include that was taken out of the text) is forgotten, so it cannot keep
@@ -54,7 +59,8 @@ public final class IncludeFileCache {
     }
 
     /// Whether any file the last render asked for differs now from what it read (changed, gone, or there where it was missing).
+    /// Each path is resolved again, as `read` does: a symlink pointed elsewhere or removed is a change although its old target is not.
     public func changed() -> Bool {
-        entries.values.contains { Stamp($0.url) != $0.stamp }
+        entries.contains { locate($0.key) != $0.value.url || Stamp($0.value.url) != $0.value.stamp }
     }
 }

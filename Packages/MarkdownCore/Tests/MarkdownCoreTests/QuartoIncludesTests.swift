@@ -148,3 +148,30 @@ private func reader(_ files: [String: String], asked: ((String) -> Void)? = nil)
     #expect(!cache.changed())
     #expect(IncludeFileCache(directory: nil).read("child.qmd") == nil)
 }
+
+@Test func theIncludeCacheSeesASymlinkPointedElsewhereOrRemoved() throws {
+    let dir = FileManager.default.temporaryDirectory.appending(path: "IncludeFileCacheLinks-\(UUID().uuidString)", directoryHint: .isDirectory)
+    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: dir) }
+    try Data("one".utf8).write(to: dir.appending(path: "a.qmd"))
+    try Data("two".utf8).write(to: dir.appending(path: "b.qmd"))
+    let link = dir.appending(path: "child.qmd")
+    try FileManager.default.createSymbolicLink(at: link, withDestinationURL: dir.appending(path: "a.qmd"))
+    let cache = IncludeFileCache(directory: dir)
+    func render() -> [String: String] {
+        defer { cache.endRender() }
+        return QuartoIncludes.files(for: "{{< include child.qmd >}}", readFile: cache.read)
+    }
+    #expect(render() == ["child.qmd": "one"] && !cache.changed())
+
+    // Re-pointed: both targets are untouched, only the link moved.
+    try FileManager.default.removeItem(at: link)
+    try FileManager.default.createSymbolicLink(at: link, withDestinationURL: dir.appending(path: "b.qmd"))
+    #expect(cache.changed())
+    #expect(render() == ["child.qmd": "two"] && !cache.changed())
+
+    // Removed: the old target is still there.
+    try FileManager.default.removeItem(at: link)
+    #expect(cache.changed())
+    #expect(render().isEmpty && !cache.changed())
+}
