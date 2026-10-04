@@ -23,7 +23,13 @@ public final class MarkdownTextView: NSTextView {
         didSet { highlighter?.setDecorator(decorations) }
     }
 
+    /// Line numbers, line spacing, column width, invisibles, smart Home: set with `apply(settings:)`.
+    public private(set) var viewSettings = EditorViewSettings()
+
     private(set) var highlighter: MarkdownHighlighter?
+    private(set) var gutter: LineNumberRulerView?
+    /// Side inset of the text, kept apart from `textContainerInset` so a width limit can replace it and give it back.
+    private static let baseInset = NSSize(width: 15, height: 30)  // the original MacDown's
     /// Set while our own edits go through `insertText`, so the typing assistant does not re-interpret them.
     private var isApplyingEdit = false
 
@@ -49,7 +55,7 @@ public final class MarkdownTextView: NSTextView {
         textView.allowsUndo = true
         textView.usesFindBar = true
         textView.isIncrementalSearchingEnabled = true
-        textView.textContainerInset = NSSize(width: 8, height: 8)
+        textView.textContainerInset = baseInset
         // Source text: no typographic rewriting.
         textView.isAutomaticQuoteSubstitutionEnabled = false
         textView.isAutomaticDashSubstitutionEnabled = false
@@ -57,12 +63,61 @@ public final class MarkdownTextView: NSTextView {
         textView.isAutomaticSpellingCorrectionEnabled = false
         textView.theme = theme  // before the highlighter exists: only sets font and colours
         textView.attachHighlighter()
+        textView.attachGutter()
+        textView.textLayoutManager?.delegate = textView
         return (scrollView, textView)
+    }
+
+    private func attachGutter() {
+        guard let scrollView = enclosingScrollView, let storage = textStorage else { return }
+        let ruler = LineNumberRulerView(scrollView: scrollView)
+        scrollView.verticalRulerView = ruler
+        scrollView.hasVerticalRuler = true
+        scrollView.rulersVisible = false
+        usesRuler = false  // the paragraph ruler (tab stops, indents) is not ours and may reach for the TextKit 1 layout
+        ruler.clientView = self
+        gutter = ruler
+        NotificationCenter.default.addObserver(forName: NSTextStorage.didProcessEditingNotification, object: storage, queue: nil) { [weak ruler] note in
+            guard let storage = note.object as? NSTextStorage, storage.editedMask.contains(.editedCharacters) else { return }
+            MainActor.assumeIsolated { ruler?.textDidChange() }
+        }
+    }
+
+    // MARK: Settings
+
+    /// Make the view follow `settings`. Cheap when nothing changed, so the app can call it on every settings update.
+    public func apply(settings: EditorViewSettings) {
+        let new = settings.clamped
+        let old = viewSettings
+        guard new != old else { return }
+        viewSettings = new
+        if new.lineSpacing != old.lineSpacing { applyTheme() }
+        if new.limitsWidth != old.limitsWidth || new.maxWidth != old.maxWidth { updateInsets() }
+        if new.showsLineNumbers != old.showsLineNumbers {
+            gutter?.updateThickness()
+            enclosingScrollView?.rulersVisible = new.showsLineNumbers
+            updateInsets()
+        }
+        if new.showsInvisibles != old.showsInvisibles { needsDisplay = true }
+    }
+
+    /// Text column: the base inset, or whatever centres a `maxWidth` column. Called when the width or the setting changes.
+    private func updateInsets() {
+        let inset = EditorViewSettings.horizontalInset(
+            viewWidth: bounds.width, maxWidth: viewSettings.limitsWidth ? viewSettings.maxWidth : nil, minimum: Self.baseInset.width)
+        let new = NSSize(width: inset, height: Self.baseInset.height)
+        if textContainerInset != new { textContainerInset = new }
+    }
+
+    public override func setFrameSize(_ newSize: NSSize) {
+        let widthChanged = newSize.width != frame.width
+        super.setFrameSize(newSize)
+        if widthChanged, viewSettings.limitsWidth { updateInsets() }
     }
 
     private func attachHighlighter() {
         do {
-            highlighter = try MarkdownHighlighter(textView: self, theme: theme)
+            highlighter = try MarkdownHighlighter(textView: self, theme: styledTheme)
         } catch {
             // The grammar ships in the binary; failing here is a build problem, but the editor must stay usable plain.
             assertionFailure("highlighter unavailable: \(error)")
@@ -73,12 +128,28 @@ public final class MarkdownTextView: NSTextView {
         center.addObserver(self, selector: #selector(visibleContentChanged), name: NSView.frameDidChangeNotification, object: scrollView)
     }
 
+    /// The theme plus the view-level settings that end up in text attributes.
+    private var styledTheme: EditorTheme {
+        var styled = theme
+        styled.lineSpacing = viewSettings.lineSpacing
+        return styled
+    }
+
     private func applyTheme() {
+        let theme = styledTheme
         font = theme.font
         backgroundColor = theme.background
         insertionPointColor = theme.caret
         selectedTextAttributes = [.backgroundColor: theme.selection]
         typingAttributes = theme.baseAttributes
+        defaultParagraphStyle = theme.paragraphStyle
+        // The highlighter styles the visible chunks; the rest must not keep the old line spacing meanwhile (scroll extent).
+        if let storage = textStorage, storage.length > 0, !hasMarkedText() {
+            storage.addAttribute(.paragraphStyle, value: theme.paragraphStyle, range: NSRange(location: 0, length: storage.length))
+            if let layout = textLayoutManager { layout.invalidateLayout(for: layout.documentRange) }
+        }
+        gutter?.updateThickness()
+        gutter?.needsDisplay = true
         enclosingScrollView?.backgroundColor = theme.background
         // Chrome (scroll bars, find bar) follows the theme, not the system.
         appearance = theme.chromeAppearance
@@ -87,6 +158,7 @@ public final class MarkdownTextView: NSTextView {
     }
 
     @objc private func visibleContentChanged() {
+        if viewSettings.showsLineNumbers { gutter?.needsDisplay = true }
         highlighter?.visibleContentDidChange()
         onVisibleLineChange?(topVisibleLine)
     }
@@ -167,6 +239,32 @@ public final class MarkdownTextView: NSTextView {
             insertText(edit.replacement, replacementRange: edit.range)
         }
         setSelectedRange(edit.selection)
+    }
+
+    public override func setSelectedRanges(_ ranges: [NSValue], affinity: NSSelectionAffinity, stillSelecting: Bool) {
+        super.setSelectedRanges(ranges, affinity: affinity, stillSelecting: stillSelecting)
+        if viewSettings.showsLineNumbers { gutter?.needsDisplay = true }  // the current line's number is emphasised
+    }
+
+    // MARK: Smart Home
+
+    public override func moveToBeginningOfLine(_ sender: Any?) { smartHome(sender) { super.moveToBeginningOfLine(sender) } }
+    public override func moveToLeftEndOfLine(_ sender: Any?) { smartHome(sender) { super.moveToLeftEndOfLine(sender) } }
+
+    /// ⌘←: the system move first. When it lands on the real start of the line (the caret was on the line's first visual
+    /// row, so not on a wrapped continuation, which keeps the system behaviour), the first stop is the first non-blank
+    /// character instead, and the next press goes on to the line start.
+    private func smartHome(_ sender: Any?, system: () -> Void) {
+        let before = selectedRange()
+        guard viewSettings.smartHome, before.length == 0, !hasMarkedText(), let text = textStorage?.mutableString else { return system() }
+        system()
+        let after = selectedRange()
+        guard after.length == 0, after.location == SmartHome.lineStart(in: text, caret: before.location) else { return }
+        let target = SmartHome.target(in: text, caret: before.location)
+        if target != after.location {
+            setSelectedRange(NSRange(location: target, length: 0))
+            scrollRangeToVisible(selectedRange())
+        }
     }
 
     // MARK: Loading text from outside
@@ -292,5 +390,18 @@ extension NSTextView {
         let start = layout.textLayoutFragment(for: CGPoint(x: 0, y: max(0, top))).map { offset(of: $0.rangeInElement.location) } ?? 0
         let end = layout.textLayoutFragment(for: CGPoint(x: 0, y: max(0, bottom))).map { offset(of: $0.rangeInElement.endLocation) } ?? length
         return NSRange(location: min(start, length), length: max(0, min(end, length) - min(start, length)))
+    }
+}
+
+// MARK: Layout fragments (invisible characters)
+
+extension MarkdownTextView: @MainActor NSTextLayoutManagerDelegate {
+    public func textLayoutManager(_ textLayoutManager: NSTextLayoutManager, textLayoutFragmentFor location: NSTextLocation, in textElement: NSTextElement) -> NSTextLayoutFragment {
+        let fragment = InvisiblesLayoutFragment(textElement: textElement, range: textElement.elementRange)
+        fragment.marks = { [weak self] in
+            guard let self else { return (false, .clear, .systemFont(ofSize: 12)) }
+            return (viewSettings.showsInvisibles, theme.lineNumber, theme.font)
+        }
+        return fragment
     }
 }

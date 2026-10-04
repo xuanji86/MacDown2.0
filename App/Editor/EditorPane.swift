@@ -53,6 +53,7 @@ struct EditorPane: NSViewRepresentable {
         context.coordinator.bind(to: document)
         guard let textView = context.coordinator.textView else { return }
         textView.behavior = settings.behavior
+        textView.apply(settings: settings.view)
         if context.coordinator.decoratedFlavor != flavor?.id {
             context.coordinator.decoratedFlavor = flavor?.id
             if let flavor {

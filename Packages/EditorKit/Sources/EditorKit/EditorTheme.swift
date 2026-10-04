@@ -40,6 +40,8 @@ public struct EditorTheme: @unchecked Sendable {
     public var lineNumber: NSColor
     public var currentLine: NSColor
     public var tokens: [TokenKind: TokenStyle]
+    /// Extra points between lines, set from `EditorViewSettings` by the view (not part of a theme file).
+    var lineSpacing: CGFloat = EditorViewSettings().lineSpacing
 
     public init(
         name: String, appearance: ThemeAppearance, counterpart: String? = nil, font: NSFont, background: NSColor, text: NSColor,
@@ -77,7 +79,13 @@ public struct EditorTheme: @unchecked Sendable {
     }
 
     /// Attributes of unstyled text.
-    var baseAttributes: [NSAttributedString.Key: Any] { [.font: font, .foregroundColor: text] }
+    var baseAttributes: [NSAttributedString.Key: Any] { [.font: font, .foregroundColor: text, .paragraphStyle: paragraphStyle] }
+
+    var paragraphStyle: NSParagraphStyle {
+        let style = NSMutableParagraphStyle()
+        style.lineSpacing = lineSpacing
+        return style
+    }
 
     // MARK: Built-ins (Resources/Themes/*.json, listed in `ThemeLibrary`)
 

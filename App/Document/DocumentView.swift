@@ -19,6 +19,7 @@ struct DocumentView: View {
 
     @AppStorage(ScrollSyncPreferences.syncKey) private var syncScrolling = true
     @AppStorage(ScrollSyncPreferences.followCaretKey) private var previewFollowsCaret = false
+    @AppStorage(EditorSettingKey.editorOnRight) private var editorOnRight = false
 
     private var layout: SplitLayout { model.layout }
 
@@ -42,19 +43,23 @@ struct DocumentView: View {
         GeometryReader { geometry in
             let total = geometry.size.width, height = geometry.size.height
             let editorWidth = layout.editorWidth(total: total)
+            // Editor on the right swaps the two columns (only matters when both show); the divider follows.
+            let swapped = editorOnRight && layout.mode == .both
+            let dividerX = swapped ? total - editorWidth : editorWidth
             ZStack(alignment: .topLeading) {
                 EditorPane(
                     document: document, scrollSync: scrollSync, editor: editor, status: status, flavor: flavor,
                     onUserEdit: { [model, fileURL] in model.controller.pin(fileURL) }
                 )
                     .frame(width: layout.mode == .both ? editorWidth : total, height: height)
+                    .offset(x: swapped ? total - editorWidth : 0)
                     .visible(layout.showsEditor)
                 PreviewPane(document: document, documentURL: fileURL, model: preview, flavor: flavor)
                     .frame(width: layout.mode == .both ? total - editorWidth : total, height: height)
-                    .offset(x: layout.mode == .both ? editorWidth : 0)
+                    .offset(x: layout.mode == .both && !swapped ? editorWidth : 0)
                     .visible(layout.showsPreview)
                 if layout.mode == .both {
-                    divider(at: editorWidth, total: total, height: height)
+                    divider(at: dividerX, total: total, height: height, editorOnRight: swapped)
                 }
             }
             .coordinateSpace(.named("split"))
@@ -69,7 +74,7 @@ struct DocumentView: View {
     }
 
     /// One-point separator with a wider invisible grab area.
-    private func divider(at x: Double, total: Double, height: Double) -> some View {
+    private func divider(at x: Double, total: Double, height: Double, editorOnRight: Bool) -> some View {
         Rectangle().fill(.separator).frame(width: 1, height: height)
             .overlay {
                 Color.clear.frame(width: 9).contentShape(Rectangle())
@@ -77,7 +82,8 @@ struct DocumentView: View {
                     .gesture(
                         DragGesture(minimumDistance: 1, coordinateSpace: .named("split")).onChanged { drag in
                             guard total > 0 else { return }
-                            model.editorFraction = min(max(drag.location.x / total, SplitLayout.minFraction), SplitLayout.maxFraction)
+                            let fraction = editorOnRight ? 1 - drag.location.x / total : drag.location.x / total
+                            model.editorFraction = min(max(fraction, SplitLayout.minFraction), SplitLayout.maxFraction)
                         }
                     )
             }
