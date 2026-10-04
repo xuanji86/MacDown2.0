@@ -11,7 +11,7 @@
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-1a73e8?style=flat-square" alt="许可：AGPL-3.0"></a>
   <img src="https://img.shields.io/badge/macOS-26%2B-000000?style=flat-square&logo=apple&logoColor=white" alt="macOS 26+">
-  <img src="https://img.shields.io/badge/Apple%20Silicon-only-000000?style=flat-square" alt="仅 Apple Silicon">
+  <img src="https://img.shields.io/badge/Apple%20Silicon%20%2B%20Intel-000000?style=flat-square" alt="Apple Silicon 与 Intel">
   <img src="https://img.shields.io/badge/Swift-6-F05138?style=flat-square&logo=swift&logoColor=white" alt="Swift 6">
 </p>
 
@@ -25,7 +25,7 @@
 
 十多年前，Mou（Chen Luo）定下了 Mac 上写 Markdown 的样子：左边写源码，右边看预览，中间什么都不挡。MacDown（Tzu-ping Chung）把这个样子以开源的方式延续下来，成了一代 Mac 用户顺手就打开的那个 Markdown 编辑器。MacDown2.0 是它们的精神续作——同样的两栏，同样的快捷键肌肉记忆，同样不做所见即所得，也不想变成笔记应用。
 
-它同时也是一次彻底的告别。没有移植任何旧代码：MacDown2.0 从一个空文件开始，用 Swift 6 和 SwiftUI 写成，只面向 macOS 26 与 Apple Silicon，底下是 Liquid Glass、TextKit 2、tree-sitter 和 markdown-it。没有兼容层，没有从上个十年留下来的框架，只有一个 Markdown 编辑器在今天的 Mac 上本该有的手感。
+它同时也是一次彻底的告别。没有移植任何旧代码：MacDown2.0 从一个空文件开始，用 Swift 6 和 SwiftUI 写成，只面向 macOS 26（Apple Silicon 与 Intel），底下是 Liquid Glass、TextKit 2、tree-sitter 和 markdown-it。没有兼容层，没有从上个十年留下来的框架，只有一个 Markdown 编辑器在今天的 Mac 上本该有的手感。
 
 留下来的，是真正重要的那部分：深色编辑区旁边一页白纸，手指早已记住的快捷键，以及克制——它始终只是一个 Markdown 编辑器。
 
@@ -59,7 +59,7 @@ brew install --cask xuanji86/tap/macdown2    # 即将推出
 
 ## 从源码构建
 
-需要 macOS 26（Apple Silicon）和 Xcode 27。只有在修改 `Web/` 下的 JavaScript 渲染器时才需要 Node.js 23.6+。
+需要 macOS 26（Apple Silicon 或 Intel）和 Xcode 27。只有在修改 `Web/` 下的 JavaScript 渲染器时才需要 Node.js 23.6+。
 
 ```sh
 git clone https://github.com/xuanji86/MacDown2.0.git

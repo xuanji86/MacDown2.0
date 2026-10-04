@@ -19,7 +19,6 @@ cask "macdown2" do
 
   # The app updates itself through Sparkle ("Check for Updates..." in the app menu).
   auto_updates true
-  depends_on arch: :arm64
   depends_on macos: :tahoe
 
   app "MacDown2.app"
