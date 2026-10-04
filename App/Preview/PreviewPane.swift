@@ -92,6 +92,7 @@ final class PreviewModel {
     private var needsRebuild = false
     // Same latest-wins collapsing for scroll requests.
     private var pendingScrollLine: Double?
+    private var lastLine = 0.0  // top source line the preview was last scrolled to, by the user or by `scroll(toLine:)`
     private var scrolling = false
     // Preview style as last chosen; (re)applied once the page has loaded and on every change.
     private var style: (light: String, dark: String?) = PreviewStyles.resolve(id: PreviewStyles.defaultID, followSystem: false)
@@ -151,6 +152,7 @@ final class PreviewModel {
     /// Scrolls the preview so `line` (0-based, fractional ok) is at the top. Instant; the page does not echo it back
     /// through `onVisibleLineChange`. Latest call wins if several arrive while one is running.
     func scroll(toLine line: Double) {
+        lastLine = line
         pendingScrollLine = line
         guard !scrolling else { return }
         scrolling = true
@@ -166,6 +168,29 @@ final class PreviewModel {
                 }
             }
         }
+    }
+
+    /// Something in the document's folder changed on disk: when an image the page loaded from there is different now (or
+    /// gone), load the page afresh and render again at the same line. Why not just re-render: inside one page load WebKit
+    /// hands an `<img>` with a URL it already loaded the old picture, whatever the response headers say (checked: the
+    /// handler's `no-store` does not help), and the only other cure is rewriting URLs inside the page's own code.
+    /// Cheap when nothing it showed changed; one flash when something did.
+    func refreshChangedResources() {
+        let changed = documentRoot.changedServedFiles()
+        guard !changed.isEmpty, lastMarkdown != nil else { return }
+        log.info("preview: \(changed.count) image(s) changed on disk, reloading the page")
+        documentRoot.forgetServedFiles()
+        Task { await reloadPage() }
+    }
+
+    private func reloadPage() async {
+        let line = lastLine
+        pageLoaded = false
+        loading = nil
+        needsRebuild = true
+        guard let markdown = lastMarkdown, await ensureLoaded() else { return }
+        await push(markdown)
+        scroll(toLine: line)
     }
 
     /// Switches the preview style (and its highlight.js theme) in place; the page is not reloaded. With `followSystem` the
@@ -188,6 +213,7 @@ final class PreviewModel {
     private func handle(_ message: PreviewMessage) {
         switch message {
         case .scroll(let line):
+            lastLine = line
             onVisibleLineChange?(line)
         case .error(let stage, let text):
             log.error("preview \(stage, privacy: .public) error: \(text, privacy: .public)")
@@ -285,6 +311,12 @@ struct PreviewPane: View {
             // Restarts with the document: the page stays, the text it renders is the active tab's.
             .task(id: ObjectIdentifier(document)) {
                 for await text in document.$text.values { model.schedule(text) }
+            }
+            // Only the document shown here is followed; the monitor of a document in a background tab does not reach a preview.
+            .task(id: ObjectIdentifier(document)) {
+                for await _ in NotificationCenter.default.notifications(named: .markdownDocumentFolderChanged, object: document).map({ _ in () }) {
+                    model.refreshChangedResources()
+                }
             }
             .onChange(of: documentURL, initial: true) { _, url in model.documentDirectory = url?.deletingLastPathComponent() }
     }

@@ -24,6 +24,9 @@ struct StatusBar: View {
             }
             .buttonStyle(.plain)
             .help("点击切换计数方式")
+            if document.editedFlag.missing {
+                Label("文件已被删除或移走,保存可重建", systemImage: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+            }
             encodingMenu
             Text(renderMode).help(renderModeHelp ?? "")
         }

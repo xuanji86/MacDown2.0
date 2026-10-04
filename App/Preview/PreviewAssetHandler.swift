@@ -10,15 +10,39 @@ final class DocumentRoot: @unchecked Sendable {
     private let lock = NSLock()
     private var directory: URL?
     private var roots: [URL] = []
+    private var served: [URL: FileStamp] = [:]
     var url: URL? {
         get { lock.withLock { directory } }
-        set { lock.withLock { directory = newValue } }
+        set { lock.withLock { directory = newValue; served = [:] } }
     }
     /// Open workspace folders: besides the document's own folder, a link to a Markdown file under one of these opens in the app.
     var workspaceRoots: [URL] {
         get { lock.withLock { roots } }
         set { lock.withLock { roots = newValue } }
     }
+
+    /// Size and modification date of a file, to tell later whether it changed.
+    struct FileStamp: Equatable {
+        let size: Int?
+        let modified: Date?
+        init(of url: URL) {
+            let values = try? url.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
+            size = values?.fileSize
+            modified = values?.contentModificationDate
+        }
+    }
+
+    /// A file the page just asked for (`stamp` taken before it was read, so a change in between shows up as changed).
+    func served(_ file: URL, stamp: FileStamp) { lock.withLock { served[file] = stamp } }
+
+    /// The files the page loaded from the document's folder whose size or date is not what it was at load time.
+    func changedServedFiles() -> [URL] {
+        let snapshot = lock.withLock { served }
+        return snapshot.filter { FileStamp(of: $0.key) != $0.value }.map(\.key)
+    }
+
+    /// The page is being rebuilt: it will ask for what it shows again.
+    func forgetServedFiles() { lock.withLock { served = [:] } }
 }
 
 /// Serves two hosts of the `macdown2-res` scheme to the preview page:
@@ -58,7 +82,9 @@ struct PreviewAssetHandler: URLSchemeHandler {
             file = Self.resolve(url)
         case "doc":
             switch DocumentFileResolver.resolve(path: url.path, root: documentRoot.url) {
-            case .file(let f): file = f
+            case .file(let f):
+                file = f
+                documentRoot.served(f, stamp: DocumentRoot.FileStamp(of: f))
             case .forbidden: file = nil; status = 403
             case .notFound: file = nil
             }
