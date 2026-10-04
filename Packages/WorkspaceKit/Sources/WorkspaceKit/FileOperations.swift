@@ -65,6 +65,13 @@ public enum FileOperations {
         return x.isEqual(y)
     }
 
+    /// A file name the file system and the user would accept: trimmed, not empty, not a path, `.`/`..`, not too long.
+    public static func validName(_ newName: String) throws -> String {
+        let name = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, name != ".", name != "..", !name.contains("/"), !name.contains("\0"), name.utf8.count <= 255 else { throw Failure.invalidName }
+        return name
+    }
+
     /// Where `url` ends up when renamed to `newName`; throws for a protected folder, for a name the file system or the user
     /// would not want (empty, a path, `.`/`..`, too long) and for one already taken by another item. A destination that
     /// differs only in case is accepted only when it is the same directory entry (a case-insensitive volume): on a
@@ -74,14 +81,30 @@ public enum FileOperations {
         renaming url: URL, to newName: String, home: URL = FileManager.default.homeDirectoryForCurrentUser,
         fileManager: FileManager = .default, isSameEntry: (URL, URL) -> Bool = FileOperations.isSameEntry
     ) throws -> URL {
+        try destination(moving: url, as: newName, into: url.deletingLastPathComponent(), home: home, fileManager: fileManager, isSameEntry: isSameEntry)
+    }
+
+    /// Where `url` ends up when it is called `newName` and lives in `directory` (the document popover's Name and Where): the
+    /// rules of `destination(renaming:to:)`, with the folder chosen too.
+    public static func destination(
+        moving url: URL, as newName: String, into directory: URL, home: URL = FileManager.default.homeDirectoryForCurrentUser,
+        fileManager: FileManager = .default, isSameEntry: (URL, URL) -> Bool = FileOperations.isSameEntry
+    ) throws -> URL {
         try requireUnprotected(url, home: home)
-        let name = newName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !name.isEmpty, name != ".", name != "..", !name.contains("/"), !name.contains("\0"), name.utf8.count <= 255 else { throw Failure.invalidName }
-        let target = url.deletingLastPathComponent().appending(path: name, directoryHint: url.hasDirectoryPath ? .isDirectory : .notDirectory)
+        let name = newName == url.lastPathComponent ? newName : try validName(newName)  // its own name is never "tidied"
+        let target = directory.appending(path: name, directoryHint: url.hasDirectoryPath ? .isDirectory : .notDirectory)
         if target.path != url.path, fileManager.fileExists(atPath: target.path) {
             let isCaseOnly = target.path.lowercased() == url.path.lowercased()
             guard isCaseOnly, isSameEntry(url, target) else { throw Failure.exists(name) }
         }
+        return target
+    }
+
+    /// Where a document that has no file yet is saved as `newName` in `directory`; throws for a bad name and for one taken.
+    public static func destination(newFile newName: String, in directory: URL, fileManager: FileManager = .default) throws -> URL {
+        let name = try validName(newName)
+        let target = directory.appending(path: name, directoryHint: .notDirectory)
+        if fileManager.fileExists(atPath: target.path) { throw Failure.exists(name) }
         return target
     }
 

@@ -745,6 +745,16 @@
         }
       }
     },
+    "Choose" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "选取"
+          }
+        }
+      }
+    },
     "Check Frequency" : {
       "localizations" : {
         "zh-Hans" : {
@@ -1109,6 +1119,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "无法重命名“%@”"
+          }
+        }
+      }
+    },
+    "Could not save “%@”" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法存储“%@”"
           }
         }
       }
@@ -1977,6 +1997,16 @@
         }
       }
     },
+    "Name:" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "名称："
+          }
+        }
+      }
+    },
     "New" : {
       "localizations" : {
         "zh-Hans" : {
@@ -2193,6 +2223,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "打开…"
+          }
+        }
+      }
+    },
+    "Other…" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "其他…"
           }
         }
       }
@@ -3077,6 +3117,16 @@
         }
       }
     },
+    "Tags:" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "标签："
+          }
+        }
+      }
+    },
     "Task Lists" : {
       "localizations" : {
         "zh-Hans" : {
@@ -3353,6 +3403,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "每周"
+          }
+        }
+      }
+    },
+    "Where:" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "位置："
           }
         }
       }
