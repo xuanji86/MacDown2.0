@@ -9,7 +9,8 @@ import SwiftTreeSitter
 /// chunk by this class rather than through Neon's per-token `TextSystemInterface` calls.
 @MainActor
 final class MarkdownHighlighter {
-    private let textView: NSTextView
+    /// Weak: the view owns its highlighter (and the scheduler's interface below points back at it too).
+    private weak var textView: NSTextView?
     private let storage: NSTextStorage
     private let engine: MarkdownHighlightEngine
     private var scheduler: Highlighter!
@@ -75,6 +76,17 @@ final class MarkdownHighlighter {
         if let observer { NotificationCenter.default.removeObserver(observer) }
     }
 
+    /// The view stopped showing this highlighter's storage. A main-queue hop it already queued still holds it for a turn, and
+    /// the storage can be edited off screen (an undo) in the meantime: it must not look at that edit, nor paint anything again.
+    private(set) var isStopped = false
+
+    func stop() {
+        isStopped = true
+        if let observer { NotificationCenter.default.removeObserver(observer) }
+        observer = nil
+        pendingInvalidation = IndexSet()
+    }
+
     // MARK: Owner API
 
     func setTheme(_ theme: EditorTheme) {
@@ -103,7 +115,7 @@ final class MarkdownHighlighter {
     private(set) var lastEditHandling: Duration = .zero
 
     private func storageDidEdit() {
-        guard storage.editedMask.contains(.editedCharacters) else { return }  // our own attribute writes
+        guard !isStopped, storage.editedMask.contains(.editedCharacters) else { return }  // our own attribute writes
         let started = ContinuousClock.now
         defer { lastEditHandling = ContinuousClock.now - started }
         let edited = storage.editedRange
@@ -127,18 +139,19 @@ final class MarkdownHighlighter {
         lastText = newText
     }
 
-    /// The blank-line-delimited block around `range`, capped.
-    // lazy: ±4096 UTF-16 units; a larger paragraph keeps stale inline styling past the cap until it scrolls back in
+    /// The blank-line-delimited block around `range`: all of it, however long, because the inline layer is parsed per block and
+    /// an edit (an unclosed `*`, a closing backtick) can change the styling anywhere in it. Neon paints what it is told is invalid
+    /// chunk by chunk, visible chunks first, so a long paragraph costs the scan below, not a whole-block repaint.
+    // lazy: two literal substring scans per edit, as long as the distance to the nearest blank line on each side (memchr-speed,
+    // about a millisecond for a megabyte without one); take the enclosing block node from the block tree if that shows up in a profile
     private func paragraph(around range: NSRange) -> NSRange {
         let text = storage.mutableString
-        let cap = 4096
-        var start = max(0, range.location - 1), end = min(text.length, NSMaxRange(range) + 1)
-        let lower = max(0, range.location - cap), upper = min(text.length, NSMaxRange(range) + cap)
-        let before = text.range(of: "\n\n", options: .backwards, range: NSRange(location: lower, length: max(0, start - lower)))
-        start = before.location == NSNotFound ? lower : before.location
-        let after = text.range(of: "\n\n", range: NSRange(location: end, length: max(0, upper - end)))
-        end = after.location == NSNotFound ? upper : NSMaxRange(after)
-        return NSRange(location: start, length: end - start)
+        let start = max(0, range.location - 1), end = min(text.length, NSMaxRange(range) + 1)
+        let before = text.range(of: "\n\n", options: [.backwards, .literal], range: NSRange(location: 0, length: start))
+        let after = text.range(of: "\n\n", options: .literal, range: NSRange(location: end, length: text.length - end))
+        let lower = before.location == NSNotFound ? 0 : before.location
+        let upper = after.location == NSNotFound ? text.length : NSMaxRange(after)
+        return NSRange(location: lower, length: upper - lower)
     }
 
     private func scheduleFlush() {
@@ -153,7 +166,8 @@ final class MarkdownHighlighter {
     }
 
     private func invalidate(_ set: IndexSet) {
-        if textView.hasMarkedText() {
+        guard !isStopped else { return }
+        if textView?.hasMarkedText() == true {
             needsRepaintAfterComposition = true
             return
         }
@@ -163,7 +177,8 @@ final class MarkdownHighlighter {
     // MARK: Tokens -> attributes
 
     func provideTokens(for range: NSRange, done: @escaping (Result<TokenApplication, Error>) -> Void) {
-        if textView.hasMarkedText() {
+        guard !isStopped else { return done(.failure(HighlightError.staleContent)) }
+        if textView?.hasMarkedText() == true {
             needsRepaintAfterComposition = true
             done(.failure(HighlightError.markedText))
             return
@@ -174,7 +189,7 @@ final class MarkdownHighlighter {
             case .failure(let error): done(.failure(error))
             case .success(let tokens):
                 // Composition may have started while an asynchronous query ran.
-                guard !textView.hasMarkedText() else {
+                guard textView?.hasMarkedText() != true else {
                     needsRepaintAfterComposition = true
                     return done(.failure(HighlightError.markedText))
                 }
@@ -254,11 +269,11 @@ final class MarkdownHighlighter {
 /// What Neon's `Highlighter` needs to know about the view. Styling does not go through it (see class comment).
 @MainActor
 private struct ViewInterface: TextSystemInterface {
-    let textView: NSTextView
+    weak var textView: NSTextView?
     func clearStyle(in range: NSRange) {}
     func applyStyle(to token: Token) {}
-    var length: Int { textView.textStorage?.length ?? 0 }
-    var visibleRange: NSRange { textView.visibleCharacterRange ?? NSRange(location: 0, length: min(length, 4096)) }
+    var length: Int { textView?.textStorage?.length ?? 0 }
+    var visibleRange: NSRange { textView?.visibleCharacterRange ?? NSRange(location: 0, length: min(length, 4096)) }
 }
 
 extension NSFont {

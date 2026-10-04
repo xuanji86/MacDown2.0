@@ -47,15 +47,20 @@ describe('static HTML never becomes interactive', () => {
 
 test('the renderer lists the checkboxes it made: the line the page reports and the line holding the mark', () => {
   assert.deepEqual(renderResult(DOC, OPTIONS).tasks, [
-    { line: 0, mark: 0 },
-    { line: 1, mark: 1 },
-    { line: 2, mark: 2 },
-    { line: 4, mark: 4 },
-    { line: 6, mark: 6 },
+    { line: 0, mark: 0, column: 2 },
+    { line: 1, mark: 1, column: 2 },
+    { line: 2, mark: 2, column: 4 },
+    { line: 4, mark: 4, column: 4 },
+    { line: 6, mark: 6, column: 3 },
   ]);
   // a loose item reports its paragraph's line; an item that starts with an empty bullet line has its mark one line below
-  assert.deepEqual(renderResult('- [ ] a\n\n  more\n\n- [ ] b\n', OPTIONS).tasks, [{ line: 0, mark: 0 }, { line: 4, mark: 4 }]);
-  assert.deepEqual(renderResult('-\n  [ ] b\n', OPTIONS).tasks, [{ line: 0, mark: 1 }]);
+  assert.deepEqual(renderResult('- [ ] a\n\n  more\n\n- [ ] b\n', OPTIONS).tasks, [{ line: 0, mark: 0, column: 2 }, { line: 4, mark: 4, column: 2 }]);
+  assert.deepEqual(renderResult('-\n  [ ] b\n', OPTIONS).tasks, [{ line: 0, mark: 1, column: 2 }]);
+  // whatever precedes the box on its line: a footnote label, a tab, wide characters, trailing blanks
+  assert.deepEqual(renderResult('t[^a]\n\n[^a]: - [ ] todo\n', OPTIONS).tasks, [{ line: 2, mark: 2, column: 8 }]);
+  assert.deepEqual(renderResult('-\t[ ] a  \n', OPTIONS).tasks, [{ line: 0, mark: 0, column: 2 }]);
+  assert.deepEqual(renderResult('> 中 😀 - [x] a\n- [ ] b\n', OPTIONS).tasks, [{ line: 1, mark: 1, column: 2 }]);
+  assert.deepEqual(renderResult('- [ ] [ ] twice\n', OPTIONS).tasks, [{ line: 0, mark: 0, column: 2 }]);
   assert.deepEqual(renderResult('```\n- [ ] a\n```\n', OPTIONS).tasks, []);
   assert.deepEqual(renderResult('- [ ] a\n', { ...OPTIONS, extensions: [] }).tasks, []);
 });

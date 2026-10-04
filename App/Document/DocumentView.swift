@@ -11,7 +11,7 @@ enum WindowChromeKey {
 /// so typing re-renders only `PreviewPane` (which does), not this view or the editor.
 ///
 /// Both panes always stay in the view tree: hiding one only fades it out at full width. Removing the editor would drop
-/// its undo stack and selection; removing the preview would reload the web page; and an editor squeezed to zero width
+/// its window's text storages (the undo steps aimed at them would have to move out) and selection; removing the preview would reload the web page; and an editor squeezed to zero width
 /// makes TextKit 2 lay a large document out one character per line.
 struct DocumentView: View {
     let model: WindowModel
@@ -59,7 +59,7 @@ struct DocumentView: View {
             ZStack(alignment: .topLeading) {
                 EditorPane(
                     document: document, scrollSync: scrollSync, editor: editor, status: status, flavor: flavor,
-                    onUserEdit: { [model, tabURL] in model.controller.pin(tabURL) }
+                    onUserEdit: { [model] document in if let url = document.tabURL { model.controller.pin(url) } }
                 )
                     .frame(width: layout.mode == .both ? editorWidth : total, height: height)
                     .offset(x: swapped ? total - editorWidth : 0)
@@ -83,6 +83,7 @@ struct DocumentView: View {
         .toolbar { DocumentToolbar(actions: actions) }
         .focusedSceneValue(\.windowActions, actions)
         .task { await IsolatedTestHooks.toggleTaskThroughPage(model: model, preview: preview, editor: editor, document: document) }
+        .task { await IsolatedTestHooks.tabSwitchUndo(model: model, editor: editor) }
         .onAppear {
             scrollSync.attach(preview: preview)
             preview.onToggleTask = { [editor] task, checked, text in editor.toggleTask(task, checked: checked, renderedText: text) }

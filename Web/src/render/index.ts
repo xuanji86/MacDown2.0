@@ -42,8 +42,10 @@ export interface BlockMap { lineStart: number; lineEnd: number; hash: number }
 export interface OutlineItem { level: number; text: string; slug: string; line: number }
 // A task-list checkbox, as the renderer saw it in this text. `line`: the source line the preview page reports for it (its
 // `data-line`: the item's paragraph in a loose item, else the item); `mark`: the line holding the `[ ]` (differs from `line`
-// only when the item starts with an empty bullet line). The app edits the source from this, not from its own idea of Markdown.
-export interface TaskItem { line: number; mark: number }
+// only when the item starts with an empty bullet line); `column`: UTF-16 offset of that `[` within line `mark`, whatever
+// precedes it (quote marks, list markers, a footnote label), -1 if it could not be located. The app edits the source from
+// this, not from its own idea of Markdown.
+export interface TaskItem { line: number; mark: number; column: number }
 export interface RenderResult {
   html: string;
   blocks: BlockMap[];
@@ -207,7 +209,11 @@ export function renderResult(source: string, options: RenderOptions): RenderResu
     const t = tokens[i];
     if (t.type !== 'inline' || !t.map || t.children?.[0]?.type !== 'checkbox_input') continue;
     const owner = tokens[i - 1].hidden ? tokens[i - 2] : tokens[i - 1]; // a tight item's paragraph is not rendered, so its <li> carries the line
-    if (owner.map) tasks.push({ line: owner.map[0], mark: t.map[0] });
+    if (!owner.map) continue;
+    // The inline content starts at the `[` (the container's prefix is already stripped, leading blanks trimmed) and runs to the
+    // end of its first source line, so that line ends with it: the last occurrence in the source line is the box.
+    const head = t.content.split('\n', 1)[0];
+    tasks.push({ line: owner.map[0], mark: t.map[0], column: (lines[t.map[0]] ?? '').lastIndexOf(head) });
   }
   const fm = tokens.find((t) => t.type === 'front_matter');
   if (options.sanitize && !sanitizeFn) throw new Error('sanitize was requested but sanitize.chunk.js is not loaded; refusing to return unsanitized HTML');
