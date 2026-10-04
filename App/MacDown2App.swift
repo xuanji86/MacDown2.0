@@ -41,7 +41,10 @@ struct MacDown2App: App {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillFinishLaunching(_ notification: Notification) {
         NSWindow.allowsAutomaticWindowTabbing = false  // tabs are ours; the system's "Show Tab Bar" must not appear
-        MainActor.assumeIsolated { WorkspaceRegistry.shared.prepareLaunch() }
+        MainActor.assumeIsolated {
+            IconStyle.start()
+            WorkspaceRegistry.shared.prepareLaunch()
+        }
     }
 
     /// There is no untitled document.

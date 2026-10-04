@@ -29,10 +29,43 @@ struct SettingsView: View {
 private struct GeneralPage: View {
     var body: some View {
         Form {
+            IconStyleSection()
             ToolEnvironmentSection()
             Section { Text("更多通用设置将随后续功能加入。").foregroundStyle(.secondary) }
         }
         .formStyle(.grouped)
+    }
+}
+
+/// "App 图标": 跟随系统 (the bundle's adaptive icon) or one of its four appearances. `IconStyle.start()` applies the choice.
+private struct IconStyleSection: View {
+    @AppStorage(IconStyle.key) private var raw = IconStyle.system.rawValue
+
+    var body: some View {
+        Section {
+            HStack(spacing: 10) {
+                ForEach(IconStyle.allCases) { style in
+                    let selected = (IconStyle(rawValue: raw) ?? .system) == style
+                    Button { raw = style.rawValue } label: {
+                        VStack(spacing: 4) {
+                            Image(nsImage: style.thumbnail).resizable().frame(width: 56, height: 56)
+                            Text(style.title).font(.caption)
+                        }
+                        .padding(6)
+                        .background(selected ? Color.accentColor.opacity(0.18) : .clear, in: .rect(cornerRadius: 8))
+                        .overlay { if selected { RoundedRectangle(cornerRadius: 8).stroke(Color.accentColor, lineWidth: 1.5) } }
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("App 图标:\(style.title)")
+                    .accessibilityAddTraits(selected ? .isSelected : [])
+                }
+            }
+            .frame(maxWidth: .infinity)
+        } header: {
+            Text("App 图标")
+        } footer: {
+            Text("运行时的 Dock 图标;Finder 中的图标跟随系统外观")
+        }
     }
 }
 
