@@ -16,7 +16,8 @@ public struct ProcessOutput: Sendable, Equatable {
 /// Starts external processes. Injected so tests never touch the user's real shell (and can count spawns).
 public protocol ProcessSpawner: Sendable {
     /// Runs `executable` in `directory` with stdin closed and returns its stdout. Must stop the process (and everything
-    /// in its process group) and throw when the calling task is cancelled: callers use cancellation to enforce timeouts.
+    /// in its process group) and throw promptly when the calling task is cancelled: callers use cancellation to enforce
+    /// timeouts.
     func run(executable: String, arguments: [String], directory: String) async throws -> ProcessOutput
 }
 
@@ -33,16 +34,23 @@ public enum ProcessSpawnError: Error, LocalizedError, Equatable {
 }
 
 /// The real thing: `posix_spawn` into a new process group (so a timeout can kill the shell and whatever its rc files
-/// started, not just the shell), stdin and stderr on /dev/null, every other descriptor closed in the child.
+/// started in the group), stdin and stderr on /dev/null, every other descriptor closed in the child.
+///
+/// stdout is read with `poll`, together with a wake-up pipe, so neither a cancel nor the shell's exit waits for the pipe
+/// to reach EOF: a descendant that called `setsid()` and kept stdout open cannot hold the call up.
 public struct SystemProcessSpawner: ProcessSpawner {
-    public init() {}
+    /// The child's environment; nil = this process's own.
+    private let environment: [String: String]?
+
+    public init(environment: [String: String]? = nil) { self.environment = environment }
 
     public func run(executable: String, arguments: [String], directory: String) async throws -> ProcessOutput {
         let child = Child()
+        let environment = environment ?? ProcessInfo.processInfo.environment
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
                 DispatchQueue.global(qos: .utility).async {
-                    continuation.resume(with: Result { try child.runBlocking(executable: executable, arguments: arguments, directory: directory) })
+                    continuation.resume(with: Result { try child.runBlocking(executable: executable, arguments: arguments, directory: directory, environment: environment) })
                 }
             }
         } onCancel: {
@@ -57,21 +65,47 @@ public struct SystemProcessSpawner: ProcessSpawner {
         private let lock = NSLock()
         private var pid: pid_t = 0
         private var terminated = false
+        private var wakeWriter: Int32 = -1
 
-        /// Kill the whole group. Safe at any time: before the spawn it only records the request; the pid stays a zombie
-        /// (so it cannot be reused) until `runBlocking` reaps it under the same lock.
+        /// Kill the whole group and wake the reader. Safe at any time: before the spawn it only records the request; the
+        /// pid stays a zombie (so it cannot be reused) until `runBlocking` reaps it under the same lock.
         func terminate() {
             lock.withLock {
                 terminated = true
                 if pid > 0 { kill(-pid, SIGKILL) }
+                wake()
             }
         }
 
-        func runBlocking(executable: String, arguments: [String], directory: String) throws -> ProcessOutput {
-            var fds: [Int32] = [0, 0]
-            guard pipe(&fds) == 0 else { throw ProcessSpawnError.launchFailed(errno: errno) }
-            let (readEnd, writeEnd) = (fds[0], fds[1])
-            defer { close(readEnd) }
+        private func wake() {  // caller holds the lock; the writer is only closed under it
+            if wakeWriter >= 0 { var byte: UInt8 = 1; _ = write(wakeWriter, &byte, 1) }
+        }
+
+        func runBlocking(executable: String, arguments: [String], directory: String, environment: [String: String]) throws -> ProcessOutput {
+            var out: [Int32] = [0, 0], wake: [Int32] = [0, 0]
+            guard pipe(&out) == 0 else { throw ProcessSpawnError.launchFailed(errno: errno) }
+            guard pipe(&wake) == 0 else {
+                close(out[0]); close(out[1])
+                throw ProcessSpawnError.launchFailed(errno: errno)
+            }
+            let (readEnd, writeEnd, wakeReader) = (out[0], out[1], wake[0])
+            for fd in [readEnd, wakeReader, wake[1]] {
+                _ = fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK)
+                _ = fcntl(fd, F_SETFD, FD_CLOEXEC)
+            }
+            _ = fcntl(readEnd, F_SETFD, FD_CLOEXEC)
+            let cancelledEarly: Bool = lock.withLock {
+                wakeWriter = wake[1]
+                return terminated
+            }
+            defer {
+                lock.withLock { wakeWriter = -1 }
+                close(readEnd); close(wakeReader); close(wake[1])
+            }
+            if cancelledEarly {
+                close(writeEnd)
+                throw CancellationError()
+            }
 
             var actions: posix_spawn_file_actions_t?
             var attributes: posix_spawnattr_t?
@@ -94,7 +128,7 @@ public struct SystemProcessSpawner: ProcessSpawner {
             posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_SETPGROUP | POSIX_SPAWN_SETSIGDEF | POSIX_SPAWN_SETSIGMASK | POSIX_SPAWN_CLOEXEC_DEFAULT))
 
             var argv: [UnsafeMutablePointer<CChar>?] = ([executable] + arguments).map { strdup($0) } + [nil]
-            var envp: [UnsafeMutablePointer<CChar>?] = ProcessInfo.processInfo.environment.map { strdup("\($0.key)=\($0.value)") } + [nil]
+            var envp: [UnsafeMutablePointer<CChar>?] = environment.map { strdup("\($0.key)=\($0.value)") } + [nil]
             defer {
                 argv.forEach { free($0) }
                 envp.forEach { free($0) }
@@ -109,26 +143,54 @@ public struct SystemProcessSpawner: ProcessSpawner {
                 if terminated { kill(-child, SIGKILL) }
             }
 
+            // The shell's exit also wakes the reader, so a descendant that kept stdout open cannot hold us up.
+            // `WNOWAIT`: the zombie stays until we reap it below, so `terminate` never signals a recycled pid.
+            let exited = DispatchSemaphore(value: 0)
+            let reaped = child
+            DispatchQueue.global(qos: .utility).async {
+                var info = siginfo_t()
+                while waitid(P_PID, id_t(reaped), &info, WEXITED | WNOWAIT) != 0 && errno == EINTR {}
+                self.lock.withLock { self.wake() }
+                exited.signal()
+            }
+
             var data = Data()
             var tooLarge = false
             var buffer = [UInt8](repeating: 0, count: 64 * 1024)
-            while true {
-                let n = read(readEnd, &buffer, buffer.count)
-                if n < 0 && errno == EINTR { continue }
-                if n <= 0 { break }
-                if data.count + n > SystemProcessSpawner.outputLimit {
-                    tooLarge = true
-                    terminate()
+            /// Reads what is there; false at EOF.
+            func drain() -> Bool {
+                while true {
+                    let n = read(readEnd, &buffer, buffer.count)
+                    if n < 0 && errno == EINTR { continue }
+                    if n < 0 { return true }  // EAGAIN: nothing more for now
+                    if n == 0 { return false }
+                    if data.count + n > SystemProcessSpawner.outputLimit {
+                        tooLarge = true
+                        return false
+                    }
+                    data.append(buffer, count: n)
+                }
+            }
+            var fds = [pollfd(fd: readEnd, events: Int16(POLLIN), revents: 0), pollfd(fd: wakeReader, events: Int16(POLLIN), revents: 0)]
+            polling: while true {
+                if poll(&fds, 2, -1) < 0 {
+                    if errno == EINTR { continue }
+                    terminate()  // cannot wait any more: stop the child rather than leave it
                     break
                 }
-                data.append(buffer, count: n)
+                if fds[0].revents != 0, !drain() {
+                    if tooLarge { terminate(); break }
+                    fds[0].fd = -1  // EOF: keep waiting for the exit (or a cancel)
+                }
+                if fds[1].revents != 0 {
+                    _ = drain()  // what the shell wrote before exiting is already in the pipe
+                    break polling
+                }
             }
+            exited.wait()  // the shell exited (or was killed by `terminate`), so this returns
 
-            // Wait for the exit without reaping, then reap under the lock so `terminate` never signals a recycled pid.
-            var info = siginfo_t()
-            while waitid(P_PID, id_t(child), &info, WEXITED | WNOWAIT) != 0 && errno == EINTR {}
             var status: Int32 = 0
-            let wasTerminated: Bool = lock.withLock {
+            let wasTerminated = lock.withLock {
                 while waitpid(child, &status, 0) < 0 && errno == EINTR {}
                 pid = 0
                 return terminated

@@ -153,10 +153,12 @@ public actor LoginShellEnvironment: ToolEnvironment {
         guard shell.hasPrefix("/"), FileManager.default.isExecutableFile(atPath: shell) else { return fallback("\(shell) is not an executable shell") }
 
         let spawner = spawner, timeout = timeout, home = home
+        let marker = "MD2ENV" + UUID().uuidString.replacingOccurrences(of: "-", with: "")
+        let arguments = Self.shellArguments(shellName: shellName, marker: marker)
         let outcome = await withTaskGroup(of: Outcome.self) { group in
             group.addTask {
                 do {
-                    return .output(try await spawner.run(executable: shell, arguments: ["-l", "-c", "/usr/bin/env -0"], directory: home))
+                    return .output(try await spawner.run(executable: shell, arguments: arguments, directory: home))
                 } catch {
                     return .failed(error.localizedDescription)
                 }
@@ -177,10 +179,27 @@ public actor LoginShellEnvironment: ToolEnvironment {
             return fallback(reason)
         case .output(let output):
             guard output.status == 0 else { return fallback("exit status \(output.status)") }
-            let environment = Self.parse(output.stdout)
+            guard let dump = Self.extract(output.stdout, marker: marker) else { return fallback("no environment in the shell's output") }
+            let environment = Self.parse(dump)
             guard environment["PATH"] != nil else { return fallback("no PATH in the shell's environment") }
             return ToolEnvironmentSnapshot(environment: environment, source: .loginShell(path: shell), seconds: seconds())
         }
+    }
+
+    /// zsh and bash read `.zshrc` / `.bashrc` (where most people put PATH, conda, nvm) only when interactive, hence `-i -l`
+    /// (what VS Code does). fish reads `config.fish` for every invocation and other shells get a plain login shell. An
+    /// interactive rc prints banners and noise, so the dump is wrapped in `marker` and only what is between is parsed.
+    /// stdin is /dev/null (the spawner), so nothing can wait for input.
+    static func shellArguments(shellName: String, marker: String) -> [String] {
+        let command = "printf %s \(marker); /usr/bin/env -0; printf %s \(marker)"
+        return (shellName == "zsh" || shellName == "bash" ? ["-i", "-l", "-c"] : ["-l", "-c"]) + [command]
+    }
+
+    /// The bytes between the first two occurrences of `marker`; nil when it is not there twice.
+    static func extract(_ data: Data, marker: String) -> Data? {
+        let marker = Data(marker.utf8)
+        guard let start = data.range(of: marker), let end = data.range(of: marker, in: start.upperBound..<data.endIndex) else { return nil }
+        return data[start.upperBound..<end.lowerBound]
     }
 
     private func fallbackEnvironment() -> [String: String] {
@@ -195,8 +214,7 @@ public actor LoginShellEnvironment: ToolEnvironment {
     }
 
     /// `env -0` output → variables. Records are NUL-separated, so values may hold newlines; the key ends at the first `=`
-    /// (values may hold more). A record without `=` or with a key containing whitespace/control characters (text a noisy rc
-    /// file printed ahead of the first variable) is dropped.
+    /// (values may hold more). A record without `=` or with a key containing whitespace/control characters is dropped.
     static func parse(_ data: Data) -> [String: String] {
         var result: [String: String] = [:]
         for record in data.split(separator: 0) {

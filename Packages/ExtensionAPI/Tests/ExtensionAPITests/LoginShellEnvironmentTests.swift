@@ -5,7 +5,11 @@ import Testing
 /// A spawner that records what it was asked and answers from a script. Never starts a process.
 final class CountingSpawner: ProcessSpawner, @unchecked Sendable {
     enum Behavior: Sendable {
-        case output(Data, status: Int32 = 0)
+        /// What `env -0` printed; the spawner wraps it in the marker the shell was asked to print, with `noise` around it
+        /// (a banner an interactive rc printed).
+        case output(Data, status: Int32 = 0, noise: String = "")
+        /// Exactly these bytes (no marker).
+        case raw(Data)
         /// Answers after a pause (so concurrent callers overlap).
         case delayed(Data, milliseconds: Int)
         /// Never answers until cancelled, like a login shell stuck in a blocking rc command.
@@ -37,6 +41,13 @@ final class CountingSpawner: ProcessSpawner, @unchecked Sendable {
     var spawns: Int { calls.count }
     var cancellations: Int { lock.withLock { cancels } }
 
+    /// `data` between two copies of the marker found in the command the shell was asked to run.
+    static func wrap(_ data: Data, noise: String, arguments: [String]) -> Data {
+        let last = arguments.last ?? ""
+        let marker = last.range(of: "MD2ENV[0-9A-F]{32}", options: .regularExpression).map { String(last[$0]) } ?? ""
+        return Data(noise.utf8) + Data(marker.utf8) + data + Data(marker.utf8) + Data(noise.utf8)
+    }
+
     func run(executable: String, arguments: [String], directory: String) async throws -> ProcessOutput {
         let behavior = lock.withLock {
             recorded.append(Call(executable: executable, arguments: arguments, directory: directory))
@@ -44,10 +55,12 @@ final class CountingSpawner: ProcessSpawner, @unchecked Sendable {
         }
         do {
             switch behavior {
-            case .output(let data, let status): return ProcessOutput(stdout: data, status: status)
+            case .output(let data, let status, let noise):
+                return ProcessOutput(stdout: Self.wrap(data, noise: noise, arguments: arguments), status: status)
+            case .raw(let data): return ProcessOutput(stdout: data, status: 0)
             case .delayed(let data, let ms):
                 try await Task.sleep(for: .milliseconds(ms))
-                return ProcessOutput(stdout: data, status: 0)
+                return ProcessOutput(stdout: Self.wrap(data, noise: "", arguments: arguments), status: 0)
             case .hang:
                 try await Task.sleep(for: .seconds(120))
                 return ProcessOutput(stdout: Data(), status: 0)
@@ -125,7 +138,11 @@ private func makeEnvironment(
     let spawner = CountingSpawner(.output(goodOutput))
     let env = makeEnvironment(spawner, home: "/Users/test")
     let snapshot = await env.snapshot()
-    #expect(spawner.calls == [.init(executable: "/bin/sh", arguments: ["-l", "-c", "/usr/bin/env -0"], directory: "/Users/test")])
+    #expect(spawner.spawns == 1)
+    let call = spawner.calls[0]
+    #expect(call.executable == "/bin/sh" && call.directory == "/Users/test")
+    #expect(call.arguments.dropLast() == ["-l", "-c"])  // plain login shell for anything but zsh and bash
+    #expect(call.arguments.last?.contains("/usr/bin/env -0") == true)
     #expect(snapshot.source == .loginShell(path: "/bin/sh"))
     #expect(snapshot.environment["QUARTO_PYTHON"] == "/opt/py/bin/python")
     #expect(snapshot.environment["SHLVL"] == nil && snapshot.environment["TERM"] == nil && snapshot.environment["_"] == nil)
@@ -138,8 +155,32 @@ private func makeEnvironment(
     let fish = try sandbox.file("fish", executable: true)
     let spawner = CountingSpawner(.output(goodOutput))
     let snapshot = await makeEnvironment(spawner, shell: fish).snapshot()
-    #expect(spawner.calls.first?.arguments == ["-l", "-c", "/usr/bin/env -0"])
+    #expect(spawner.calls.first?.arguments.dropLast() == ["-l", "-c"])  // fish reads config.fish for every invocation
     #expect(snapshot.source == .loginShell(path: fish))
+}
+
+@Test func zshAndBashAreInteractiveLoginShellsSoTheirRcFilesAreRead() async throws {
+    let sandbox = try Sandbox()
+    for name in ["zsh", "bash"] {
+        let spawner = CountingSpawner(.output(goodOutput))
+        _ = await makeEnvironment(spawner, shell: try sandbox.file(name, executable: true)).snapshot()
+        #expect(spawner.calls.first?.arguments.dropLast() == ["-i", "-l", "-c"])
+    }
+}
+
+@Test func theDumpIsReadFromBetweenTheMarkersWhateverTheRcFilesPrint() async {
+    let noise = "Welcome to my shell!\nloading nvm...\n"
+    let snapshot = await makeEnvironment(CountingSpawner(.output(goodOutput, noise: noise))).snapshot()
+    #expect(snapshot.source == .loginShell(path: "/bin/sh"))
+    #expect(Set(snapshot.environment.keys) == ["PATH", "HOME", "QUARTO_PYTHON"])  // nothing swallowed, nothing added
+    // no markers (the shell never reached the command) -> fallback
+    guard case .fallback = await makeEnvironment(CountingSpawner(.raw(goodOutput))).snapshot().source else { Issue.record("expected a fallback"); return }
+}
+
+@Test func extractNeedsTheMarkerTwice() {
+    #expect(LoginShellEnvironment.extract(Data("noiseMARKabcMARKtail".utf8), marker: "MARK") == Data("abc".utf8))
+    #expect(LoginShellEnvironment.extract(Data("noiseMARKabc".utf8), marker: "MARK") == nil)
+    #expect(LoginShellEnvironment.extract(Data("abc".utf8), marker: "MARK") == nil)
 }
 
 @Test func cshAndTcshFallBackWithoutSpawning() async throws {
@@ -345,6 +386,65 @@ private struct FixedEnvironment: ToolEnvironment {
     let started = ContinuousClock.now
     let snapshot = await env.snapshot()
     #expect(started.duration(to: .now) < .seconds(5))
+    guard case .fallback(let reason) = snapshot.source else { Issue.record("expected a fallback"); return }
+    #expect(reason.contains("timed out"))
+}
+
+/// The real /bin/zsh and /bin/bash, but with HOME / ZDOTDIR pointing at a temp directory: they never see the user's rc
+/// files. Proves the interactive flags: a variable exported from `.zshrc` (not `.zprofile`) must arrive, and the noise the
+/// rc prints must not.
+@Test func realZshReadsZshrcAndIgnoresItsNoise() async throws {
+    let sandbox = try Sandbox()
+    try "echo banner-on-stdout\necho banner-on-stderr >&2\nexport MD2_FROM_ZSHRC=yes\nexport PATH=\"/md2/from/zshrc:$PATH\"\n"
+        .write(to: sandbox.url.appendingPathComponent(".zshrc"), atomically: true, encoding: .utf8)
+    let home = sandbox.url.path
+    let spawner = SystemProcessSpawner(environment: ["HOME": home, "ZDOTDIR": home, "PATH": "/usr/bin:/bin", "USER": "test"])
+    let env = LoginShellEnvironment(spawner: spawner, timeout: .seconds(10), processEnvironment: ["SHELL": "/bin/zsh", "PATH": "/usr/bin:/bin"], home: home)
+    let snapshot = await env.snapshot()
+    #expect(snapshot.source == .loginShell(path: "/bin/zsh"))
+    #expect(snapshot.environment["MD2_FROM_ZSHRC"] == "yes")
+    #expect(snapshot.path.first == "/md2/from/zshrc")
+    #expect(!snapshot.environment.keys.contains { $0.contains("banner") })
+}
+
+@Test func realBashReadsItsLoginProfile() async throws {
+    let sandbox = try Sandbox()
+    try "echo banner\nexport MD2_FROM_BASH=yes\n".write(to: sandbox.url.appendingPathComponent(".bash_profile"), atomically: true, encoding: .utf8)
+    let home = sandbox.url.path
+    let spawner = SystemProcessSpawner(environment: ["HOME": home, "PATH": "/usr/bin:/bin", "USER": "test"])
+    let env = LoginShellEnvironment(spawner: spawner, timeout: .seconds(10), processEnvironment: ["SHELL": "/bin/bash", "PATH": "/usr/bin:/bin"], home: home)
+    let snapshot = await env.snapshot()
+    #expect(snapshot.source == .loginShell(path: "/bin/bash"))
+    #expect(snapshot.environment["MD2_FROM_BASH"] == "yes")
+}
+
+/// A descendant that called setsid() (here via perl) and keeps stdout open is out of reach of `kill(-pgid)`; the read must
+/// not wait for it.
+@Test func aSetsidDescendantHoldingStdoutDoesNotHoldUpACancelOrAnExit() async throws {
+    let sandbox = try Sandbox()
+    let sleeper = "perl -MPOSIX -e 'POSIX::setsid(); sleep 4'"
+    // cancel: the spawner returns about when asked, not when the sleeper lets go of the pipe
+    let directory = sandbox.url.path
+    let task = Task { try await SystemProcessSpawner().run(executable: "/bin/sh", arguments: ["-c", "\(sleeper) & sleep 60"], directory: directory) }
+    try await Task.sleep(for: .milliseconds(300))
+    let started = ContinuousClock.now
+    task.cancel()
+    await #expect(throws: CancellationError.self) { try await task.value }
+    #expect(started.duration(to: .now) < .seconds(1.5))
+
+    // exit: the shell finishes at once while the sleeper still holds stdout; what it printed comes back right away
+    let t0 = ContinuousClock.now
+    let out = try await SystemProcessSpawner().run(executable: "/bin/sh", arguments: ["-c", "\(sleeper) & echo done"], directory: sandbox.url.path)
+    #expect(String(decoding: out.stdout, as: UTF8.self) == "done\n" && out.status == 0)
+    #expect(t0.duration(to: .now) < .seconds(2.5))
+
+    // and through LoginShellEnvironment: the timeout bounds the whole read
+    let shell = try sandbox.file("slow-shell", executable: true)
+    try "#!/bin/sh\n\(sleeper) &\nsleep 60\n".write(toFile: shell, atomically: true, encoding: .utf8)
+    let env = LoginShellEnvironment(spawner: SystemProcessSpawner(), timeout: .milliseconds(300), processEnvironment: ["SHELL": shell, "PATH": "/usr/bin:/bin"], home: sandbox.url.path)
+    let t1 = ContinuousClock.now
+    let snapshot = await env.snapshot()
+    #expect(t1.duration(to: .now) < .seconds(1.5))
     guard case .fallback(let reason) = snapshot.source else { Issue.record("expected a fallback"); return }
     #expect(reason.contains("timed out"))
 }
