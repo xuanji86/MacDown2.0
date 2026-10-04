@@ -4,7 +4,7 @@ Source: <https://github.com/quarto-dev/quarto>, `packages/core/src/markdownit/` 
 at commit `a83c5cc597e61a28700ceacda86c15b9ef565e82` (2026-09-30, `main`).
 
 Licence: **MIT**, Copyright Posit Software, PBC (the repo's `packages/core/package.json` and `apps/vscode/LICENSE`).
-The task brief expected AGPL; the repository is MIT, which is compatible with this project's GPL-3.0 and only needs the
+Licence: the plugin sources are MIT, which is compatible with this project's GPL-3.0 and only needs the
 notice kept: it is in `LICENSE.txt` here and goes into `THIRD_PARTY_LICENSES.txt` via `build.mjs`. The files keep their
 original headers (gridtables: Bas Verweij, yaml.ts: ParkSB, math.ts: derived from markdown-it-mathjax3).
 
