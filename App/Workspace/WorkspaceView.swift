@@ -1,3 +1,4 @@
+import EditorKit
 import SwiftUI
 import WorkspaceKit
 
@@ -132,17 +133,42 @@ extension FocusedValues {
     @Entry var workspace: WindowModel?
 }
 
-/// A window with no tab: the way in (Cmd-O, Finder, Open Recent).
+/// A window with no tab (the last one was closed, or a restored window had none): the way in is Open (Cmd-O, Finder, Open Recent),
+/// a new Markdown document (Cmd-N) or the sidebar. Drawn in the editor theme's colours, so it reads as the empty editor area.
 private struct EmptyWorkspaceView: View {
+    @AppStorage(AppearanceKey.editorTheme) private var themeName = AppearanceDefault.editorTheme
+    @AppStorage(AppearanceKey.editorThemeFollowsSystem) private var followsSystem = false
+    @Environment(\.colorScheme) private var colorScheme
+
+    private var theme: EditorTheme { ThemeLibrary.resolve(name: themeName, followSystem: followsSystem, systemIsDark: colorScheme == .dark) }
+
     var body: some View {
+        let ink = Color(nsColor: theme.text)
         VStack(spacing: 14) {
-            Image(systemName: "doc.text").font(.system(size: 40)).foregroundStyle(.tertiary)
-            Text("没有打开的文件").font(.title3).foregroundStyle(.secondary)
-            HStack {
+            Image(systemName: "doc.text").font(.system(size: 40)).foregroundStyle(ink.opacity(0.3))
+            Text("没有打开的文件").font(.title3).foregroundStyle(ink.opacity(0.55))
+            HStack(spacing: 10) {
                 Button("打开…") { WorkspaceRegistry.shared.showOpenPanel() }
-                Button("新建") { WorkspaceRegistry.shared.newUntitled() }
+                Button("新建 Markdown") { WorkspaceRegistry.shared.newUntitled() }
             }
+            .buttonStyle(QuietButtonStyle(ink: ink))
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(nsColor: theme.background))
+    }
+}
+
+/// A flat pill in the theme's text colour: the empty state's two choices, quiet next to the editor they stand in for.
+private struct QuietButtonStyle: ButtonStyle {
+    let ink: Color
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 13))
+            .foregroundStyle(ink.opacity(0.8))
+            .padding(.horizontal, 14)
+            .padding(.vertical, 6)
+            .background(ink.opacity(configuration.isPressed ? 0.16 : 0.08), in: Capsule())
+            .contentShape(Capsule())
     }
 }
