@@ -7,6 +7,7 @@ full history; this merges the new item into the previous appcast. Called by Scri
 import argparse
 import email.utils
 import html
+import re
 import os
 import sys
 import xml.etree.ElementTree as ET
@@ -20,6 +21,13 @@ def q(tag):
     return f"{{{SP}}}{tag}"
 
 
+def inline(text):
+    """Escaped text with **bold** and `code` (the only inline markup release notes use)."""
+    text = html.escape(text)
+    text = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", text)
+    return re.sub(r"`(.+?)`", r"<code>\1</code>", text)
+
+
 def notes_html(path):
     """Release-notes markdown -> minimal HTML (bullets and paragraphs; escaped)."""
     out, in_list = [], False
@@ -29,13 +37,13 @@ def notes_html(path):
             if not in_list:
                 out.append("<ul>")
                 in_list = True
-            out.append(f"<li>{html.escape(line[2:])}</li>")
+            out.append(f"<li>{inline(line[2:])}</li>")
             continue
         if in_list:
             out.append("</ul>")
             in_list = False
         if line and not line.startswith("#"):
-            out.append(f"<p>{html.escape(line)}</p>")
+            out.append(f"<p>{inline(line)}</p>")
     if in_list:
         out.append("</ul>")
     return "\n".join(out)

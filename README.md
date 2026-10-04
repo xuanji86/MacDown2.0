@@ -54,17 +54,17 @@ What survives is the part that mattered: the dark editor beside a white page, th
 
 ## Install
 
-MacDown2.0 has not shipped a release yet. When it does, it will be available two ways:
+Install with Homebrew:
 
 ```sh
-brew install --cask xuanji86/tap/macdown2    # coming soon
+brew install --cask xuanji86/tap/macdown2
 ```
 
-or as a `.dmg` from [GitHub Releases](https://github.com/xuanji86/MacDown2.0/releases).
+or download the `.dmg` from [GitHub Releases](https://github.com/xuanji86/MacDown2.0/releases).
 
 The app is ad-hoc signed, not notarized, and the official `homebrew/cask` tap does not accept un-notarized apps — hence the project's own tap, which will also clear the quarantine flag for you. If you download manually instead, macOS will refuse to open the app once; go to **System Settings › Privacy & Security** and click **Open Anyway**. Sparkle handles updates from then on.
 
-Until the first release, build it yourself — it takes one command.
+Or build it yourself — it takes one command.
 
 ## Command line
 
