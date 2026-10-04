@@ -39,4 +39,4 @@ PNG 为 1024px 带 alpha 的栅格版（`01-background*.png` 不透明），SVG 
 
 ## 运行时图标样式(设置 › 通用 › App 图标)
 
-`App/IconStyles/appicon-{light,dark,clear,tinted}.png` 是 Icon Composer 的 `ictool` 从 `App/AppIcon.icon` 渲染出的真实外观(384 px),不是手绘;`.icon` 改动后跑 `Scripts/render-icon-variants.sh` 重新生成并提交。运行时由 `App/Settings/IconStyle.swift` 经 `NSApp.applicationIconImage` 覆盖 Dock 图标,「跟随系统」即不覆盖;磁盘上的图标不改(`NSWorkspace.setIcon` 会破坏签名与 Sparkle 更新)。
+`App/IconStyles/appicon-{light,dark,clear,tinted}.png`(384 px)由 `Scripts/render-icon-variants.sh` 生成;`.icon` 改动后重跑并提交。Light / Dark 是 Icon Composer `ictool` 的真实渲染;Clear / Tinted 因 ictool 只给出系统派生规则(不透明纯灰 / 纯青绿),改由脚本用 `.icon` 里的 glyph 与「2」两层(位置取自 `icon.json`)加自绘材质合成(需要 python3 + Pillow):Clear 是磨砂白玻璃面板加蓝/薄荷/粉的柔和底色(Dock 里图标背后没有东西可透出,颜色必须烘进去),Tinted 是近黑藏蓝面板、青色发光 M↓、灰蓝「2」。运行时由 `App/Settings/IconStyle.swift` 经 `NSApp.applicationIconImage` 覆盖 Dock 图标,「跟随系统」即不覆盖;磁盘上的图标不改(`NSWorkspace.setIcon` 会破坏签名与 Sparkle 更新)。
