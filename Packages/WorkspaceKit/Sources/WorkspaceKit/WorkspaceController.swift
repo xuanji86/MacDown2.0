@@ -36,7 +36,9 @@ public final class WorkspaceController {
 
     @ObservationIgnored private let ledger: DocumentLedger
     @ObservationIgnored private let backend: any DocumentBackend
-    @ObservationIgnored private var closing = Set<String>()
+    /// Tabs being closed: the key the close started with, and where that document's tab is now. Saving an untitled document
+    /// during the close prompt moves it to its file (`documentMoved`), and it is that tab the close must finish.
+    @ObservationIgnored private var closing: [String: URL] = [:]
 
     public init(id: UUID = UUID(), ledger: DocumentLedger, backend: any DocumentBackend) {
         self.id = id
@@ -110,12 +112,13 @@ public final class WorkspaceController {
     public func close(_ url: URL) async -> Bool {
         let key = url.fileKey
         guard holds(url) else { return true }
-        guard closing.insert(key).inserted else { return false }
-        defer { closing.remove(key) }
+        guard !closing.values.contains(where: { $0.fileKey == key }) else { return false }
+        closing[key] = url
+        defer { closing[key] = nil }
         if ledger.holders(of: key) == [id], backend.isDirty(url) {
             guard await backend.confirmClose(url, in: id) else { return false }
         }
-        run(session.close(url))  // a no-op when the tab went away while the sheet was up
+        run(session.close(closing[key] ?? url))  // a no-op when the tab went away while the sheet was up
         return true
     }
 
@@ -136,6 +139,8 @@ public final class WorkspaceController {
     /// shared ledger (it is one change for all windows); this is the window's own tab.
     public func documentMoved(from old: URL, to new: URL) {
         guard holds(old) else { return }
+        // A close in progress follows its tab to the new key, unless the tab merged into one that was already open: that one stays.
+        if !holds(new) { for (origin, current) in closing where current.fileKey == old.fileKey { closing[origin] = new } }
         session.moved(from: old, to: new)
         backend.didActivate(session.activeURL, in: id)
     }

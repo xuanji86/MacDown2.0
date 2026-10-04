@@ -21,11 +21,18 @@ public struct FileTreeOptions: Sendable, Equatable {
     public var showAllFiles: Bool
     public var markdownExtensions: Set<String>
     public var ignore: IgnoreRules
+    /// Look for `_quarto.yml` in every folder (the Q badge). Off while the Quarto extension is off: a closed extension
+    /// costs no `stat` per folder.
+    public var detectsQuartoProjects: Bool
 
-    public init(showAllFiles: Bool = false, markdownExtensions: Set<String> = ["md", "markdown", "qmd", "txt"], ignore: IgnoreRules = .default) {
+    public init(
+        showAllFiles: Bool = false, markdownExtensions: Set<String> = ["md", "markdown", "qmd", "txt"], ignore: IgnoreRules = .default,
+        detectsQuartoProjects: Bool = true
+    ) {
         self.showAllFiles = showAllFiles
         self.markdownExtensions = markdownExtensions
         self.ignore = ignore
+        self.detectsQuartoProjects = detectsQuartoProjects
     }
 
     func includes(name: String, isDirectory: Bool) -> Bool {
@@ -40,7 +47,9 @@ public enum DirectoryLister {
     /// One level of `directory`, filtered and sorted: folders first, then Finder-style natural order
     /// ("file2" before "file10", case-insensitive). Static and free of shared state so callers may run it off the main
     /// thread and hand the result to `FileTreeModel.setChildren`.
-    public static func list(_ directory: URL, options: FileTreeOptions) throws -> [FileNode] {
+    /// - Parameter quartoProbe: how a folder is checked for a Quarto project (a seam for tests); never called when the
+    ///   options turn the detection off.
+    public static func list(_ directory: URL, options: FileTreeOptions, quartoProbe: (URL) -> Bool = DirectoryLister.isQuartoProject) throws -> [FileNode] {
         let keys: [URLResourceKey] = [.isDirectoryKey, .isSymbolicLinkKey, .isPackageKey]
         let urls = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: keys)
         var nodes: [FileNode] = []
@@ -55,7 +64,7 @@ public enum DirectoryLister {
             if options.includes(name: url.lastPathComponent, isDirectory: isDirectory) {
                 // Built from `directory`, not taken from the listing, so a node's spelling always extends its parent's.
                 let child = directory.appending(path: url.lastPathComponent, directoryHint: isDirectory ? .isDirectory : .notDirectory)
-                nodes.append(FileNode(url: child, isDirectory: isDirectory, isQuartoProject: isDirectory && isQuartoProject(child)))
+                nodes.append(FileNode(url: child, isDirectory: isDirectory, isQuartoProject: isDirectory && options.detectsQuartoProjects && quartoProbe(child)))
             }
         }
         return nodes.sorted(by: precedes)
@@ -173,6 +182,25 @@ public struct FileTreeModel: Sendable {
 
     public func isLoaded(_ directory: URL) -> Bool { listings[directory.fileKey] != nil }
 
+    /// Every directory whose listing is held, for a refresh that cannot rely on file system events.
+    public var loadedDirectories: [URL] { listings.keys.sorted().map { URL(fileURLWithPath: $0, isDirectory: true) } }
+
+    /// The loaded directories at or below `directory` (a subtree that FSEvents says to scan again).
+    public func loadedDirectories(under directory: URL) -> [URL] {
+        let key = directory.fileKey, prefix = key == "/" ? "/" : key + "/"
+        return listings.keys.filter { $0 == key || $0.hasPrefix(prefix) }.sorted().map { URL(fileURLWithPath: $0, isDirectory: true) }
+    }
+
+    /// Whether `apply(read)` would change anything: a refresh that finds the same listings should not make the views redraw.
+    public func wouldChange(by read: [DirectoryListing]) -> Bool {
+        read.contains { item in
+            guard isUnderRoot(item.directory) else { return false }
+            let key = item.directory.fileKey
+            if !item.exists { return listings[key] != nil }
+            return listings[key] != (item.nodes ?? []) || unreadable.contains(key) != (item.nodes == nil)
+        }
+    }
+
     /// Whether `url` is a root or inside one.
     public func isUnderRoot(_ url: URL) -> Bool {
         let key = url.fileKey
@@ -281,7 +309,7 @@ public struct FileTreeModel: Sendable {
     }
 
     func rootNode(_ root: URL) -> FileNode {
-        FileNode(url: root, isDirectory: true, isQuartoProject: DirectoryLister.isQuartoProject(root))
+        FileNode(url: root, isDirectory: true, isQuartoProject: options.detectsQuartoProjects && DirectoryLister.isQuartoProject(root))
     }
 
     public struct FilterResult: Sendable, Equatable {

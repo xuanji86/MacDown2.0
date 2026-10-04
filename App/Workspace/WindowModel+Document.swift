@@ -28,7 +28,7 @@ extension WindowModel {
 
     /// File > Rename…: asks for the new name in a sheet and moves the file; the tab follows.
     func renameDocument() {
-        guard let document = activeDocument, let url = document.fileURL, let window else { return }
+        guard let url = activeDocument?.fileURL, let window else { return }
         let alert = NSAlert()
         alert.messageText = String(localized: "Rename “\(url.lastPathComponent)”")
         alert.addButton(withTitle: String(localized: "Rename"))
@@ -40,11 +40,13 @@ extension WindowModel {
         alert.beginSheetModal(for: window) { response in
             guard response == .alertFirstButtonReturn else { return }
             let name = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !name.isEmpty, !name.contains("/"), name != url.lastPathComponent else { return }
-            document.move(to: url.deletingLastPathComponent().appending(path: name)) { error in
-                guard let error else { return }
-                log.error("rename failed: \(String(describing: error), privacy: .public)")
-                NSAlert(error: error).beginSheetModal(for: window)
+            guard !name.isEmpty, name != url.lastPathComponent else { return }
+            // The sidebar's rename path: it validates the name and refuses a taken one (`NSDocument.move` would replace it).
+            Task {
+                do { _ = try await WorkspaceRegistry.shared.rename(url, to: name) } catch {
+                    log.error("rename failed: \(String(describing: error), privacy: .public)")
+                    NSAlert.fileOperation(error, title: String(localized: "Could not rename “\(url.lastPathComponent)”")).beginSheetModal(for: window) { _ in }
+                }
             }
         }
     }
