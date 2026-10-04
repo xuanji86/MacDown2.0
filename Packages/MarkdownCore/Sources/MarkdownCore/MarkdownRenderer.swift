@@ -67,13 +67,16 @@ public struct RenderResult: Sendable, Codable, Hashable {
 
 /// A task-list checkbox as the renderer saw it (`Web/src/render/index.ts`): `line` is the 0-based source line the preview page
 /// reports for it (`data-line` of its paragraph in a loose item, of its list item otherwise), `mark` the line that holds its
-/// `[ ]` (different only for an item that starts with an empty bullet line). `TaskToggle` edits the source from this.
+/// `[ ]` (different only for an item that starts with an empty bullet line), `column` the UTF-16 offset of that `[` within the
+/// line (-1: the renderer could not locate it). `TaskToggle` edits the source from this.
 public struct TaskItem: Sendable, Codable, Hashable {
     public var line: Int
     public var mark: Int
-    public init(line: Int, mark: Int) {
+    public var column: Int
+    public init(line: Int, mark: Int, column: Int) {
         self.line = line
         self.mark = mark
+        self.column = column
     }
 }
 

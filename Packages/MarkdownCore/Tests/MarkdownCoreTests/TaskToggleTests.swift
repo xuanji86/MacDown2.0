@@ -64,7 +64,7 @@ import Testing
     @Test func editIsTheOneMarkCharacterAndNothingElse() async throws {
         let text = "intro\n\n- [ ] one\n- [X] 二\n"
         let items = try await tasks(text)
-        #expect(items == [TaskItem(line: 2, mark: 2), TaskItem(line: 3, mark: 3)])
+        #expect(items == [TaskItem(line: 2, mark: 2, column: 2), TaskItem(line: 3, mark: 3, column: 2)])
         #expect(TaskToggle.edit(in: text, task: items[0], checked: true) == TaskToggle.Edit(range: NSRange(location: 10, length: 1), replacement: "x"))
         #expect(TaskToggle.edit(in: text, task: items[1], checked: false) == TaskToggle.Edit(range: NSRange(location: 20, length: 1), replacement: " "))
     }
@@ -121,9 +121,12 @@ import Testing
         let task = try #require(try await tasks("- [ ] a\n").first)
         #expect(TaskToggle.edit(in: "plain\n", task: task, checked: true) == nil)
         #expect(TaskToggle.edit(in: "x\n- [ ] a\n", task: task, checked: true) == nil)
-        #expect(TaskToggle.edit(in: "- [ ] a\n", task: TaskItem(line: 5, mark: 5), checked: true) == nil)  // beyond the text
-        #expect(TaskToggle.edit(in: "- [ ] a\n", task: TaskItem(line: -1, mark: -1), checked: true) == nil)
-        #expect(TaskToggle.edit(in: "- [ ] a", task: TaskItem(line: 1, mark: 1), checked: true) == nil)
+        #expect(TaskToggle.edit(in: "- [ ] a\n", task: TaskItem(line: 5, mark: 5, column: 2), checked: true) == nil)  // beyond the text
+        #expect(TaskToggle.edit(in: "- [ ] a\n", task: TaskItem(line: -1, mark: -1, column: 2), checked: true) == nil)
+        #expect(TaskToggle.edit(in: "- [ ] a", task: TaskItem(line: 1, mark: 1, column: 2), checked: true) == nil)
+        #expect(TaskToggle.edit(in: "- [ ] a\n", task: TaskItem(line: 0, mark: 0, column: -1), checked: true) == nil)  // not located
+        #expect(TaskToggle.edit(in: "- [ ] a\n", task: TaskItem(line: 0, mark: 0, column: 3), checked: true) == nil)  // not on a `[`
+        #expect(TaskToggle.edit(in: "- [ ] a\n", task: TaskItem(line: 0, mark: 0, column: 99), checked: true) == nil)  // past the line
     }
 
     // MARK: What the renderer decides (fences, front matter, options): no second parser to disagree
@@ -151,8 +154,25 @@ import Testing
         // the item that starts with an empty bullet line: the page reports the item's line, the mark is on the next one
         let text = "-\n  [ ] later\n"
         let task = try #require(try await tasks(text).first)
-        #expect(task == TaskItem(line: 0, mark: 1))
+        #expect(task == TaskItem(line: 0, mark: 1, column: 2))
         #expect(try await toggled(text, line: 0, checked: true) == "-\n  [x] later\n")
+    }
+
+    /// The renderer makes a clickable box of a task inside a footnote definition; the click has to change the source.
+    @Test func aTaskInAFootnoteDefinitionToggles() async throws {
+        let text = "text[^a]\n\n[^a]: - [ ] todo\n"
+        let task = try #require(try await tasks(text).first)
+        #expect(task == TaskItem(line: 2, mark: 2, column: 8))
+        #expect(try await toggled(text, line: task.line, checked: true) == "text[^a]\n\n[^a]: - [x] todo\n")
+        // Same shapes with quotes and nesting around the label, and a footnote whose body continues below.
+        let more = "t[^n]\n\n[^n]:\n    - [x] done\n    - [ ] open\n"
+        let items = try await tasks(more)
+        #expect(items.count == 2)
+        let first = try #require(items.first), last = try #require(items.last)
+        let undone = try #require(TaskToggle.edit(in: more, task: first, checked: false))
+        #expect((more as NSString).replacingCharacters(in: undone.range, with: undone.replacement) == "t[^n]\n\n[^n]:\n    - [ ] done\n    - [ ] open\n")
+        let done = try #require(TaskToggle.edit(in: more, task: last, checked: true))
+        #expect((more as NSString).replacingCharacters(in: done.range, with: done.replacement) == "t[^n]\n\n[^n]:\n    - [x] done\n    - [x] open\n")
     }
 
     @Test func frontMatterFollowsTheRenderOptions() async throws {
