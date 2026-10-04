@@ -12,7 +12,7 @@
       "specular": true,
       "shadow": {
         "kind": "neutral",
-        "opacity": 0.5
+        "opacity": 0.9
       },
       "translucency": {
         "enabled": false,
@@ -20,7 +20,7 @@
       },
       "layers": [
         {
-          "name": "M↓",
+          "name": "M\u2193",
           "image-name": "glyph.png"
         }
       ]
@@ -28,7 +28,7 @@
     {
       "name": "Glass 2",
       "lighting": "combined",
-      "specular": true,
+      "specular": false,
       "blur-material": 0.5,
       "shadow": {
         "kind": "none",
@@ -36,12 +36,19 @@
       },
       "translucency": {
         "enabled": true,
-        "value": 0.7
+        "value": 0.85
       },
       "layers": [
         {
           "name": "Glass 2",
-          "image-name": "glass-2.png"
+          "image-name": "glass-2.png",
+          "position": {
+            "scale": 0.78,
+            "translation-in-points": [
+              60,
+              60
+            ]
+          }
         }
       ]
     },
