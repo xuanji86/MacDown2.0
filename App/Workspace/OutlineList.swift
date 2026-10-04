@@ -1,8 +1,9 @@
 import MarkdownCore
 import SwiftUI
 
-/// Heading outline from the last render, indented by level; the section holding the caret is highlighted.
-struct OutlineInspector: View {
+/// Heading outline from the last render, indented by level; the section holding the caret is highlighted. The sidebar's
+/// outline page (it used to be the right-hand inspector).
+struct OutlineList: View {
     let preview: PreviewModel
     let status: EditorStatus
     /// Called with the heading's 0-based source line.
@@ -31,6 +32,8 @@ struct OutlineInspector: View {
                         .listRowBackground(index == current ? Color.accentColor.opacity(0.22) : nil)
                     }
                 }
+                .listStyle(.sidebar)
+                .scrollContentBackground(.hidden)
                 .onChange(of: current) { _, new in
                     if let new { proxy.scrollTo(outline[new].line) }
                 }

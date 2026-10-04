@@ -255,7 +255,7 @@ final class PreviewModel {
 }
 
 struct PreviewPane: View {
-    @ObservedObject var document: MarkdownDocument
+    let document: MarkdownDocument
     /// File URL of the document (nil while unsaved); relative images resolve against its folder.
     var documentURL: URL?
     /// Owned by `DocumentView` so scroll sync can drive it.
@@ -273,7 +273,10 @@ struct PreviewPane: View {
             .onChange(of: renderSettings.options) { _, options in model.setOptions(options) }
             .onChange(of: "\(style)|\(followsSystem)", initial: true) { model.setStyle(id: style, followSystem: followsSystem) }
             .onChange(of: flavor?.id, initial: true) { model.setFlavor(flavor) }
-            .onReceive(document.$text) { model.schedule($0) }
+            // Restarts with the document: the page stays, the text it renders is the active tab's.
+            .task(id: ObjectIdentifier(document)) {
+                for await text in document.$text.values { model.schedule(text) }
+            }
             .onChange(of: documentURL, initial: true) { _, url in model.documentDirectory = url?.deletingLastPathComponent() }
     }
 }

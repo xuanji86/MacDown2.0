@@ -9,8 +9,7 @@ struct WindowActions {
     let exportHTML: () -> Void
     let exportPDF: () -> Void
     let printDocument: () -> Void
-    let outlineShown: Bool
-    let toggleOutline: () -> Void
+    let showOutline: () -> Void
 
     var editorEnabled: Bool { layout.showsEditor }
     func cycleLayout() { setLayout(layout.cycled) }

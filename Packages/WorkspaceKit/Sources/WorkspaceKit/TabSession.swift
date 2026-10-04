@@ -26,6 +26,32 @@ public struct TabSession: Codable, Equatable, Sendable {
 
     public init() {}
 
+    /// Decoding never yields an inconsistent session (duplicate files, two previews, an active tab that does not exist):
+    /// restoration data may come from an older build or a hand-edited defaults file.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let decoded = try container.decode([Tab].self, forKey: .tabs)
+        let active = try container.decodeIfPresent(String.self, forKey: .activeID)
+        self.init(normalizing: decoded, active: active)
+    }
+
+    private init(normalizing decoded: [Tab], active: String?) {
+        var seen = Set<String>(), hasPreview = false
+        tabs = decoded.compactMap { tab in
+            guard seen.insert(tab.id).inserted else { return nil }
+            var tab = tab
+            if tab.isPreview { if hasPreview { tab.isPreview = false } else { hasPreview = true } }
+            return tab
+        }
+        activeID = tabs.contains { $0.id == active } ? active : tabs.first?.id
+    }
+
+    /// The session without the tabs `keeping` rejects (files that no longer open); the active tab falls back to the
+    /// first remaining one.
+    public func pruned(keeping: (URL) -> Bool) -> TabSession {
+        TabSession(normalizing: tabs.filter { keeping($0.url) }, active: activeID)
+    }
+
     public var activeURL: URL? { tabs.first { $0.id == activeID }?.url }
     public var previewURL: URL? { tabs.first(where: \.isPreview)?.url }
 
@@ -78,6 +104,19 @@ public struct TabSession: Codable, Equatable, Sendable {
         guard tabs.contains(where: { $0.id == url.fileKey }), activeID != url.fileKey else { return [] }
         activeID = url.fileKey
         return [.activated(url)]
+    }
+
+    /// Drag reorder: `url`'s tab ends up at `index` of the resulting tab list (clamped). Dragging pins a preview tab.
+    public mutating func move(_ url: URL, to index: Int) -> [Effect] {
+        guard let from = tabs.firstIndex(where: { $0.id == url.fileKey }) else { return [] }
+        var tab = tabs.remove(at: from)
+        var effects: [Effect] = []
+        if tab.isPreview {
+            tab.isPreview = false
+            effects.append(.pinned(tab.url))
+        }
+        tabs.insert(tab, at: min(max(index, 0), tabs.count))
+        return effects
     }
 
     /// The file behind a tab was renamed or moved. If `new` is already open, the two tabs merge into that one.

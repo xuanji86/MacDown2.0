@@ -3,7 +3,16 @@ import Foundation
 extension URL {
     /// Identity of a file system location: standardized path without a trailing slash. `URL ==` tells `/a/b` from
     /// `/a/b/`, so every dictionary and comparison in this module goes through this key instead.
-    public var fileKey: String { standardizedFileURL.path }
+    ///
+    /// Stable for the life of a tab: `standardizedFileURL` drops the `/private` of `/private/tmp|var|etc` only while the file
+    /// exists, so a renamed or deleted file would get a different key than it was opened with. The prefix is dropped here
+    /// by rule instead.
+    public var fileKey: String {
+        let path = standardizedFileURL.path
+        guard path.hasPrefix("/private/") else { return path }
+        let rest = path.dropFirst("/private".count)
+        return ["/tmp", "/var", "/etc"].contains { rest == $0 || rest.hasPrefix($0 + "/") } ? String(rest) : path
+    }
 }
 
 /// Names the tree and the watcher skip (PLAN 4.11). `names` match exactly, `suffixes` only match directories

@@ -26,6 +26,8 @@ struct EditorPane: NSViewRepresentable {
     var status: EditorStatus?
     /// The document's flavor (Quarto for a .qmd while the extension is on): its regex overlay styles the text.
     var flavor: (any DocumentFlavor)?
+    /// The user changed the text (typing, paste, undo): the workspace turns a preview tab into a regular one.
+    var onUserEdit: (() -> Void)?
 
     func makeCoordinator() -> Coordinator { Coordinator(document: document, scrollSync: scrollSync) }
 
@@ -38,15 +40,16 @@ struct EditorPane: NSViewRepresentable {
         scrollSync.attach(editor: textView)
         editor?.textView = textView
         context.coordinator.status = status
+        context.coordinator.undoManager = document.undoManager
         status?.selectionChanged(in: textView)  // the caret is not necessarily at 1:1 after loading the text
         context.coordinator.observeDocument()
         return scrollView
     }
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
-        // Called by SwiftUI after make, on environment changes (this is where the document's UndoManager arrives) and
-        // when it hands the view a different document instance (Revert To / Browse All Versions).
-        context.coordinator.undoManager = context.environment.undoManager
+        // Called by SwiftUI after make, and when the window shows another tab's document (the editor is reused, only its
+        // text changes). The undo manager is the document's own: every document keeps its undo stack across tab switches.
+        context.coordinator.onUserEdit = onUserEdit
         context.coordinator.bind(to: document)
         guard let textView = context.coordinator.textView else { return }
         textView.behavior = settings.behavior
@@ -67,6 +70,7 @@ struct EditorPane: NSViewRepresentable {
         private(set) var document: MarkdownDocument
         weak var textView: MarkdownTextView?
         var undoManager: UndoManager?
+        var onUserEdit: (() -> Void)?
         var status: EditorStatus?
         var decoratedFlavor: FlavorID?
         private var sync: ExternalTextSync
@@ -80,12 +84,31 @@ struct EditorPane: NSViewRepresentable {
             sync = ExternalTextSync(document: document, text: document.text)
         }
 
-        /// Point at `document` (it may be a new instance) and load its text if the editor does not already show it.
+        /// Selection of each document the editor has shown, so a tab comes back with its caret where it was left.
+        private var selections: [ObjectIdentifier: NSRange] = [:]
+
+        /// Point at `document` and load its text if the editor does not already show it. A different instance is a tab
+        /// switch: the text view swaps to that document's text and undo manager (nothing is cleared: the text the stack
+        /// was recorded against is exactly what comes back).
         func bind(to document: MarkdownDocument) {
             if !sync.isSameDocument(document) {
+                if let textView { selections[ObjectIdentifier(self.document)] = textView.selectedRange() }
                 self.document = document
+                undoManager = document.undoManager
+                sync = ExternalTextSync(document: document, text: document.text)
                 observeDocument()
+                if let textView {
+                    textView.reloadText(document.text)
+                    let saved = selections[ObjectIdentifier(document)] ?? NSRange(location: 0, length: 0)
+                    let length = (textView.string as NSString).length
+                    textView.setSelectedRange(NSRange(location: min(saved.location, length), length: min(saved.length, max(0, length - saved.location))))
+                    textView.scroll(toLine: 0)
+                    textView.scrollRangeToVisible(textView.selectedRange())
+                    status?.selectionChanged(in: textView)
+                }
+                return
             }
+            undoManager = document.undoManager
             reloadIfModelChanged(document.text)
         }
 
@@ -121,6 +144,8 @@ struct EditorPane: NSViewRepresentable {
             let text = textView.string
             sync.editorDidWrite(text)  // before the write: the `$text` sink fires synchronously and must see it as ours
             document.text = text
+            document.noteUserEdit()
+            onUserEdit?()
         }
     }
 }
