@@ -126,7 +126,11 @@ struct EditorPane: NSViewRepresentable {
             guard let text = sync.reloadText(document: document, modelText: modelText), let textView else { return }
             // Same as NSDocument revert: edits registered against the old text must not be replayed on the new one.
             undoManager?.removeAllActions()
+            // Keeps the first visible source line, not the pixel offset: an external change above the viewport changes
+            // heights. The selection is remapped by `reloadText` (clamped when its text is gone).
+            let line = textView.topVisibleLine
             textView.reloadText(text)
+            textView.scroll(toLine: line)
         }
 
         /// Registering edits with the document's UndoManager is what makes SwiftUI mark it dirty and autosave.

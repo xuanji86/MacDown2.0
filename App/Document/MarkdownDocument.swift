@@ -2,10 +2,17 @@ import AppKit
 import Combine
 import MarkdownCore
 import Observation
+import OSLog
 import UniformTypeIdentifiers
 import WorkspaceKit
 
+private let log = Logger(subsystem: "io.github.xuanji86.MacDown2", category: "document")
+
 extension Notification.Name {
+    /// Posted (object: the document) after a burst of changes in the folder of a document's file: images the preview shows may
+    /// have changed.
+    static let markdownDocumentFolderChanged = Notification.Name("MarkdownDocumentFolderChanged")
+
     /// Posted by a document whose file moved (Rename…, Move To…, Save As, or a move in Finder); `userInfo` has `old` / `new` URLs.
     static let markdownDocumentMoved = Notification.Name("MarkdownDocumentMoved")
 }
@@ -29,6 +36,17 @@ final class MarkdownDocument: NSDocument, ObservableObject {
     let format = DocumentFormat()
     /// Set only while `reopen(as:)` re-reads the file.
     private var encodingOverride: TextEncoding?
+
+    // External changes (PLAN I-1). What the file on disk held when the text was last read from it or saved to it:
+    // the monitor compares the disk with this, so our own saves and a `touch` are not changes.
+    private(set) var externalMonitor: ExternalFileMonitor?
+    private var lastSynced: ExternalChangeTracker.Disk?
+    /// Fingerprint of the bytes `data(ofType:)` produced last; becomes `lastSynced` when that save succeeds.
+    private var pendingWrite: FileFingerprint?
+    /// The document is marked edited only because its file went missing (so closing asks to save it), not because of typing.
+    private var dirtyOnlyBecauseMissing = false
+    /// The "changed on disk" sheet while it is up.
+    private var externalPrompt: NSAlert?
 
     override class var autosavesInPlace: Bool { true }
 
@@ -74,6 +92,11 @@ final class MarkdownDocument: NSDocument, ObservableObject {
     /// launch (tests) must not write there.
     override func autosave(withImplicitCancellability implicitlyCancellable: Bool, completionHandler: @escaping (Error?) -> Void) {
         if fileURL == nil, AppDefaults.isIsolated { return completionHandler(nil) }
+        // While the "changed on disk" question is open or waiting, or the file is gone, nothing writes behind the user's back: AppKit
+        // would put its own "changed by another application" sheet over ours, and would re-create a deleted file silently.
+        // The text stays in memory (and in the edited state); an explicit save, or the answer, brings autosave back.
+        // A question that is pending (its tab is not in front, its window is minimized) counts as open: nothing may write yet.
+        if externalMonitor?.tracker.isPrompting == true || editedFlag.missing { return completionHandler(nil) }
         super.autosave(withImplicitCancellability: implicitlyCancellable, completionHandler: completionHandler)
     }
 
@@ -98,6 +121,8 @@ final class MarkdownDocument: NSDocument, ObservableObject {
         try MainActor.assumeIsolated {
             let file = try encodingOverride.map { try MarkdownFile.decode(data, as: $0) } ?? MarkdownFile.decode(data)
             format.set(file)
+            dirtyOnlyBecauseMissing = false
+            markSynced(.present(FileFingerprint(data)))
             text = file.text  // on a revert / external reload this reaches the editor through ExternalTextSync
         }
     }
@@ -107,7 +132,9 @@ final class MarkdownDocument: NSDocument, ObservableObject {
     override func data(ofType typeName: String) throws -> Data {
         try MainActor.assumeIsolated {
             do {
-                return try MarkdownFile(text: text, lineEnding: format.lineEnding, encoding: format.encoding, hasBOM: format.hasBOM).encoded()
+                let data = try MarkdownFile(text: text, lineEnding: format.lineEnding, encoding: format.encoding, hasBOM: format.hasBOM).encoded()
+                pendingWrite = FileFingerprint(data)
+                return data
             } catch let MarkdownFile.EncodeError.unrepresentable(encoding, characters) {
                 throw SaveEncodingError.make(document: self, encoding: encoding, characters: characters)
             }
@@ -145,6 +172,7 @@ final class MarkdownDocument: NSDocument, ObservableObject {
     /// open never reaches it), so the document is marked edited explicitly. Idempotent: autosave clears the mark.
     func noteUserEdit() {
         hasBeenEdited = true
+        dirtyOnlyBecauseMissing = false
         if !isDocumentEdited { updateChangeCount(.changeDone) }
     }
 
@@ -165,10 +193,162 @@ final class MarkdownDocument: NSDocument, ObservableObject {
 
     override var fileURL: URL? {
         didSet {
+            MainActor.assumeIsolated { restartExternalMonitor() }  // AppKit sets the URL on the main thread
             // A first save turns the untitled key into the file's: the tab, the ledger and the recents follow.
             guard let new = fileURL, let old = oldValue ?? untitledID.map(URL.untitled), old.fileKey != new.fileKey else { return }
             NotificationCenter.default.post(name: .markdownDocumentMoved, object: self, userInfo: ["old": old, "new": new])
         }
+    }
+
+    // MARK: External changes
+
+    /// The user has unsaved edits of their own (a missing file's marker does not count).
+    private var hasUserEdits: Bool { isDocumentEdited && !dirtyOnlyBecauseMissing }
+
+    private func markSynced(_ disk: ExternalChangeTracker.Disk) {
+        lastSynced = disk
+        externalMonitor?.didSync(disk)
+        refreshExternalState()
+    }
+
+    /// (Re)attaches the monitor to the file the document has now: first read, Save As, a move in Finder.
+    private func restartExternalMonitor() {
+        externalMonitor?.stop()
+        externalMonitor = nil
+        guard let url = fileURL else { return }
+        let monitor = ExternalFileMonitor(
+            url: url, synced: lastSynced,
+            isDirty: { [weak self] in self?.hasUserEdits ?? false },
+            onAction: { [weak self] action in self?.handleExternal(action) },
+            onSettled: { [weak self] in
+                guard let self else { return }
+                NotificationCenter.default.post(name: .markdownDocumentFolderChanged, object: self)
+            })
+        guard monitor.start() else {
+            log.info("not watching \(url.path, privacy: .public): not on a local volume (or no event stream)")
+            return
+        }
+        externalMonitor = monitor
+        refreshExternalState()
+    }
+
+    /// Everything that depends on the tracker's state: the "file is gone" mark, and the sheet (gone once its question is moot).
+    private func refreshExternalState() {
+        editedFlag.missing = externalMonitor?.tracker.isMissing ?? false
+        if externalMonitor?.tracker.isPrompting != true { dismissExternalPrompt() }
+    }
+
+    private func handleExternal(_ action: ExternalChangeTracker.Action) {
+        switch action {
+        case .none:
+            break
+        case .reload:
+            reloadFromDisk()
+        case .prompt:
+            showPendingExternalPrompt()
+        case .markMissing:
+            // The text stays in the editor and the tab stays open. Marking the document edited makes closing ask to save it
+            // and lets Save run; saving writes the file again at its old path.
+            if !isDocumentEdited {
+                dirtyOnlyBecauseMissing = true
+                updateChangeCount(.changeDone)
+            }
+        }
+        refreshExternalState()
+    }
+
+    /// Reads the file again (a revert: the text reaches the editor through `ExternalTextSync`, which remaps the selection and
+    /// keeps the first visible line). Undo history is cleared, as for every revert: the steps recorded against the old text
+    /// must not be replayed on the new one.
+    private func reloadFromDisk() {
+        guard let url = fileURL else { return }
+        do {
+            try revert(toContentsOf: url, ofType: fileType ?? Self.markdownType)
+            dirtyOnlyBecauseMissing = false
+            undoManager?.removeAllActions()
+        } catch {
+            externalMonitor?.promptNotShown()
+            guard FileManager.default.fileExists(atPath: url.path) else { return }  // gone again: the next event says so
+            log.error("reload of \(url.path, privacy: .public) failed: \(String(describing: error), privacy: .public)")
+            presentError(error)
+        }
+    }
+
+    /// Asks "keep mine or reload", once, on the window that shows this document. A sheet, not an alert: it never steals focus
+    /// from another window or app, and leaves the rest of the app usable. With no window that shows it on screen (another tab is
+    /// in front, the window is minimized) the question waits: it comes up when the tab is activated or the app is.
+    func showPendingExternalPrompt() {
+        guard externalMonitor?.tracker.isPrompting == true, externalPrompt == nil else { return }
+        guard let window = WorkspaceRegistry.shared.visibleWindow(showing: self) else { return }
+        let alert = NSAlert()
+        alert.messageText = String(localized: "“\(displayName ?? "")” 已被其他程序修改")
+        alert.informativeText = String(localized: "这份文档里有未保存的修改。保留我的版本:磁盘上的新内容会在下次保存时被覆盖。从磁盘重新载入:放弃这里未保存的修改。")
+        alert.addButton(withTitle: String(localized: "保留我的版本"))
+        alert.addButton(withTitle: String(localized: "从磁盘重新载入"))
+        alert.buttons[1].hasDestructiveAction = true
+        externalPrompt = alert
+        alert.beginSheetModal(for: window) { [weak self] response in
+            MainActor.assumeIsolated { self?.externalPromptAnswered(response, alert) }
+        }
+        IsolatedTestHooks.answer(alert, on: window)
+    }
+
+    private func externalPromptAnswered(_ response: NSApplication.ModalResponse, _ alert: NSAlert) {
+        guard externalPrompt === alert else { return }  // dismissed by us: the question was moot
+        externalPrompt = nil
+        guard externalMonitor?.tracker.isPrompting == true else { return }
+        if response == .alertSecondButtonReturn {
+            reloadFromDisk()
+        } else {
+            keepMyVersion()
+        }
+        refreshExternalState()
+    }
+
+    /// The user's text wins. The file on disk as it is now counts as seen: AppKit's own "changed by another application"
+    /// check compares against the date it last saw, so that is brought up to date (otherwise the next save would raise it
+    /// and ask again). The text is still unsaved; the next save, explicit or autosave (re-armed here), writes it.
+    private func keepMyVersion() {
+        externalMonitor?.keepMine()
+        if let url = fileURL, let modified = try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate {
+            fileModificationDate = modified
+        }
+        updateChangeCount(.changeDone)
+    }
+
+    private func dismissExternalPrompt() {
+        guard let alert = externalPrompt else { return }
+        externalPrompt = nil
+        alert.window.sheetParent?.endSheet(alert.window)
+    }
+
+    /// A save writes the file (the text now corresponds to what is on disk), whatever the monitor's events say; while it runs
+    /// the monitor does not look (it could see the half-done write).
+    override func save(to url: URL, ofType typeName: String, for saveOperation: NSDocument.SaveOperationType, completionHandler: @escaping (Error?) -> Void) {
+        let writesTheFile = saveOperation != .saveToOperation && saveOperation != .autosaveElsewhereOperation
+        pendingWrite = nil
+        if writesTheFile { externalMonitor?.isPaused = true }
+        super.save(to: url, ofType: typeName, for: saveOperation) { [self] error in
+            MainActor.assumeIsolated {
+                if writesTheFile {
+                    externalMonitor?.isPaused = false
+                    if error == nil, let written = pendingWrite {
+                        dirtyOnlyBecauseMissing = false
+                        markSynced(.present(written))
+                    }
+                    externalMonitor?.check()  // an outside change during the save is still seen
+                }
+                pendingWrite = nil
+            }
+            completionHandler(error)
+        }
+    }
+
+    override func close() {
+        externalMonitor?.stop()
+        externalMonitor = nil
+        dismissExternalPrompt()
+        super.close()
     }
 
     // MARK: Sheets
@@ -243,4 +423,6 @@ enum SaveEncodingError {
 @MainActor @Observable
 final class EditedFlag {
     var value = false
+    /// The file was deleted or moved away on disk; the text is still here.
+    var missing = false
 }

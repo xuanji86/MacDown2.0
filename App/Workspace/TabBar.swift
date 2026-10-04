@@ -76,9 +76,14 @@ private struct TabItem: View {
     @State private var hovering = false
 
     private var isEdited: Bool { edited?.value ?? false }
+    private var isMissing: Bool { edited?.missing ?? false }
 
     var body: some View {
         HStack(spacing: 6) {
+            if isMissing {
+                Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 10)).foregroundStyle(.orange)
+                    .help("文件在磁盘上已被删除或移走。文字还在这里,保存会重新创建它。")
+            }
             Text(title)
                 .font(.system(size: 12.5))
                 .italic(tab.isPreview)
@@ -118,7 +123,7 @@ private struct TabItem: View {
         .animation(.easeOut(duration: 0.15), value: tab.isPreview)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(title)
-        .accessibilityValue([tab.isPreview ? "预览" : nil, isEdited ? "有未保存的修改" : nil].compactMap { $0 }.joined(separator: "，"))
+        .accessibilityValue([tab.isPreview ? "预览" : nil, isMissing ? "文件已被删除或移走" : nil, isEdited ? "有未保存的修改" : nil].compactMap { $0 }.joined(separator: "，"))
         .accessibilityAddTraits(isActive ? [.isButton, .isSelected] : .isButton)
         .accessibilityAction(named: "关闭标签", close)
         .accessibilityAction(named: "固定标签", pin)

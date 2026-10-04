@@ -36,7 +36,17 @@ final class WorkspaceRegistry: DocumentBackend {
             MainActor.assumeIsolated { WorkspaceRegistry.shared.documentMoved(from: old, to: new) }
         }
         NotificationCenter.default.addObserver(forName: NSWindow.didBecomeKeyNotification, object: nil, queue: .main) { _ in
-            MainActor.assumeIsolated { WorkspaceRegistry.shared.persist() }  // the order of the windows is part of the state
+            MainActor.assumeIsolated {
+                WorkspaceRegistry.shared.persist()  // the order of the windows is part of the state
+                WorkspaceRegistry.shared.askPendingExternalChanges()
+            }
+        }
+        // Coming back to the app: look at every open file once (a safety net for events that were missed), then ask what waits.
+        NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { _ in
+            MainActor.assumeIsolated {
+                for case let doc as MarkdownDocument in NSDocumentController.shared.documents { doc.externalMonitor?.check() }
+                WorkspaceRegistry.shared.askPendingExternalChanges()
+            }
         }
     }
 
@@ -46,6 +56,7 @@ final class WorkspaceRegistry: DocumentBackend {
     func prepareLaunch() {
         restoreQueue = WindowRestoration.decode(AppDefaults.store.data(forKey: Self.defaultsKey))
         IsolatedTestHooks.scheduleTermination()
+        IsolatedTestHooks.scheduleEdit()
         Task {
             try? await Task.sleep(for: Self.launchGrace)
             launchGraceOver = true
@@ -123,6 +134,20 @@ final class WorkspaceRegistry: DocumentBackend {
     func didActivate(_ url: URL?, in window: UUID) {
         guard let model = models[window] else { return }
         sync(model)
+        askPendingExternalChanges()
+    }
+
+    /// The window that has `doc` as its active tab and is on screen (front to back); nil when there is none.
+    func visibleWindow(showing doc: MarkdownDocument) -> NSWindow? {
+        guard let key = doc.tabURL?.fileKey else { return nil }
+        return orderedModels().first { model in
+            model.controller.activeURL?.fileKey == key && model.window.map { $0.isVisible && !$0.isMiniaturized } == true
+        }?.window
+    }
+
+    /// "Changed on disk" questions that were waiting for their document to be in front.
+    func askPendingExternalChanges() {
+        for model in orderedModels() { model.activeDocument?.showPendingExternalPrompt() }
     }
 
     /// Makes the window's current document the one its window controller belongs to, which is what gives the window its
