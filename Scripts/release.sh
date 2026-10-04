@@ -116,7 +116,7 @@ PREV=$(git describe --tags --abbrev=0 --match 'v*' 2>/dev/null || true)
   echo
   echo "Install: brew install --cask xuanji86/tap/macdown2, or download the dmg below. The app is not notarized, so a manual download needs the one-time \"Open Anyway\" step (see the README)."
   echo
-  echo "Source code: https://github.com/$REPO/tree/$TAG (AGPL-3.0)"
+  echo "Source code: https://github.com/$REPO/tree/$TAG (GPL-3.0)"
 } > "$NOTES"
 
 # ---- 6. Sparkle EdDSA signature + appcast ----

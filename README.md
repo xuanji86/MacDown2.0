@@ -9,7 +9,7 @@
 <p align="center"><strong>Markdown, native to the Mac. Rebuilt from zero.</strong></p>
 
 <p align="center">
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-1a73e8?style=flat-square" alt="License: AGPL-3.0"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0-1a73e8?style=flat-square" alt="License: GPL-3.0"></a>
   <img src="https://img.shields.io/badge/macOS-26%2B-000000?style=flat-square&logo=apple&logoColor=white" alt="macOS 26+">
   <img src="https://img.shields.io/badge/Apple%20Silicon-only-000000?style=flat-square" alt="Apple Silicon only">
   <img src="https://img.shields.io/badge/Swift-6-F05138?style=flat-square&logo=swift&logoColor=white" alt="Swift 6">
@@ -102,4 +102,4 @@ Full license texts ship inside the app as `THIRD_PARTY_LICENSES.txt`.
 
 ## License
 
-[AGPL-3.0](LICENSE). Every release includes the exact source it was built from.
+[GPL-3.0](LICENSE). Every release includes the exact source it was built from.

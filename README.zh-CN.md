@@ -9,7 +9,7 @@
 <p align="center"><strong>Markdown，回归 Mac 原生。从零重写。</strong></p>
 
 <p align="center">
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-1a73e8?style=flat-square" alt="许可：AGPL-3.0"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0-1a73e8?style=flat-square" alt="许可：GPL-3.0"></a>
   <img src="https://img.shields.io/badge/macOS-26%2B-000000?style=flat-square&logo=apple&logoColor=white" alt="macOS 26+">
   <img src="https://img.shields.io/badge/Apple%20Silicon-only-000000?style=flat-square" alt="仅 Apple Silicon">
   <img src="https://img.shields.io/badge/Swift-6-F05138?style=flat-square&logo=swift&logoColor=white" alt="Swift 6">
@@ -102,4 +102,4 @@ MacDown2.0 是一个独立项目，与 [MacDown](https://github.com/MacDownApp/m
 
 ## 许可
 
-[AGPL-3.0](LICENSE)。每个发布版本都附带构建它时所用的完整源码。
+[GPL-3.0](LICENSE)。每个发布版本都附带构建它时所用的完整源码。
