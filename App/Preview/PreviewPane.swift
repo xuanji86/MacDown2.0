@@ -13,6 +13,9 @@ private let log = Logger(subsystem: "io.github.xuanji86.MacDown2", category: "pr
 enum PreviewMessage: Equatable {
     case scroll(line: Double)  // 0-based, fractional source line at the top of the viewport
     case error(stage: String, message: String)
+    /// A task-list checkbox was clicked (`Web/src/preview/tasks.ts`): the page's per-load token, the 0-based source line of
+    /// its item, the state the user asked for, and the render version the page shows.
+    case toggleTask(token: String, line: Int, checked: Bool, version: Int)
 
     init?(body: Any) {
         guard let dict = body as? [String: Any], let type = dict["type"] as? String else { return nil }
@@ -22,6 +25,13 @@ enum PreviewMessage: Equatable {
             self = .scroll(line: line)
         case "error":
             self = .error(stage: dict["stage"] as? String ?? "?", message: dict["message"] as? String ?? "")
+        case "toggleTask":
+            guard let token = dict["token"] as? String,
+                  let line = (dict["line"] as? NSNumber)?.intValue, line >= 0,
+                  let checked = (dict["checked"] as? NSNumber)?.boolValue,
+                  let version = (dict["version"] as? NSNumber)?.intValue
+            else { return nil }
+            self = .toggleTask(token: token, line: line, checked: checked, version: version)
         default:
             return nil
         }
@@ -44,6 +54,8 @@ private final class PreviewMessageHandler: NSObject, WKScriptMessageHandler {
 struct PreviewMetadata: Decodable, Equatable {
     var outline: [OutlineItem]
     var stats: TextStats
+    /// The task-list checkboxes of the text the page shows (`TaskToggle` edits from these).
+    var tasks: [TaskItem]
 }
 
 /// Owns the `WebPage` that shows `preview.html` and pushes Markdown into it.
@@ -59,6 +71,10 @@ final class PreviewModel {
     var onVisibleLineChange: ((Double) -> Void)?
     /// A render or script error inside the page (the old content stays on screen).
     var onRenderError: ((String) -> Void)?
+    /// The user clicked a task checkbox on the page and the page's token and render version check out: edit the source
+    /// (`task` as the renderer saw it in `text`, the Markdown the page shows; `checked` the wanted state). Returns the document's new text
+    /// when it made the edit, nil when it refused; the page is then told to take the checkbox back.
+    var onToggleTask: ((_ task: TaskItem, _ checked: Bool, _ text: String) -> String?)?
 
     /// Directory that relative image paths resolve against; nil for a document that was never saved.
     var documentDirectory: URL? {
@@ -90,6 +106,14 @@ final class PreviewModel {
     private var pushing = false
     private var lastMarkdown: String?
     private var needsRebuild = false
+    /// Secret of the current page load, given to the page once it has loaded; a message that does not carry it is dropped.
+    /// Not persisted anywhere: a new load (or a new launch) has a new one.
+    private var bridgeToken: String?
+    /// The text the page shows, and the version it was given (every render gets the next one; the page reports the one it
+    /// shows with each checkbox click), and the checkboxes the renderer found in it (nil until that render has answered: a
+    /// click in that instant is refused). Set before the render is sent and put back if it fails. nil until the first render.
+    private var shown: (version: Int, text: String, tasks: [TaskItem]?)?
+    private var renderCount = 0
     // Same latest-wins collapsing for scroll requests.
     private var pendingScrollLine: Double?
     private var lastLine = 0.0  // top source line the preview was last scrolled to, by the user or by `scroll(toLine:)`
@@ -221,6 +245,27 @@ final class PreviewModel {
         case .error(let stage, let text):
             log.error("preview \(stage, privacy: .public) error: \(text, privacy: .public)")
             onRenderError?(text)
+        case .toggleTask(let token, let line, let checked, let version):
+            toggleTask(token: token, line: line, checked: checked, version: version)
+        }
+    }
+
+    /// Anything but a click on the page we last loaded, showing the text we last rendered, is ignored: a stale click can only
+    /// mean the text moved on (typing, another tab) and the next render is on its way. The editor then re-checks the line
+    /// against the text it holds now (`TaskToggle`) and makes the change as one undo step.
+    private func toggleTask(token: String, line: Int, checked: Bool, version: Int) {
+        guard token == bridgeToken else {
+            log.error("preview task toggle dropped: wrong token")
+            return
+        }
+        if let shown, shown.version == version, let task = shown.tasks?.first(where: { $0.line == line }),
+           let new = onToggleTask?(task, checked, shown.text) {
+            // Render the new text now instead of after the typing debounce: a second click inside that window would be stale.
+            lastMarkdown = new
+            Task { [weak self] in await self?.push(new) }
+        } else {
+            log.info("preview task toggle refused (line \(line), version \(version))")
+            Task { [page] in _ = try? await page.callJavaScript("MacDown2Preview.resyncTasks()") }
         }
     }
 
@@ -230,6 +275,7 @@ final class PreviewModel {
             do {
                 for try await event in page.load(PreviewAssetHandler.previewURL) where event == .finished {
                     await self.styleAfterLoad()
+                    await self.giveToken()
                     return true
                 }
                 return false
@@ -248,6 +294,18 @@ final class PreviewModel {
         await applyStyle()
     }
 
+    /// A fresh token per load; the page keeps task checkboxes disabled until it has one.
+    private func giveToken() async {
+        let token = UUID().uuidString
+        bridgeToken = token
+        shown = nil
+        do {
+            _ = try await page.callJavaScript("MacDown2Preview.setTaskToken(token)", arguments: ["token": token])
+        } catch {
+            log.error("preview token failed: \(String(describing: error), privacy: .public)")
+        }
+    }
+
     private func push(_ markdown: String) async {
         pending = markdown
         guard !pushing else { return }
@@ -262,18 +320,24 @@ final class PreviewModel {
             let (optionsJSON, flavorFiles) = resolvedOptions(for: next)
             // Relative links resolve against the document's folder (as a file URL, trailing slash); see Web/src/preview/links.ts.
             let base = documentDirectory.map { URL(filePath: $0.path, directoryHint: .isDirectory).absoluteString }
+            renderCount += 1
+            let version = renderCount
+            let before = shown
+            shown = (version, next, nil)
             do {
                 // A chunk that fails to load is reported by `update` itself (the flavor is then unknown).
                 let result = try await page.callJavaScript(
-                    "await MacDown2Preview.useFlavor(flavor).catch(() => {}); MacDown2Preview.setBase(base); if (rebuild) MacDown2Preview.invalidate(); return MacDown2Preview.update(md, options)",
-                    arguments: ["md": next, "options": optionsJSON, "rebuild": rebuild, "flavor": flavorFiles, "base": base.map { $0 as Any } ?? NSNull()]
+                    "await MacDown2Preview.useFlavor(flavor).catch(() => {}); MacDown2Preview.setBase(base); if (rebuild) MacDown2Preview.invalidate(); return MacDown2Preview.update(md, options, version)",
+                    arguments: ["md": next, "options": optionsJSON, "rebuild": rebuild, "flavor": flavorFiles, "base": base.map { $0 as Any } ?? NSNull(), "version": version]
                 )
                 let elapsed = ContinuousClock.now - started
                 // Render failures are reported over the bridge (`handle`); success carries blocks/outline/stats/perf.
                 let meta = (result as? String).flatMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any] }
+                if meta?["error"] != nil { shown = before }  // the old content stays on the page
                 if meta?["error"] == nil {
-                    if let decoded = try? JSONDecoder().decode(PreviewMetadata.self, from: Data((result as? String ?? "").utf8)), decoded != metadata {
-                        metadata = decoded
+                    if let decoded = try? JSONDecoder().decode(PreviewMetadata.self, from: Data((result as? String ?? "").utf8)) {
+                        if decoded != metadata { metadata = decoded }
+                        if shown?.version == version { shown?.tasks = decoded.tasks }
                     }
                     let perf = meta?["perf"] as? [String: Any]
                     let ms = Double(elapsed.components.attoseconds) / 1e15 + Double(elapsed.components.seconds) * 1000
@@ -286,6 +350,7 @@ final class PreviewModel {
                     log.info("preview updated: mode=\(mode, privacy: .public) swift_to_done_ms=\(ms, format: .fixed(precision: 1)) js_render_ms=\(jsRender, format: .fixed(precision: 1)) js_patch_ms=\(jsPatch, format: .fixed(precision: 1)) (split \(jsSplit, format: .fixed(precision: 1)) apply \(jsApply, format: .fixed(precision: 1))) blocks=\(blocks) bytes=\(next.utf8.count)")
                 }
             } catch {
+                shown = before
                 log.error("preview update failed: \(String(describing: error), privacy: .public)")
             }
         }

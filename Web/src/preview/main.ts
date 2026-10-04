@@ -14,6 +14,10 @@ import { renderMermaid } from './mermaid-loader.ts';
 import { pageYToLine, recordAnchor, scrollToLine as scrollBlocksToLine, startAnchoring, startScrollReporting, type BlockHandle } from './scroll.ts';
 import { alignSegments, splitBlocks, type Segment } from './split-html.ts';
 import { DEFAULT_STYLE, styleLinks } from './styles.ts';
+import { enableTaskCheckboxes, focusedTaskLine, restoreTaskFocus, setRenderVersion, startTaskToggling } from './tasks.ts';
+
+// The app hands over its per-load token and, after refusing a toggle, asks the page to take back what the user flipped.
+export { resyncTasks, setTaskToken } from './tasks.ts';
 
 interface RenderBlock { lineStart: number; lineEnd: number; hash: number }
 type Lines = Pick<RenderBlock, 'lineStart' | 'lineEnd'>
@@ -39,6 +43,7 @@ function parse(html: string): Node[] {
   stripActiveContent(scratch);
   rewriteImages(scratch);
   rewriteLinks(scratch, docBase);
+  enableTaskCheckboxes(scratch);
   const nodes = Array.from(scratch.childNodes);
   scratch.replaceChildren();
   return nodes;
@@ -146,10 +151,12 @@ function patch(html: string, segs: Segment[], lines: Lines[], st: State): number
 }
 
 // Renders `md` into article#doc and returns the metadata JSON ({blocks, outline, stats, perf}) without the html.
+// `version` is the app's counter for this render; checkbox clicks carry it back so the app knows which text the page shows.
 // On a render failure the previous content stays, the error bar shows the message, the error goes to Swift over
 // the bridge, and `{error}` is returned.
-export function update(md: string, optionsJSON: string): string {
+export function update(md: string, optionsJSON: string, version = 0): string {
   const t0 = performance.now();
+  const focusedTask = focusedTaskLine();
   try {
     const options = JSON.parse(optionsJSON) as { flavor: string };
     const { html, ...meta } = MacDown2.renderResult(md, options);
@@ -174,6 +181,8 @@ export function update(md: string, optionsJSON: string): string {
     if (mode !== 'patch') doc().dataset.flavor = options.flavor;
     const t3 = performance.now();
     errorBar().hidden = true;
+    setRenderVersion(version);
+    restoreTaskFocus(focusedTask);
     anchorAfterRender();
     renderMermaid(doc()); // async; draws the diagrams that are new in the DOM, the metadata below does not wait for it
     const ms = (a: number, b: number): number => Math.round((b - a) * 100) / 100;
@@ -279,6 +288,7 @@ export function setStyle(light: string, dark: string | null): void {
 
 startScrollReporting(() => state?.blocks ?? []);
 startAnchorScrolling();
+startTaskToggling();
 addEventListener('error', (e) => post({ type: 'error', stage: 'script', message: `${e.message} (${e.filename}:${e.lineno})` }));
 addEventListener('unhandledrejection', (e) => post({ type: 'error', stage: 'script', message: errorText(e.reason) }));
 document.addEventListener('securitypolicyviolation', (e) => post({ type: 'error', stage: 'csp', message: `${e.violatedDirective} blocked ${e.blockedURI}` }));

@@ -75,8 +75,24 @@ public final class MarkdownTextView: NSTextView {
         textView.theme = theme  // before the highlighter exists: only sets font and colours
         textView.attachHighlighter()
         textView.attachGutter()
+        textView.announceUndoAndRedo()
         textView.textLayoutManager?.delegate = textView
         return (scrollView, textView)
+    }
+
+    /// Undo and redo change the text without telling the delegate: NSTextView only sends `textDidChange` for typing and for an
+    /// explicit `didChangeText()` (observed on macOS 26/27 with TextKit 2). The model that mirrors the text, the preview and
+    /// the file that gets saved would keep what the user just undid. So a character edit that happens while the undo manager
+    /// is undoing or redoing is announced like any other.
+    private func announceUndoAndRedo() {
+        guard let storage = textStorage else { return }
+        NotificationCenter.default.addObserver(forName: NSTextStorage.didProcessEditingNotification, object: storage, queue: nil) { [weak self] note in
+            guard let storage = note.object as? NSTextStorage, storage.editedMask.contains(.editedCharacters) else { return }
+            MainActor.assumeIsolated {
+                guard let self, let manager = self.undoManager, manager.isUndoing || manager.isRedoing else { return }
+                self.didChangeText()
+            }
+        }
     }
 
     private func attachGutter() {
@@ -250,6 +266,30 @@ public final class MarkdownTextView: NSTextView {
         let clipboard = pasteboard.string(forType: .string)
         guard let edit = command.edit(in: storage.mutableString, selection: selectedRange(), clipboard: clipboard, behavior: behavior) else { return }
         applyEdit(edit)
+    }
+
+    /// Replaces `range` with `string` for something outside the editor (the preview ticked a task checkbox) as ONE undo step
+    /// called `actionName`, kept apart from any typing before or after it. The text storage is edited in place, so the
+    /// highlighter restyles only what the edit touches and the delegate hears `textDidChange` as for typing. The selection
+    /// is put back exactly as it was (callers swap equal lengths, so it still points at the same text). Returns false, with
+    /// nothing changed, while an input method has marked text or when `range` is not inside the text.
+    @discardableResult
+    public func replaceUndoably(_ range: NSRange, with string: String, actionName: String) -> Bool {
+        guard isEditable, !hasMarkedText(), let storage = textStorage, NSMaxRange(range) <= storage.length else { return false }
+        let selection = selectedRanges
+        breakUndoCoalescing()
+        let manager = undoManager
+        manager?.beginUndoGrouping()
+        defer {
+            manager?.endUndoGrouping()
+            breakUndoCoalescing()
+        }
+        guard shouldChangeText(in: range, replacementString: string) else { return false }
+        storage.replaceCharacters(in: range, with: string)
+        didChangeText()
+        manager?.setActionName(actionName)
+        if selectedRanges != selection { selectedRanges = selection }
+        return true
     }
 
     /// Every programmatic change goes through `insertText`, i.e. `shouldChangeText` / undo registration / the delegate's
