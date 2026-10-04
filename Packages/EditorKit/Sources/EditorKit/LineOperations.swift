@@ -73,18 +73,24 @@ enum Lines {
     static func apply(_ text: NSString, _ lines: [Line], _ sel: NSRange, _ change: (Line) -> PrefixChange?) -> TextEdit? {
         guard let first = lines.first, let last = lines.last else { return nil }
         struct Mapped { var oldStart: Int, oldLength: Int, newStart: Int, oldPrefix: Int, newPrefix: Int }
-        var out = "", mapped: [Mapped] = [], changed = false
+        // `outLength` is the UTF-16 length of `out`, kept as a running sum: counting it on a growing non-ASCII string rescans it.
+        var out = "", outLength = 0, mapped: [Mapped] = [], changed = false
         for (i, line) in lines.enumerated() {
             let c = change(line)
             let oldPrefix = min(c?.oldLength ?? 0, line.length), newPrefix = c?.newPrefix ?? ""
             if c != nil, text.substring(with: NSRange(location: line.start, length: oldPrefix)) != newPrefix { changed = true }
-            mapped.append(Mapped(oldStart: line.start, oldLength: line.length, newStart: out.utf16.count, oldPrefix: oldPrefix, newPrefix: newPrefix.utf16.count))
+            let newPrefixLength = newPrefix.utf16.count
+            mapped.append(Mapped(oldStart: line.start, oldLength: line.length, newStart: outLength, oldPrefix: oldPrefix, newPrefix: newPrefixLength))
             out += newPrefix + text.substring(with: NSRange(location: line.start + oldPrefix, length: line.length - oldPrefix))
-            if i < lines.count - 1 { out += text.substring(with: NSRange(location: line.start + line.length, length: line.terminatorLength)) }
+            outLength += newPrefixLength + line.length - oldPrefix
+            if i < lines.count - 1 {
+                out += text.substring(with: NSRange(location: line.start + line.length, length: line.terminatorLength))
+                outLength += line.terminatorLength
+            }
         }
         guard changed else { return nil }
         let regionEnd = last.start + last.length
-        let delta = out.utf16.count - (regionEnd - first.start)
+        let delta = outLength - (regionEnd - first.start)
         // A caret at a line start ends up after the new prefix (type on); a selection starting there keeps covering it.
         func map(_ offset: Int, selectionStart: Bool = false) -> Int {
             guard offset <= regionEnd else { return offset + delta }
