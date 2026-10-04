@@ -17,11 +17,17 @@
 		A10000000000000000000094 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = A10000000000000000000093 /* Sparkle */; };
 		A10000000000000000000005 /* QuartoExtension in Frameworks */ = {isa = PBXBuildFile; productRef = A1000000000000000000002A /* QuartoExtension */; };
 		A10000000000000000000098 /* WorkspaceKit in Frameworks */ = {isa = PBXBuildFile; productRef = A10000000000000000000097 /* WorkspaceKit */; };
+		A100000000000000000000A8 /* CLIKit in Frameworks */ = {isa = PBXBuildFile; productRef = A100000000000000000000AB /* CLIKit */; };
+		A100000000000000000000A9 /* MarkdownCore in Frameworks */ = {isa = PBXBuildFile; productRef = A100000000000000000000AC /* MarkdownCore */; };
+		A100000000000000000000AA /* WebAssets in Frameworks */ = {isa = PBXBuildFile; productRef = A100000000000000000000AD /* WebAssets */; };
+		A100000000000000000000AF /* CLIKit in Frameworks */ = {isa = PBXBuildFile; productRef = A100000000000000000000B0 /* CLIKit */; };
+		A100000000000000000000B2 /* macdown2 in Embed Helpers */ = {isa = PBXBuildFile; fileRef = A100000000000000000000A1 /* macdown2 */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		A10000000000000000000084 /* MacDown2QuickLook.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = MacDown2QuickLook.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		A10000000000000000000010 /* MacDown2.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MacDown2.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A100000000000000000000A1 /* macdown2 */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = macdown2; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -59,6 +65,11 @@
 			path = App;
 			sourceTree = "<group>";
 		};
+		A100000000000000000000A2 /* CLI */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = CLI;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXContainerItemProxy section */
@@ -68,6 +79,13 @@
 			proxyType = 1;
 			remoteGlobalIDString = A10000000000000000000041;
 			remoteInfo = MacDown2QuickLook;
+		};
+		A100000000000000000000B4 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A10000000000000000000060 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A100000000000000000000A0;
+			remoteInfo = MacDown2CLI;
 		};
 /* End PBXContainerItemProxy section */
 
@@ -81,6 +99,17 @@
 				A10000000000000000000083 /* MacDown2QuickLook.appex in Embed Foundation Extensions */,
 			);
 			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A100000000000000000000B1 /* Embed Helpers */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = Contents/Helpers;
+			dstSubfolderSpec = 1;
+			files = (
+				A100000000000000000000B2 /* macdown2 in Embed Helpers */,
+			);
+			name = "Embed Helpers";
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXCopyFilesBuildPhase section */
@@ -106,6 +135,17 @@
 				A10000000000000000000094 /* Sparkle in Frameworks */,
 				A10000000000000000000005 /* QuartoExtension in Frameworks */,
 				A10000000000000000000098 /* WorkspaceKit in Frameworks */,
+				A100000000000000000000AF /* CLIKit in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A100000000000000000000A4 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A100000000000000000000A8 /* CLIKit in Frameworks */,
+				A100000000000000000000A9 /* MarkdownCore in Frameworks */,
+				A100000000000000000000AA /* WebAssets in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -117,6 +157,7 @@
 			children = (
 				A10000000000000000000011 /* App */,
 				A10000000000000000000085 /* QuickLook */,
+				A100000000000000000000A2 /* CLI */,
 				A10000000000000000000013 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -126,6 +167,7 @@
 			children = (
 				A10000000000000000000010 /* MacDown2.app */,
 				A10000000000000000000084 /* MacDown2QuickLook.appex */,
+				A100000000000000000000A1 /* macdown2 */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -164,11 +206,14 @@
 				A10000000000000000000050 /* Frameworks */,
 				A10000000000000000000052 /* Resources */,
 				A1000000000000000000008A /* Embed Foundation Extensions */,
+				A100000000000000000000B1 /* Embed Helpers */,
+				A100000000000000000000B5 /* Link Helper Resources */,
 			);
 			buildRules = (
 			);
 			dependencies = (
 				A1000000000000000000008B /* PBXTargetDependency */,
+				A100000000000000000000B3 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				A10000000000000000000011 /* App */,
@@ -182,10 +227,35 @@
 				A10000000000000000000093 /* Sparkle */,
 				A1000000000000000000002A /* QuartoExtension */,
 				A10000000000000000000097 /* WorkspaceKit */,
+				A100000000000000000000B0 /* CLIKit */,
 			);
 			productName = MacDown2;
 			productReference = A10000000000000000000010 /* MacDown2.app */;
 			productType = "com.apple.product-type.application";
+		};
+		A100000000000000000000A0 /* MacDown2CLI */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A100000000000000000000A5 /* Build configuration list for PBXNativeTarget "MacDown2CLI" */;
+			buildPhases = (
+				A100000000000000000000A3 /* Sources */,
+				A100000000000000000000A4 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				A100000000000000000000A2 /* CLI */,
+			);
+			name = MacDown2CLI;
+			packageProductDependencies = (
+				A100000000000000000000AB /* CLIKit */,
+				A100000000000000000000AC /* MarkdownCore */,
+				A100000000000000000000AD /* WebAssets */,
+			);
+			productName = macdown2;
+			productReference = A100000000000000000000A1 /* macdown2 */;
+			productType = "com.apple.product-type.tool";
 		};
 /* End PBXNativeTarget section */
 
@@ -201,6 +271,9 @@
 						CreatedOnToolsVersion = 27.0;
 					};
 					A10000000000000000000041 = {
+						CreatedOnToolsVersion = 27.0;
+					};
+					A100000000000000000000A0 = {
 						CreatedOnToolsVersion = 27.0;
 					};
 				};
@@ -222,6 +295,7 @@
 				A10000000000000000000029 /* XCRemoteSwiftPackageReference "Sparkle" */,
 				A10000000000000000000095 /* XCLocalSwiftPackageReference "Packages/QuartoExtension" */,
 				A10000000000000000000096 /* XCLocalSwiftPackageReference "Packages/WorkspaceKit" */,
+				A100000000000000000000AE /* XCLocalSwiftPackageReference "Packages/CLIKit" */,
 			);
 			productRefGroup = A10000000000000000000013 /* Products */;
 			projectDirPath = "";
@@ -229,6 +303,7 @@
 			targets = (
 				A10000000000000000000040 /* MacDown2 */,
 				A10000000000000000000041 /* MacDown2QuickLook */,
+				A100000000000000000000A0 /* MacDown2CLI */,
 			);
 		};
 /* End PBXProject section */
@@ -242,6 +317,28 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		A100000000000000000000B5 /* Link Helper Resources */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Link Helper Resources";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/Helpers/WebAssets_WebAssets.bundle",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "# macdown2 finds its web assets (SwiftPM resource bundle) next to itself; share the app's copy instead of shipping 5 MB twice.\nln -sfhn ../Resources/WebAssets_WebAssets.bundle \"$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Helpers/WebAssets_WebAssets.bundle\"\n";
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		A10000000000000000000088 /* Sources */ = {
@@ -258,6 +355,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		A100000000000000000000A3 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -265,6 +369,11 @@
 			isa = PBXTargetDependency;
 			target = A10000000000000000000041 /* MacDown2QuickLook */;
 			targetProxy = A1000000000000000000008C /* PBXContainerItemProxy */;
+		};
+		A100000000000000000000B3 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = A100000000000000000000A0 /* MacDown2CLI */;
+			targetProxy = A100000000000000000000B4 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -409,6 +518,34 @@
 			};
 			name = Release;
 		};
+		A100000000000000000000A6 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Manual;
+				ENABLE_APP_SANDBOX = NO;
+				ENABLE_HARDENED_RUNTIME = NO;
+				PRODUCT_MODULE_NAME = MacDown2CLI;
+				PRODUCT_NAME = macdown2;
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		A100000000000000000000A7 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Manual;
+				ENABLE_APP_SANDBOX = NO;
+				ENABLE_HARDENED_RUNTIME = NO;
+				PRODUCT_MODULE_NAME = MacDown2CLI;
+				PRODUCT_NAME = macdown2;
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -439,6 +576,15 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
+		A100000000000000000000A5 /* Build configuration list for PBXNativeTarget "MacDown2CLI" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A100000000000000000000A6 /* Debug */,
+				A100000000000000000000A7 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
@@ -465,6 +611,10 @@
 		A10000000000000000000096 /* XCLocalSwiftPackageReference "Packages/WorkspaceKit" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/WorkspaceKit;
+		};
+		A100000000000000000000AE /* XCLocalSwiftPackageReference "Packages/CLIKit" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/CLIKit;
 		};
 /* End XCLocalSwiftPackageReference section */
 
@@ -516,6 +666,22 @@
 		A10000000000000000000097 /* WorkspaceKit */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = WorkspaceKit;
+		};
+		A100000000000000000000AB /* CLIKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = CLIKit;
+		};
+		A100000000000000000000AC /* MarkdownCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = MarkdownCore;
+		};
+		A100000000000000000000AD /* WebAssets */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = WebAssets;
+		};
+		A100000000000000000000B0 /* CLIKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = CLIKit;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

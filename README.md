@@ -57,6 +57,19 @@ The app is ad-hoc signed, not notarized, and the official `homebrew/cask` tap do
 
 Until the first release, build it yourself — it takes one command.
 
+## Command line
+
+The app ships a `macdown2` tool. Install it from the app menu (**MacDown2.0 › Install Command Line Tool…**, no admin rights needed: it links into `/opt/homebrew/bin` or `~/.local/bin`); the Homebrew cask does it for you.
+
+```sh
+macdown2 notes.md docs/      # open files; a folder opens as a workspace
+cat draft.md | macdown2      # piped text is saved to ~/Library/Caches/io.github.xuanji86.MacDown2/stdin/ and opened
+macdown2 render a.md --standalone -o a.html    # render without starting the app
+macdown2 --help
+```
+
+Exit status: 0 ok, 64 bad arguments, 66 file problem, 70 rendering failed.
+
 ## Build from source
 
 Requires Xcode 27 on macOS 26 (Apple Silicon or Intel). Node.js 23.6+ is needed only if you change the JavaScript renderer under `Web/`.

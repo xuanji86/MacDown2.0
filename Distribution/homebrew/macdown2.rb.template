@@ -22,6 +22,8 @@ cask "macdown2" do
   depends_on macos: :tahoe
 
   app "MacDown2.app"
+  # `macdown2` on the PATH (also installable from the app menu: Install Command Line Tool…).
+  binary "#{appdir}/MacDown2.app/Contents/Helpers/macdown2"
 
   # The app is ad-hoc signed and not notarized, so Gatekeeper would block the quarantined copy. Homebrew removed
   # `--no-quarantine` (2026-07) with no replacement; clearing the attribute here is the tap's own, visible decision.
