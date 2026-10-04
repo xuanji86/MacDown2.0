@@ -11,8 +11,8 @@ enum Render {
         guard !isDirectory.boolValue else { throw CLIError(ExitCode.noInput, "\(args.input) is a folder, not a file") }
         let data: Data
         do { data = try Data(contentsOf: input) } catch { throw CLIError(ExitCode.noInput, "cannot read \(args.input): \(error.localizedDescription)") }
-        // Strict, like the app: a file that is not UTF-8 is reported, never half-rendered.
-        guard let file = try? MarkdownFile.decode(data) else { throw CLIError(ExitCode.noInput, "\(args.input) is not valid UTF-8 text") }
+        // Same encoding detection as the app (UTF-8, UTF-16 with a BOM, GB18030, ...): a file that is no text at all is reported, never half-rendered.
+        guard let file = try? MarkdownFile.decode(data) else { throw CLIError(ExitCode.noInput, "\(args.input) cannot be read as text") }
 
         // The app's settings when they can be read (another process's preference domain: a plain read, no sandbox here); otherwise the
         // defaults, which means every switch is on, Quarto included.

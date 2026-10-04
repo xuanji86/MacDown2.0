@@ -11,6 +11,12 @@ public struct EditorViewSettings: Equatable, Sendable {
         public static let maxWidth = "editor.maxWidth"
         public static let showInvisibles = "editor.showInvisibles"
         public static let smartHome = "editor.smartHome"
+        // The system's text substitutions, one switch each (all off by default: this is source text).
+        public static let smartQuotes = "editor.smartQuotes"
+        public static let smartDashes = "editor.smartDashes"
+        public static let textReplacement = "editor.textReplacement"
+        public static let spellingCorrection = "editor.spellingCorrection"
+        public static let smartInsertDelete = "editor.smartInsertDelete"
     }
 
     public static let lineSpacingRange: ClosedRange<CGFloat> = 0...12
@@ -26,6 +32,20 @@ public struct EditorViewSettings: Equatable, Sendable {
     public var showsInvisibles = false
     /// ⌘← goes to the first non-blank character before the real start of the line.
     public var smartHome = true
+
+    // MARK: System text substitutions (all off: they rewrite what the user typed, and Markdown source must stay as typed)
+
+    /// "straight" quotes become curly ones.
+    public var smartQuotes = false
+    /// `--` becomes an en/em dash.
+    public var smartDashes = false
+    /// The user's System Settings > Keyboard > Text Replacements (also the double-space period).
+    public var textReplacement = false
+    /// Automatic spelling correction. macOS has no per-view switch for "capitalize words automatically": it is part of the same
+    /// correction pass, so this one switch governs both.
+    public var spellingCorrection = false
+    /// Adds or removes spaces around pasted, cut or double-click-selected words.
+    public var smartInsertDelete = false
 
     public init() {}
 

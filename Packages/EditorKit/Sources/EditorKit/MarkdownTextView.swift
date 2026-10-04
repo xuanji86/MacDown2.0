@@ -56,11 +56,10 @@ public final class MarkdownTextView: NSTextView {
         textView.usesFindBar = true
         textView.isIncrementalSearchingEnabled = true
         textView.textContainerInset = baseInset
-        // Source text: no typographic rewriting.
-        textView.isAutomaticQuoteSubstitutionEnabled = false
-        textView.isAutomaticDashSubstitutionEnabled = false
-        textView.isAutomaticTextReplacementEnabled = false
-        textView.isAutomaticSpellingCorrectionEnabled = false
+        // Source text: no typographic rewriting unless the user switched it on (`EditorViewSettings`).
+        textView.applySubstitutions(textView.viewSettings)
+        textView.isAutomaticLinkDetectionEnabled = false
+        textView.isAutomaticDataDetectionEnabled = false
         textView.theme = theme  // before the highlighter exists: only sets font and colours
         textView.attachHighlighter()
         textView.attachGutter()
@@ -99,6 +98,17 @@ public final class MarkdownTextView: NSTextView {
             updateInsets()
         }
         if new.showsInvisibles != old.showsInvisibles { needsDisplay = true }
+        applySubstitutions(new, replacing: old)
+    }
+
+    /// The system's automatic text substitutions follow the settings, one switch each. Only what changed is written (`old` nil =
+    /// everything), so a toggle made in the Edit > Substitutions menu survives an unrelated setting change.
+    private func applySubstitutions(_ new: EditorViewSettings, replacing old: EditorViewSettings? = nil) {
+        if new.smartQuotes != old?.smartQuotes { isAutomaticQuoteSubstitutionEnabled = new.smartQuotes }
+        if new.smartDashes != old?.smartDashes { isAutomaticDashSubstitutionEnabled = new.smartDashes }
+        if new.textReplacement != old?.textReplacement { isAutomaticTextReplacementEnabled = new.textReplacement }
+        if new.spellingCorrection != old?.spellingCorrection { isAutomaticSpellingCorrectionEnabled = new.spellingCorrection }
+        if new.smartInsertDelete != old?.smartInsertDelete { smartInsertDeleteEnabled = new.smartInsertDelete }
     }
 
     /// Text column: the base inset, or whatever centres a `maxWidth` column. Called when the width or the setting changes.

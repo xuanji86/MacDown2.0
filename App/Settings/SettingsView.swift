@@ -127,6 +127,17 @@ private struct EditorPage: View {
                 .pickerStyle(.segmented)
                 Toggle("⌘← 先到行首第一个非空白字符", isOn: editor.$smartHome)
             }
+            Section {
+                Toggle("智能引号(直引号变弯引号)", isOn: editor.$smartQuotes)
+                Toggle("智能破折号(-- 变成 —)", isOn: editor.$smartDashes)
+                Toggle("文本替换(系统设置里的替换表、双空格变句号)", isOn: editor.$textReplacement)
+                Toggle("拼写自动更正(系统把自动大写算在这一项里)", isOn: editor.$spellingCorrection)
+                Toggle("智能增删空格(粘贴、剪切时补空格)", isOn: editor.$smartInsertDelete)
+            } header: {
+                Text("系统智能替换")
+            } footer: {
+                Text("这些会改写你输入的字符,写 Markdown 源码时默认全部关闭。")
+            }
             Section("滚动") {
                 Toggle("编辑器与预览同步滚动", isOn: $syncScrolling)
                 Toggle("预览跟随光标", isOn: $previewFollowsCaret)

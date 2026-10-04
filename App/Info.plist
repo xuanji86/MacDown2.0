@@ -14,6 +14,7 @@
 			<key>LSItemContentTypes</key>
 			<array>
 				<string>net.daringfireball.markdown</string>
+				<string>public.markdown</string>
 			</array>
 		</dict>
 		<dict>
@@ -56,6 +57,19 @@
 	</array>
 	<key>UTImportedTypeDeclarations</key>
 	<array>
+		<!-- public.markdown is not declared by macOS (checked on 26/27: `UTType("public.markdown")` is nil and no installed bundle
+		     declares it), but other apps tag files with it. Imported, never exported: the public.* namespace is Apple's. It is an
+		     alias of net.daringfireball.markdown with no extensions of its own, so `.md` keeps resolving to the one type. -->
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>public.markdown</string>
+			<key>UTTypeDescription</key>
+			<string>Markdown Document</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>net.daringfireball.markdown</string>
+			</array>
+		</dict>
 		<dict>
 			<key>UTTypeIdentifier</key>
 			<string>net.daringfireball.markdown</string>
@@ -107,6 +121,21 @@
 			</dict>
 		</dict>
 	</array>
+	<!-- Purpose strings of the system's file-access prompts, shown when the file tree browses these places. English here,
+	     Simplified Chinese in zh-Hans.lproj/InfoPlist.strings. iCloud Drive has no key of its own: a cloud provider's files
+	     (iCloud Drive, Dropbox, ...) are covered by NSFileProviderDomainUsageDescription. -->
+	<key>NSDesktopFolderUsageDescription</key>
+	<string>MacDown2 shows the Markdown files in your Desktop folder in its file tree.</string>
+	<key>NSDocumentsFolderUsageDescription</key>
+	<string>MacDown2 shows the Markdown files in your Documents folder in its file tree.</string>
+	<key>NSDownloadsFolderUsageDescription</key>
+	<string>MacDown2 shows the Markdown files in your Downloads folder in its file tree.</string>
+	<key>NSFileProviderDomainUsageDescription</key>
+	<string>MacDown2 shows the Markdown files in your iCloud Drive and other cloud folders in its file tree.</string>
+	<key>NSRemovableVolumesUsageDescription</key>
+	<string>MacDown2 shows the Markdown files on removable drives in its file tree.</string>
+	<key>NSNetworkVolumesUsageDescription</key>
+	<string>MacDown2 shows the Markdown files on network volumes in its file tree.</string>
 	<!-- Sparkle. Feed URL: UpdaterController.feedURL. SUPublicEDKey is a PLACEHOLDER until the maintainer runs
 	     Sparkle's `generate_keys` (private key goes into the login keychain; back it up offline, losing it strands
 	     every installed copy) and pastes the printed public key here. While it is a placeholder, update checks are off. -->
