@@ -3,6 +3,7 @@ import MarkdownCore
 import UniformTypeIdentifiers
 import WebAssets
 import WebKit
+import WorkspaceKit
 
 /// The directory `macdown2-res://doc/...` resolves against. `urlSchemeHandlers` cannot change after the `WebPage`
 /// exists (PLAN 4.4.2 pitfall 1), so the handler holds this box and the model updates it when the document moves.
@@ -19,17 +20,6 @@ final class DocumentRoot: @unchecked Sendable {
     var workspaceRoots: [URL] {
         get { lock.withLock { roots } }
         set { lock.withLock { roots = newValue } }
-    }
-
-    /// Size and modification date of a file, to tell later whether it changed.
-    struct FileStamp: Equatable {
-        let size: Int?
-        let modified: Date?
-        init(of url: URL) {
-            let values = try? url.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
-            size = values?.fileSize
-            modified = values?.contentModificationDate
-        }
     }
 
     /// A file the page just asked for (`stamp` taken before it was read, so a change in between shows up as changed).
@@ -84,7 +74,7 @@ struct PreviewAssetHandler: URLSchemeHandler {
             switch DocumentFileResolver.resolve(path: url.path, root: documentRoot.url) {
             case .file(let f):
                 file = f
-                documentRoot.served(f, stamp: DocumentRoot.FileStamp(of: f))
+                documentRoot.served(f, stamp: FileStamp(of: f))
             case .forbidden: file = nil; status = 403
             case .notFound: file = nil
             }

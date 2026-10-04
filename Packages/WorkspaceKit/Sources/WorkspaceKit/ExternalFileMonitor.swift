@@ -30,7 +30,8 @@ public final class ExternalFileMonitor {
     ///   - ignoreSelf: drop the events of this process's own writes (the document's saves; the content check would catch them
     ///     anyway). Tests write from the same process, so they turn it off.
     ///   - isDirty: the user has unsaved edits.
-    ///   - onAction: what to do about a change; runs on the main actor, at most once per distinct change.
+    ///   - onAction: what to do about a change; runs on the main actor, at most once per distinct
+    ///     change; `.none` when only `tracker.isPrompting` / `isMissing` changed.
     ///   - onSettled: a burst of events in the file's directory is over (after `onAction`, if it had one).
     public init(
         url: URL, synced: ExternalChangeTracker.Disk?, settle: Duration = .milliseconds(300), ignoreSelf: Bool = true,
@@ -91,7 +92,7 @@ public final class ExternalFileMonitor {
         guard tracker.isPrompting else { return }
         switch Self.readDisk(url) {
         case .present(let fingerprint): tracker.keepMine(acknowledging: .present(fingerprint))
-        case .missing: perform(tracker.probe(.missing, isDirty: true))
+        case .missing: probe(.missing, isDirty: true)
         case .unreadable: tracker.promptNotShown()
         }
     }
@@ -104,8 +105,8 @@ public final class ExternalFileMonitor {
     public func check() {
         guard !isPaused, watcher != nil else { return }
         switch Self.readDisk(url) {
-        case .present(let fingerprint): perform(tracker.probe(.present(fingerprint), isDirty: isDirty()))
-        case .missing: perform(tracker.probe(.missing, isDirty: isDirty()))
+        case .present(let fingerprint): probe(.present(fingerprint), isDirty: isDirty())
+        case .missing: probe(.missing, isDirty: isDirty())
         case .unreadable: break  // a transient error (permissions mid-replace): the next event asks again
         }
     }
@@ -119,8 +120,12 @@ public final class ExternalFileMonitor {
         }
     }
 
-    private func perform(_ action: ExternalChangeTracker.Action) {
-        if action != .none { onAction(action) }
+    /// `.none` can still end a prompt (the file went back to what we have) or clear the missing mark (it came back unchanged):
+    /// the document is told about every change of that state, with `.none`, so what shows it can follow.
+    private func probe(_ disk: ExternalChangeTracker.Disk, isDirty: Bool) {
+        let (wasMissing, wasPrompting) = (tracker.isMissing, tracker.isPrompting)
+        let action = tracker.probe(disk, isDirty: isDirty)
+        if action != .none || tracker.isMissing != wasMissing || tracker.isPrompting != wasPrompting { onAction(action) }
     }
 
     enum DiskRead {

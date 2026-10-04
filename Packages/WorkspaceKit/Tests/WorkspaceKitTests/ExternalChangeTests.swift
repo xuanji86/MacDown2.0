@@ -296,10 +296,69 @@ struct ExternalFileMonitorTests {
         #expect(h.actions.isEmpty)
     }
 
+    @Test func fileChangedBackWhileAskingTellsTheDocumentSoTheSheetGoes() async throws {
+        let t = try TempDir(); defer { t.cleanUp() }
+        let h = try Harness(t); defer { h.monitor.stop() }
+        h.dirty = true
+        await h.begin()
+        try Data("theirs".utf8).write(to: h.url)
+        #expect(await waitMain { h.actions == [.prompt] })
+        try Data("v0".utf8).write(to: h.url)  // back to what the document has
+        #expect(await waitMain { h.actions.count == 2 })
+        #expect(h.actions == [.prompt, .none])
+        #expect(!h.monitor.tracker.isPrompting)
+    }
+
+    @Test func deletedFileRestoredUnchangedTellsTheDocumentSoTheMarkGoes() async throws {
+        let t = try TempDir(); defer { t.cleanUp() }
+        let h = try Harness(t); defer { h.monitor.stop() }
+        h.dirty = true
+        await h.begin()
+        try FileManager.default.removeItem(at: h.url)
+        #expect(await waitMain { h.actions == [.markMissing] })
+        try Data("v0".utf8).write(to: h.url)
+        #expect(await waitMain { h.actions.count == 2 })
+        #expect(h.actions == [.markMissing, .none])
+        #expect(!h.monitor.tracker.isMissing)
+    }
+
     @Test func onlyLocalFilesAreWatchable() throws {
         let t = try TempDir(); defer { t.cleanUp() }
         #expect(ExternalFileMonitor.isWatchable(t.url))
         #expect(!ExternalFileMonitor.isWatchable(URL(string: "https://example.com/a.md")!))
         #expect(!ExternalFileMonitor.isWatchable(URL(fileURLWithPath: "/definitely/not/here")))
+    }
+}
+
+struct FileStampTests {
+    @Test func seesAnOverwriteInPlaceOnTheSameURLObject() throws {
+        let t = try TempDir(); defer { t.cleanUp() }
+        let url = try t.file("pic.png", "one")
+        let first = FileStamp(of: url)
+        try Data("longer content".utf8).write(to: url)
+        #expect(FileStamp(of: url) != first)  // the same `url` value: a URL that cached its resource values would say "unchanged"
+    }
+
+    @Test func seesANewerDateWithTheSameSize() throws {
+        let t = try TempDir(); defer { t.cleanUp() }
+        let url = try t.file("pic.png", "same")
+        let first = FileStamp(of: url)
+        try FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(120)], ofItemAtPath: url.path)
+        #expect(FileStamp(of: url) != first)
+    }
+
+    @Test func seesADeletion() throws {
+        let t = try TempDir(); defer { t.cleanUp() }
+        let url = try t.file("pic.png", "one")
+        let first = FileStamp(of: url)
+        try FileManager.default.removeItem(at: url)
+        #expect(FileStamp(of: url) != first)
+        #expect(FileStamp(of: url).size == nil)
+    }
+
+    @Test func anUntouchedFileKeepsItsStamp() throws {
+        let t = try TempDir(); defer { t.cleanUp() }
+        let url = try t.file("pic.png", "one")
+        #expect(FileStamp(of: url) == FileStamp(of: url))
     }
 }

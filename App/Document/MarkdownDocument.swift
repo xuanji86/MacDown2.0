@@ -92,10 +92,11 @@ final class MarkdownDocument: NSDocument, ObservableObject {
     /// launch (tests) must not write there.
     override func autosave(withImplicitCancellability implicitlyCancellable: Bool, completionHandler: @escaping (Error?) -> Void) {
         if fileURL == nil, AppDefaults.isIsolated { return completionHandler(nil) }
-        // While the "changed on disk" question is open, or the file is gone, nothing writes behind the user's back: AppKit
+        // While the "changed on disk" question is open or waiting, or the file is gone, nothing writes behind the user's back: AppKit
         // would put its own "changed by another application" sheet over ours, and would re-create a deleted file silently.
         // The text stays in memory (and in the edited state); an explicit save, or the answer, brings autosave back.
-        if externalPrompt != nil || editedFlag.missing { return completionHandler(nil) }
+        // A question that is pending (its tab is not in front, its window is minimized) counts as open: nothing may write yet.
+        if externalMonitor?.tracker.isPrompting == true || editedFlag.missing { return completionHandler(nil) }
         super.autosave(withImplicitCancellability: implicitlyCancellable, completionHandler: completionHandler)
     }
 
