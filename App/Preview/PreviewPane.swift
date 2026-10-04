@@ -104,6 +104,7 @@ final class PreviewModel {
     private var flavor: (any DocumentFlavor)?
     private var loading: Task<Bool, Never>?
     private var debounce: Task<Void, Never>?
+    private var throttle = RenderThrottle()
     // Updates arriving while a JS call is in flight collapse into `pending`; the latest text always wins, in order.
     private var pending: String?
     private var pushing = false
@@ -141,10 +142,6 @@ final class PreviewModel {
         messages.onMessage = { [weak self] message in self?.handle(message) }
     }
 
-    private static func json(_ options: RenderOptions) -> String {
-        (try? String(data: JSONEncoder().encode(options), encoding: .utf8)) ?? "{}"
-    }
-
     /// New render settings. The page rebuilds the whole document when it sees a different options string, so this only
     /// has to push the current text again.
     func setOptions(_ new: RenderOptions) {
@@ -167,7 +164,7 @@ final class PreviewModel {
     private func resolvedOptions(for markdown: String) -> (json: String, flavor: [String: [String]]) {
         let resolved = options.rendering(as: flavor, markdown: markdown, readFile: includes.read)
         includes.endRender()
-        return (Self.json(resolved), ["chunks": resolved.renderChunks, "stylesheets": flavor?.previewStylesheets ?? []])
+        return (resolved.json, ["chunks": resolved.renderChunks, "stylesheets": flavor?.previewStylesheets ?? []])
     }
 
     /// The document's text as the editor has it now. Text the page already shows or is about to (a task checkbox click renders its
@@ -176,12 +173,14 @@ final class PreviewModel {
         if markdown != lastMarkdown { schedule(markdown) }
     }
 
-    /// Debounced (~150 ms) so typing bursts render once.
+    /// Leading + trailing (`RenderThrottle`): the first change after a pause renders at once, a typing burst renders about
+    /// once per interval (scaled to what renders cost) with its latest text; the last text always gets its render.
     func schedule(_ markdown: String) {
         lastMarkdown = markdown
         debounce?.cancel()
+        let wait = throttle.delay(at: .now)
         debounce = Task { [weak self] in
-            try? await Task.sleep(for: .milliseconds(150))
+            if wait > .zero { try? await Task.sleep(for: wait) }
             guard !Task.isCancelled else { return }
             await self?.push(markdown)
         }
@@ -358,6 +357,7 @@ final class PreviewModel {
             let rebuild = needsRebuild
             needsRebuild = false
             let started = ContinuousClock.now
+            throttle.rendered(at: started)
             let (optionsJSON, flavorFiles) = resolvedOptions(for: next)
             // Relative links resolve against the document's folder (as a file URL, trailing slash); see Web/src/preview/links.ts.
             let base = documentDirectory.map { URL(filePath: $0.path, directoryHint: .isDirectory).absoluteString }
@@ -373,6 +373,7 @@ final class PreviewModel {
                     arguments: ["md": next, "options": optionsJSON, "rebuild": rebuild, "flavor": flavorFiles, "base": base.map { $0 as Any } ?? NSNull(), "version": version]
                 )
                 let elapsed = ContinuousClock.now - started
+                throttle.finished(taking: elapsed)
                 // Render failures are reported over the bridge (`handle`); success carries blocks/outline/stats/perf.
                 let meta = (result as? String).flatMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any] }
                 if meta?["error"] != nil { shown = before }  // the old content stays on the page

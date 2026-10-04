@@ -56,6 +56,32 @@ public struct RenderOptions: Sendable, Codable, Hashable {
     }
 
     public init() {}
+
+    /// The JSON `MacDown2.render` and the preview page take. Deterministic: the page compares this string to tell "same
+    /// options, patch the DOM" from "options changed, rebuild", and a default `JSONEncoder` orders keys differently from one
+    /// call to the next. Sorted keys, and the (unordered) extension set in a fixed order.
+    public var json: String {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .sortedKeys
+        return (try? String(data: encoder.encode(self), encoding: .utf8)) ?? "{}"
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(flavor, forKey: .flavor)
+        try c.encode(renderChunks, forKey: .renderChunks)
+        try c.encode(extensions.map(\.rawValue).sorted(), forKey: .extensions)
+        try c.encode(hardBreaks, forKey: .hardBreaks)
+        try c.encode(allowRawHTML, forKey: .allowRawHTML)
+        try c.encode(codeHighlighting, forKey: .codeHighlighting)
+        try c.encode(codeLineNumbers, forKey: .codeLineNumbers)
+        try c.encode(headingAnchors, forKey: .headingAnchors)
+        try c.encode(inlineDollarMath, forKey: .inlineDollarMath)
+        try c.encode(frontMatterDisplay, forKey: .frontMatterDisplay)
+        try c.encode(files, forKey: .files)
+        try c.encode(sanitize, forKey: .sanitize)
+        try c.encode(sourceLines, forKey: .sourceLines)
+    }
 }
 
 public struct RenderResult: Sendable, Codable, Hashable {
