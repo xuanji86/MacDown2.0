@@ -123,7 +123,10 @@ final class MarkdownDocument: NSDocument, ObservableObject {
             format.set(file)
             dirtyOnlyBecauseMissing = false
             markSynced(.present(FileFingerprint(data)))
-            text = file.text  // on a revert / external reload this reaches the editor through ExternalTextSync
+            text = file.text  // on a revert / external reload this reaches every editor storage of the document (`EditorSession`)
+            // Reading is the one thing that clears undo (a revert, a reload from disk): the steps recorded against the old text
+            // must not be replayed on the new one. Edits made in another window of the same document are not a reload and keep it.
+            undoManager?.removeAllActions()
         }
     }
 
@@ -257,15 +260,13 @@ final class MarkdownDocument: NSDocument, ObservableObject {
         refreshExternalState()
     }
 
-    /// Reads the file again (a revert: the text reaches the editor through `ExternalTextSync`, which remaps the selection and
-    /// keeps the first visible line). Undo history is cleared, as for every revert: the steps recorded against the old text
-    /// must not be replayed on the new one.
+    /// Reads the file again (a revert: the text reaches the editors through `EditorSession`, which remaps the selection and
+    /// keeps the first visible line). Undo history is cleared by `read(from:)`, as for every revert.
     private func reloadFromDisk() {
         guard let url = fileURL else { return }
         do {
             try revert(toContentsOf: url, ofType: fileType ?? Self.markdownType)
             dirtyOnlyBecauseMissing = false
-            undoManager?.removeAllActions()
         } catch {
             externalMonitor?.promptNotShown()
             guard FileManager.default.fileExists(atPath: url.path) else { return }  // gone again: the next event says so

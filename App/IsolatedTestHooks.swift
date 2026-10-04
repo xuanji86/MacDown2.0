@@ -24,6 +24,8 @@ import WorkspaceKit
 ///   MACDOWN2_TEST_PROMPT_DELAY=<secs>     ... after this many seconds (default 4; the sheet stays up that long to be photographed)
 ///   MACDOWN2_TEST_TOGGLE_TASK_LINE=<n>    the preview PAGE clicks the task checkbox on source line n, with its own JavaScript
 ///                                         (see `toggleTaskThroughPage`); `_DELAY`, `_LAYOUT=previewOnly`, `_UNDO=1` and `_SAVE=afterToggle|afterUndo` refine it
+///   MACDOWN2_TEST_TAB_UNDO=<secs>         type into tab A, switch to B, open A in a second window and undo there, <secs> between the
+///                                         steps (see `tabSwitchUndo`; needs two files open in the first window)
 enum IsolatedTestHooks {
     #if DEBUG
     private static func value(_ name: String) -> String? {
@@ -34,6 +36,8 @@ enum IsolatedTestHooks {
     private nonisolated(unsafe) static var searched = false
     private nonisolated(unsafe) static var framed = Set<Int>()
     private nonisolated(unsafe) static var toggled = false
+    private nonisolated(unsafe) static var tabUndoRan = false
+    private static let tabLog = Logger(subsystem: "io.github.xuanji86.MacDown2", category: "tab-undo-hook")
     private static let hookLog = Logger(subsystem: "io.github.xuanji86.MacDown2", category: "task-toggle-hook")
     #endif
 
@@ -179,7 +183,60 @@ enum IsolatedTestHooks {
         #endif
     }
 
+    /// Drives the tab-switch / second-window undo scenario without input, on the first two tabs (a.md, b.md) of the first window,
+    /// `MACDOWN2_TEST_TAB_UNDO=<secs>` apart: A is shown and "X" typed into the editor through its editing path; the window moves to
+    /// B; a second window opens A; A's undo manager undoes (what Edit > Undo in window 2 does) and redoes. The text of both
+    /// documents and of every editor in the app is logged after each step (`log show --predicate 'category == "tab-undo-hook"'`),
+    /// so screenshots taken between the steps can be matched to them.
+    @MainActor static func tabSwitchUndo(model: WindowModel, editor: EditorHandle) async {
+        #if DEBUG
+        guard !tabUndoRan, let raw = value("MACDOWN2_TEST_TAB_UNDO"), let step = Double(raw) else { return }
+        tabUndoRan = true
+        for _ in 0..<100 where model.controller.session.tabs.count < 2 || editor.textView == nil { try? await Task.sleep(for: .milliseconds(100)) }
+        let urls = model.controller.session.tabs.map(\.url)
+        guard urls.count >= 2, let a = WorkspaceRegistry.shared.document(for: urls[0]), let b = WorkspaceRegistry.shared.document(for: urls[1]),
+              let first = editor.textView else { return tabLog.error("needs two open files and an editor") }
+        func snapshot(_ label: String) {
+            let editors = NSApp.windows.compactMap { $0.contentView.flatMap(markdownEditor) }.map { "[\($0.string.debugDescription)]" }
+            tabLog.info("\(label, privacy: .public): A=\(a.text.debugDescription, privacy: .public) B=\(b.text.debugDescription, privacy: .public) editors=\(editors.joined(separator: " "), privacy: .public) canUndoA=\(a.undoManager?.canUndo ?? false, privacy: .public)")
+        }
+        func pause() async { try? await Task.sleep(for: .seconds(step)) }
+
+        model.controller.activate(urls[0])
+        await pause()
+        snapshot("1 window 1 shows A")
+        first.setSelectedRange(NSRange(location: (first.string as NSString).length, length: 0))
+        first.insertText("X", replacementRange: NSRange(location: NSNotFound, length: 0))
+        await pause()
+        snapshot("2 typed X in A")
+        model.controller.activate(urls[1])
+        await pause()
+        snapshot("3 window 1 shows B")
+        WorkspaceRegistry.shared.openWindow?()
+        for _ in 0..<50 where WorkspaceRegistry.shared.orderedModels().count < 2 { try? await Task.sleep(for: .milliseconds(100)) }
+        guard let other = WorkspaceRegistry.shared.orderedModels().first(where: { $0 !== model }) else { return tabLog.error("no second window") }
+        try? other.controller.open(urls[0], as: .pinned)
+        await pause()
+        snapshot("4 window 2 opened A")
+        a.undoManager?.undo()
+        await pause()
+        snapshot("5 undo (from window 2)")
+        a.undoManager?.redo()
+        await pause()
+        snapshot("6 redo")
+        a.undoManager?.undo()
+        model.controller.activate(urls[0])
+        await pause()
+        snapshot("7 undo again, window 1 back on A")
+        #endif
+    }
+
     #if DEBUG
+    private static func markdownEditor(in view: NSView) -> NSTextView? {
+        if let text = view as? NSTextView, text.isEditable { return text }
+        return view.subviews.lazy.compactMap(markdownEditor).first
+    }
+
     /// Writes the document to its (temp-dir copy) file now, as the system's autosave would later, so the bytes can be compared.
     @MainActor private static func autosave(_ document: MarkdownDocument) async {
         let error: Error? = await withCheckedContinuation { continuation in

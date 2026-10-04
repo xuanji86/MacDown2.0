@@ -125,6 +125,29 @@ struct ViewTests {
         _ = em
     }
 
+    /// One paragraph several times longer than the ±4096 window a restyle used to be limited to: the far end is styled
+    /// when it scrolls into view, so what it shows then is the test.
+    @Test func typingRestylesAParagraphLongerThanTheOldCap() async throws {
+        let view = makeView("*" + String(repeating: "word ", count: 2_399) + "word*\n")  // 12,001 units
+        func isItalic(_ location: Int) -> Bool {
+            (view.textStorage?.attribute(.font, at: location, effectiveRange: nil) as? NSFont)?.fontDescriptor.symbolicTraits.contains(.italic) == true
+        }
+        func show(_ location: Int) {
+            view.scrollRangeToVisible(NSRange(location: location, length: 1))
+            view.enclosingScrollView?.layoutSubtreeIfNeeded()
+        }
+        let far = 11_000
+        #expect(await eventually { isItalic(5) })
+        show(far)
+        #expect(await eventually { isItalic(far) }, "the far end is italic while the emphasis is closed")
+        show(0)
+        // Delete the opening `*`: no emphasis any more, anywhere in the paragraph.
+        view.textStorage?.replaceCharacters(in: NSRange(location: 0, length: 1), with: "")
+        #expect(await eventually { !isItalic(5) })
+        show(far)
+        #expect(await eventually { !isItalic(far) }, "the far end must be restyled, not keep its italic")
+    }
+
     @Test func nothingIsWrittenWhileTextIsMarked() async throws {
         let view = makeView("# Hi\n")
         let theme = view.theme

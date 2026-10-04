@@ -73,30 +73,38 @@ public final class MarkdownTextView: NSTextView {
         textView.isAutomaticLinkDetectionEnabled = false
         textView.isAutomaticDataDetectionEnabled = false
         textView.theme = theme  // before the highlighter exists: only sets font and colours
-        textView.attachHighlighter()
+        textView.installHighlighter()
+        textView.observeScrolling()
         textView.attachGutter()
-        textView.announceUndoAndRedo()
+        textView.observeStorage()
         textView.textLayoutManager?.delegate = textView
         return (scrollView, textView)
     }
 
-    /// Undo and redo change the text without telling the delegate: NSTextView only sends `textDidChange` for typing and for an
-    /// explicit `didChangeText()` (observed on macOS 26/27 with TextKit 2). The model that mirrors the text, the preview and
-    /// the file that gets saved would keep what the user just undid. So a character edit that happens while the undo manager
-    /// is undoing or redoing is announced like any other.
-    private func announceUndoAndRedo() {
+    /// Observers of the text storage the view shows; they follow it when `attach(storage:)` swaps it.
+    private var storageObservers: [NSObjectProtocol] = []
+
+    private func observeStorage() {
+        let center = NotificationCenter.default
+        storageObservers.forEach(center.removeObserver)
+        storageObservers = []
         guard let storage = textStorage else { return }
-        NotificationCenter.default.addObserver(forName: NSTextStorage.didProcessEditingNotification, object: storage, queue: nil) { [weak self] note in
+        // Undo and redo change the text without telling the delegate: NSTextView only sends `textDidChange` for typing and for an
+        // explicit `didChangeText()` (observed on macOS 26/27 with TextKit 2). The model that mirrors the text, the preview and
+        // the file that gets saved would keep what the user just undid. So a character edit that happens while the undo manager
+        // is undoing or redoing is announced like any other.
+        storageObservers.append(center.addObserver(forName: NSTextStorage.didProcessEditingNotification, object: storage, queue: nil) { [weak self] note in
             guard let storage = note.object as? NSTextStorage, storage.editedMask.contains(.editedCharacters) else { return }
             MainActor.assumeIsolated {
-                guard let self, let manager = self.undoManager, manager.isUndoing || manager.isRedoing else { return }
-                self.didChangeText()
+                guard let self else { return }
+                self.gutter?.textDidChange()
+                if let manager = self.undoManager, manager.isUndoing || manager.isRedoing { self.didChangeText() }
             }
-        }
+        })
     }
 
     private func attachGutter() {
-        guard let scrollView = enclosingScrollView, let storage = textStorage else { return }
+        guard let scrollView = enclosingScrollView else { return }
         let ruler = LineNumberRulerView(scrollView: scrollView)
         scrollView.verticalRulerView = ruler
         scrollView.hasVerticalRuler = true
@@ -104,10 +112,10 @@ public final class MarkdownTextView: NSTextView {
         usesRuler = false  // the paragraph ruler (tab stops, indents) is not ours and may reach for the TextKit 1 layout
         ruler.clientView = self
         gutter = ruler
-        NotificationCenter.default.addObserver(forName: NSTextStorage.didProcessEditingNotification, object: storage, queue: nil) { [weak ruler] note in
-            guard let storage = note.object as? NSTextStorage, storage.editedMask.contains(.editedCharacters) else { return }
-            MainActor.assumeIsolated { ruler?.textDidChange() }
-        }
+    }
+
+    isolated deinit {
+        storageObservers.forEach(NotificationCenter.default.removeObserver)
     }
 
     // MARK: Settings
@@ -153,13 +161,17 @@ public final class MarkdownTextView: NSTextView {
         if widthChanged, viewSettings.limitsWidth { updateInsets() }
     }
 
-    private func attachHighlighter() {
+    private func installHighlighter() {
         do {
             highlighter = try MarkdownHighlighter(textView: self, theme: styledTheme)
+            if decorations != nil { highlighter?.setDecorator(decorations) }  // a storage swap installs a new highlighter
         } catch {
             // The grammar ships in the binary; failing here is a build problem, but the editor must stay usable plain.
             assertionFailure("highlighter unavailable: \(error)")
         }
+    }
+
+    private func observeScrolling() {
         guard let scrollView = enclosingScrollView else { return }
         let center = NotificationCenter.default
         center.addObserver(self, selector: #selector(visibleContentChanged), name: NSView.boundsDidChangeNotification, object: scrollView.contentView)
@@ -175,24 +187,50 @@ public final class MarkdownTextView: NSTextView {
 
     private func applyTheme() {
         let theme = styledTheme
-        font = theme.font
         backgroundColor = theme.background
         insertionPointColor = theme.caret
         selectedTextAttributes = [.backgroundColor: theme.selection]
-        typingAttributes = theme.baseAttributes
-        defaultParagraphStyle = theme.paragraphStyle
-        // The highlighter styles the visible chunks; the rest must not keep the old line spacing meanwhile (scroll extent).
-        if let storage = textStorage, storage.length > 0, !hasMarkedText() {
-            storage.addAttribute(.paragraphStyle, value: theme.paragraphStyle, range: NSRange(location: 0, length: storage.length))
-            if let layout = textLayoutManager { layout.invalidateLayout(for: layout.documentRange) }
-        }
+        applyStorageTheme()
         gutter?.updateThickness()
         gutter?.needsDisplay = true
         enclosingScrollView?.backgroundColor = theme.background
         // Chrome (scroll bars, find bar) follows the theme, not the system.
         appearance = theme.chromeAppearance
         enclosingScrollView?.appearance = appearance
-        highlighter?.setTheme(theme)
+        highlighter?.setTheme(theme)  // repaints later while marked text is in flight
+    }
+
+    /// Set when a theme change had to leave the text storage alone because an input method was composing.
+    private var themeNeedsStorage = false
+
+    /// The part of a theme that rewrites attributes of the text itself (font, line spacing). `font` is applied to the whole
+    /// storage, marked range included, which ends an input-method composition: while text is marked it waits
+    /// (`compositionDidEnd`).
+    private func applyStorageTheme() {
+        guard !hasMarkedText() else {
+            themeNeedsStorage = true
+            return
+        }
+        themeNeedsStorage = false
+        let theme = styledTheme
+        font = theme.font
+        typingAttributes = theme.baseAttributes
+        defaultParagraphStyle = theme.paragraphStyle
+        // The highlighter styles the visible chunks; the rest must not keep the old line spacing meanwhile (scroll extent).
+        if let storage = textStorage, storage.length > 0 {
+            storage.addAttribute(.paragraphStyle, value: theme.paragraphStyle, range: NSRange(location: 0, length: storage.length))
+            if let layout = textLayoutManager { layout.invalidateLayout(for: layout.documentRange) }
+        }
+    }
+
+    /// The marked range was committed or discarded: what waited for it (the theme's text attributes, the repaint) happens now.
+    private func compositionDidEnd() {
+        if themeNeedsStorage {
+            applyStorageTheme()
+            gutter?.updateThickness()
+            gutter?.needsDisplay = true
+        }
+        highlighter?.compositionDidEnd()
     }
 
     @objc private func visibleContentChanged() {
@@ -207,7 +245,7 @@ public final class MarkdownTextView: NSTextView {
     // composition. The highlighter repaints once it ends.
     public override func unmarkText() {
         super.unmarkText()
-        highlighter?.compositionDidEnd()
+        compositionDidEnd()
     }
 
     public override func insertText(_ string: Any, replacementRange: NSRange) {
@@ -218,7 +256,7 @@ public final class MarkdownTextView: NSTextView {
             return
         }
         super.insertText(string, replacementRange: replacementRange)
-        highlighter?.compositionDidEnd()
+        compositionDidEnd()
     }
 
     // MARK: Editing assistance (PLAN 4.3.4). All of it steps aside while an input method has marked text.
@@ -332,12 +370,10 @@ public final class MarkdownTextView: NSTextView {
     // MARK: Loading text from outside
 
     /// Replace the whole text because the model changed behind the editor's back. Keeps the selection where it makes
-    /// sense and the scroll position; does not register undo (callers clear the undo stack, as a document revert does).
+    /// sense and the scroll position; registers no undo and leaves the undo history alone (a revert clears it in the document,
+    /// a peer editor's edit must not).
     public func reloadText(_ text: String) {
-        if hasMarkedText() {
-            inputContext?.discardMarkedText()
-            unmarkText()
-        }
+        endComposition()
         let old = string
         guard old != text else { return }
         let selection = selectedRanges.map(\.rangeValue)
@@ -348,6 +384,45 @@ public final class MarkdownTextView: NSTextView {
             clip.scroll(to: origin)
             enclosingScrollView?.reflectScrolledClipView(clip)
         }
+    }
+
+    private func endComposition() {
+        guard hasMarkedText() else { return }
+        inputContext?.discardMarkedText()
+        unmarkText()
+    }
+
+    // MARK: Several texts, one view
+
+    /// A storage holding `text`, in the view's current theme, to show with `attach(storage:)` (or to keep for later).
+    public func makeStorage(text: String) -> NSTextStorage {
+        NSTextStorage(string: text, attributes: styledTheme.baseAttributes)
+    }
+
+    /// Replaces everything in a storage that is not on screen (one made by `makeStorage`) without touching its undo history.
+    public func replaceContents(of storage: NSTextStorage, with text: String) {
+        storage.setAttributedString(NSAttributedString(string: text, attributes: styledTheme.baseAttributes))
+    }
+
+    /// Shows `storage` instead of the current one: its text, selection reset to the start, and highlighting. The view keeps
+    /// no reference to the storage it left, so one that is kept (a tab that is not in front) can still be edited and undone
+    /// while off screen. That is the point: NSTextView records an undo step against the storage the edit happened in, and an
+    /// undo manager cannot be told to retarget one, so a single storage shared by every document would let one document's
+    /// undo change another's text. Give each document its own storage and swap it in.
+    public func attach(storage: NSTextStorage) {
+        guard let content = textContentStorage, content.textStorage !== storage else { return }
+        endComposition()
+        breakUndoCoalescing()
+        highlighter?.stop()  // it must not look at the storage it painted any more: that one may be edited off screen
+        highlighter = nil
+        content.textStorage = storage
+        setSelectedRange(NSRange(location: 0, length: 0))
+        observeStorage()
+        applyStorageTheme()
+        installHighlighter()
+        gutter?.updateThickness()
+        gutter?.needsDisplay = true
+        needsDisplay = true
     }
 
     // MARK: Scroll sync (lines are 0-based source lines, fractional = progress through the line)

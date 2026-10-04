@@ -38,6 +38,23 @@ struct ExternalTextSyncTests {
         #expect(sync.isSameDocument(second))
     }
 
+    @Test func matchesTellsWhetherTheModelAlreadyHoldsAText() {
+        let doc = Doc()
+        var sync = ExternalTextSync(document: doc, text: "a")
+        #expect(sync.matches("a") && !sync.matches("ab"))
+        sync.editorDidWrite("ab")
+        #expect(sync.matches("ab") && !sync.matches("a"))
+    }
+
+    @Test func itDoesNotKeepTheDocumentAlive() {
+        var doc: Doc? = Doc()
+        weak var weakDoc = doc
+        let sync = ExternalTextSync(document: doc!, text: "a")
+        doc = nil
+        #expect(weakDoc == nil)
+        #expect(!sync.isSameDocument(Doc()))
+    }
+
     @Test func staleEditorContentCannotOverwriteAnExternalChange() {
         // The data-loss scenario: model changed externally, editor still holds "old", user types.
         let doc = Doc()

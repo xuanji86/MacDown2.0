@@ -5,15 +5,19 @@ import Foundation
 /// The editor writes keystrokes to the model and never reads them back, so anything else that changes the model
 /// (Revert To / Browse All Versions, an external file change, SwiftUI handing the view a different document
 /// instance) leaves the editor showing stale text; the next keystroke would then overwrite the model with it.
-/// This struct remembers the last text both sides agreed on and the document instance it belongs to.
+/// This struct remembers the last text both sides agreed on and the document instance it belongs to. (`EditorSession` keeps
+/// one per text storage it holds for a document.)
 public struct ExternalTextSync {
-    private var document: AnyObject
+    private weak var document: AnyObject?  // weak: a buffer for a closed document must not keep it alive
     private var lastSyncedText: String
 
     public init(document: AnyObject, text: String) {
         self.document = document
         self.lastSyncedText = text
     }
+
+    /// The model already holds `text`: nothing to write, nothing to load.
+    public func matches(_ text: String) -> Bool { lastSyncedText == text }
 
     /// The editor just wrote `text` into the model.
     public mutating func editorDidWrite(_ text: String) {
