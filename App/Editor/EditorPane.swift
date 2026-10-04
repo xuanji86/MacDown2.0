@@ -29,7 +29,7 @@ struct EditorPane: NSViewRepresentable {
     /// The document's flavor (Quarto for a .qmd while the extension is on): its regex overlay styles the text.
     var flavor: (any DocumentFlavor)?
     /// The user changed the text (typing, paste, undo): the workspace turns a preview tab into a regular one.
-    var onUserEdit: (() -> Void)?
+    var onUserEdit: ((MarkdownDocument) -> Void)?
 
     func makeCoordinator() -> Coordinator { Coordinator(scrollSync: scrollSync) }
 
@@ -79,7 +79,7 @@ struct EditorPane: NSViewRepresentable {
         weak var textView: MarkdownTextView?
         /// The documents this window's editor has shown, each with its own text storage.
         private(set) var session: EditorSession?
-        var onUserEdit: (() -> Void)?
+        var onUserEdit: ((MarkdownDocument) -> Void)?
         var status: EditorStatus?
         var editor: EditorHandle?
         var decoratedFlavor: FlavorID?
@@ -92,7 +92,7 @@ struct EditorPane: NSViewRepresentable {
 
         func startSession(showing document: MarkdownDocument, in textView: MarkdownTextView) {
             let session = EditorSession(textView: textView)
-            session.onUserEdit = { [weak self] in self?.onUserEdit?() }
+            session.onUserEdit = { [weak self] document in (document as? MarkdownDocument).map { self?.onUserEdit?($0) } }
             self.session = session
             session.show(document)
         }

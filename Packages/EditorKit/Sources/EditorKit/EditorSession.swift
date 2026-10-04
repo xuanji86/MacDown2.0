@@ -111,8 +111,9 @@ public final class EditorSession {
     fileprivate var shown: Buffer?
 
     /// The user edited the document on screen (not an undo that reached a storage off screen): the workspace turns a preview
-    /// tab into a regular one.
-    public var onUserEdit: (() -> Void)?
+    /// tab into a regular one. Called with the document that was edited: a switch to another tab can commit the outgoing
+    /// document's composition after the caller has already moved on.
+    public var onUserEdit: ((any EditorDocument) -> Void)?
 
     public init(textView: MarkdownTextView) {
         self.textView = textView
@@ -159,7 +160,7 @@ public final class EditorSession {
     public func textDidChange() {
         // IME composition: the model gets the text once the marked range is committed (textDidChange fires again).
         guard let shown, let textView, !textView.hasMarkedText() else { return }
-        if shown.publish() { onUserEdit?() }
+        if shown.publish(), let document = shown.document { onUserEdit?(document) }
     }
 
     // MARK: Going away

@@ -22,13 +22,14 @@ private final class Editor: NSObject, NSTextViewDelegate {
     let view: MarkdownTextView
     let session: EditorSession
     var userEdits = 0
+    var editedDocuments: [any EditorDocument] = []
 
     init(showing document: FakeDocument) {
         view = ViewTests.makeSizedView("")
         session = EditorSession(textView: view)
         super.init()
         view.delegate = self
-        session.onUserEdit = { [unowned self] in userEdits += 1 }
+        session.onUserEdit = { [unowned self] document in userEdits += 1; editedDocuments.append(document) }
         session.show(document)
     }
 
@@ -353,6 +354,8 @@ struct EditorSessionTests {
         #expect(!editor.view.hasMarkedText())
         #expect(a.text == "a zhong", "the composed text reached the model, as it stays in the storage")
         #expect(a.userEdits == 1 && editor.userEdits == 1)
+        #expect(editor.editedDocuments.count == 1 && editor.editedDocuments[0] === a, "the edit is reported for the document that was edited, not the one being shown")
+        #expect(b.userEdits == 0)
         #expect(editor.view.string == "beta" && b.text == "beta")
         editor.session.show(a)
         #expect(editor.view.string == "a zhong" && a.text == "a zhong", "editor and model agree")

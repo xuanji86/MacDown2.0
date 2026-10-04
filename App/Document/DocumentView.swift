@@ -59,7 +59,7 @@ struct DocumentView: View {
             ZStack(alignment: .topLeading) {
                 EditorPane(
                     document: document, scrollSync: scrollSync, editor: editor, status: status, flavor: flavor,
-                    onUserEdit: { [model, tabURL] in model.controller.pin(tabURL) }
+                    onUserEdit: { [model] document in if let url = document.tabURL { model.controller.pin(url) } }
                 )
                     .frame(width: layout.mode == .both ? editorWidth : total, height: height)
                     .offset(x: swapped ? total - editorWidth : 0)
