@@ -13,6 +13,7 @@ public actor JSCRenderer: MarkdownRenderer {
     private let context: JSContext
     private let resolveChunk: @Sendable (String) -> URL?
     private var loadedChunks: Set<String> = []
+    static let sanitizerChunk = "sanitize.chunk.js"
 
     public init(
         bundleURL: URL? = WebAssets.url("render.bundle.js"),
@@ -26,8 +27,9 @@ public actor JSCRenderer: MarkdownRenderer {
     }
 
     public func render(_ source: String, options: RenderOptions) throws -> RenderResult {
-        // A chunk registers its flavor on load; evaluate each one at most once per context.
-        for chunk in options.renderChunks where !loadedChunks.contains(chunk) {
+        // A chunk registers its flavor on load; evaluate each one at most once per context. Sanitized output needs the sanitizer
+        // chunk; if it cannot be found the render throws (and the bundle itself refuses without it): never unsanitized HTML.
+        for chunk in options.renderChunks + (options.sanitize ? [Self.sanitizerChunk] : []) where !loadedChunks.contains(chunk) {
             guard let url = resolveChunk(chunk) else { throw RenderError.missingAsset(chunk) }
             try Self.evaluate(contentsOf: url, in: context)
             loadedChunks.insert(chunk)

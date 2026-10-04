@@ -62,21 +62,8 @@ enum AppExtensions {
         return DisabledHint(message: String(localized: hint), dismissKey: "\(entry.settingKey).hintDismissed")
     }
 
-    /// Text of a file next to the document for a flavor that includes other files (Quarto `{{< include >}}`): the same
-    /// containment as the preview's `macdown2-res://doc/` handler. nil for anything not a readable UTF-8 file in the folder.
-    // lazy: files over 1 MB are not read (a document does not include its dataset); no encoding sniffing
-    static func fileReader(directory: URL?) -> (String) -> String? {
-        { path in
-            guard case .file(let file) = DocumentFileResolver.resolve(path: "/" + path, root: directory),
-                  (try? file.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? .max <= 1_000_000,
-                  let data = try? Data(contentsOf: file)
-            else { return nil }
-            return String(data: data, encoding: .utf8)
-        }
-    }
-
     /// `options` for rendering `markdown` as the document at `fileURL`: flavor id, chunks and the files it asks for.
     static func renderOptions(_ options: RenderOptions, markdown: String, fileURL: URL?) -> RenderOptions {
-        options.rendering(as: flavor(for: fileURL), markdown: markdown, readFile: fileReader(directory: fileURL?.deletingLastPathComponent()))
+        options.rendering(as: flavor(for: fileURL), markdown: markdown, readFile: QuartoIncludes.fileReader(directory: fileURL?.deletingLastPathComponent()))
     }
 }

@@ -183,3 +183,33 @@ struct LineCommandTests {
         #expect(run(.orderedList, "x\n⟦a\nb⟧\ny😀") == "x\n⟦1. a\n2. b⟧\ny😀")
     }
 }
+
+struct PageBreakCommandTests {
+    private let m = MarkdownCommand.pageBreakMarker
+
+    @Test func theMarkerIsPlainHTMLAndEvenInsideAParagraphItGoesBelowIt() {
+        #expect(m == #"<div style="page-break-after: always"></div>"#)
+        #expect(run(.pageBreak, "one|\n\nnext") == "one\n\n\(m)\n|\nnext")
+        #expect(run(.pageBreak, "on|e\n\nnext") == "one\n\n\(m)\n|\nnext")  // below the line, not in the middle of it
+    }
+
+    @Test func aTouchingNextLineGetsItsBlankLine() {
+        #expect(run(.pageBreak, "one|\nnext") == "one\n\n\(m)\n\n|next")
+    }
+
+    @Test func aBlankLineIsReplacedInsteadOfLeavingAGap() {
+        #expect(run(.pageBreak, "one\n\n|\n\nnext") == "one\n\n\(m)\n|\nnext")
+        #expect(run(.pageBreak, "one\n\n  |\n\nnext") == "one\n\n\(m)\n|\nnext")
+    }
+
+    @Test func endOfFileGetsItsNewline() {
+        #expect(run(.pageBreak, "one|") == "one\n\n\(m)\n|")
+        #expect(run(.pageBreak, "one|\n") == "one\n\n\(m)\n|")
+        #expect(run(.pageBreak, "|") == "\(m)\n|")
+    }
+
+    @Test func aSelectionOfWholeLinesPutsItAfterTheLastOne() {
+        #expect(run(.pageBreak, "⟦one\ntwo\n⟧three") == "one\ntwo\n\n\(m)\n\n|three")
+        #expect(run(.pageBreak, "⟦one\ntwo⟧\nthree") == "one\ntwo\n\n\(m)\n\n|three")
+    }
+}

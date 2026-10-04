@@ -38,7 +38,7 @@
 | **语法** | GFM 表格与删除线、任务列表、脚注、`==高亮==`、`H~2~O` 下标与 `x^2^` 上标、`[TOC]`、front matter。强调对中文友好：`**「重点」**的` 也能正确加粗。 |
 | **公式与代码** | KaTeX 支持 `$$…$$`、`\[…\]`、`\(…\)`，行内 `$…$` 可选开启。代码块由 highlight.js 高亮。 |
 | **主题** | 编辑器 6 套、预览 8 套，各自独立选择；也可以都跟随系统深浅色。 |
-| **导出** | 单文件 HTML（可内嵌图片）、按纸张分页的 PDF、打印、复制为 HTML。 |
+| **导出** | 单文件 HTML（可内嵌图片）、按纸张分页的 PDF（纸张、方向、页边距在「设置 › Export」，「格式 › 插入分页符」）、打印、复制为 HTML。导出和复制出去的 HTML 不会带文档里的脚本、框架和事件处理属性。 |
 | **Quick Look** | 在 Finder 里按空格，直接看到渲染后的效果。 |
 | **Quarto** | `.qmd` 支持以内置扩展的形式提供，默认开启。近似预览 callout、`:::` 分块、交叉引用、文献引用、shortcode 和 `{{< include >}}`；代码单元只高亮，不执行。 |
 | **还有** | 设置窗口、文档大纲、可选的状态栏（行列号与字数，中文按字计数；视图 ▸ 显示状态栏），以及 Sparkle 自动更新——等正式发版后启用。 |
@@ -66,12 +66,15 @@ macdown2 notes.md docs/      # 打开文件；传文件夹则以工作区方式�
 cat draft.md | macdown2      # 管道输入会存到 ~/Library/Caches/io.github.xuanji86.MacDown2/stdin/ 再打开
 macdown2 --preview-only a.md # 只显示预览地打开（另有 --editor-only、--both）
 macdown2 render a.md --standalone -o a.html    # 不启动应用，直接渲染 HTML
+macdown2 render a.md --export pdf -o a.pdf --css my.css   # 同样不启动应用，直接出分页 PDF（也可 --export html）
 macdown2 --help
 ```
 
 `--both`、`--editor-only`、`--preview-only` 指定文件所在窗口的布局，应用是否已在运行都有效（最多给一个，且需要同时给文件或文件夹）。不带参数时，新窗口使用「设置 › Editor › 布局」里的启动布局，重新打开的文件夹恢复它上次的布局，恢复的窗口沿用自己的布局。
 
-退出码：0 成功，64 参数错误，66 文件问题，70 渲染失败。
+`render --export pdf` 使用「设置 › Export」里的纸张、方向和页边距，在 `macdown2` 进程内用一个看不见的 WebKit 视图打印：没有应用窗口，也没有 Dock 图标。它需要已登录的 macOS 会话（纯 `ssh` 或 launchd 守护进程里不行），并且必须带 `-o`（PDF 不往终端输出）。`--css file.css` 把你的样式表加在预览样式之后，只读取这一个本地文件（URL 或其中的 `@import` 会被拒绝）。`--embed-images` 把文档相对路径的图片嵌入 HTML。单独一行的 `\newpage`、`{{< pagebreak >}}` 或 `<div style="page-break-after: always"></div>` 在 PDF 和打印里另起一页（预览里是一条虚线）。
+
+退出码：0 成功，64 参数错误，66 文件问题，69 PDF 输出不可用，70 渲染失败。
 
 ## 从源码构建
 

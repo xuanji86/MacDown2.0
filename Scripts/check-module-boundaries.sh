@@ -5,7 +5,7 @@ fail=0
 g() { grep -rnE --include='*.swift' --exclude-dir=.build --exclude-dir=build --exclude-dir=node_modules --exclude-dir=.claude "$@"; }
 
 dirs=
-for d in Packages/MarkdownCore Packages/EditorKit Packages/PreviewKit Packages/WebAssets Packages/ExtensionAPI Packages/WorkspaceKit Packages/CLIKit QuickLook CLI; do
+for d in Packages/MarkdownCore Packages/EditorKit Packages/PreviewKit Packages/WebAssets Packages/ExtensionAPI Packages/WorkspaceKit Packages/CLIKit Packages/PrintKit QuickLook CLI; do
   [ -d "$d" ] && dirs="$dirs $d"
 done
 # shellcheck disable=SC2086

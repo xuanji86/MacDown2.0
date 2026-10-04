@@ -19,6 +19,14 @@ for bundle in render.bundle.js preview.bundle.js; do
     echo "error: $bundle contains Mermaid; it belongs in mermaid.chunk.js" >&2; exit 1
   fi
 done
+# The sanitizer (parse5) is a chunk of its own: `abruptClosingOfEmptyComment` is one of its parse-error ids, so it only occurs where
+# parse5 is bundled. The main bundle fails closed without the chunk; it must not carry it.
+for bundle in render.bundle.js preview.bundle.js quarto.chunk.js mermaid.chunk.js; do
+  if grep -q abruptClosingOfEmptyComment "$res/$bundle"; then
+    echo "error: $bundle contains parse5; it belongs in sanitize.chunk.js" >&2; exit 1
+  fi
+done
+grep -q abruptClosingOfEmptyComment "$res/sanitize.chunk.js" || { echo "error: sanitize.chunk.js does not contain parse5" >&2; exit 1; }
 # elkjs is EPL-2.0 without a GPL secondary-licence notice: not shippable under GPL-3.0 (build.mjs stubs it out).
 for f in mermaid.chunk.js THIRD_PARTY_LICENSES.txt; do
   if grep -q -e 'org\.eclipse\.elk' -e elkjs "$res/$f"; then

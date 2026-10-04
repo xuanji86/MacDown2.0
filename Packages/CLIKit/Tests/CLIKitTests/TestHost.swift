@@ -1,4 +1,5 @@
 import Foundation
+import MarkdownCore
 @testable import CLIKit
 
 /// A `CLIHost` that records what the command prints and launches, over a scratch directory that stands in for the cwd and the home.
@@ -36,15 +37,18 @@ struct Scratch {
 
     /// cwd = root, home = root/home, stdin = `stdin` (a terminal when nil), launches recorded (status `launchStatus`).
     func host(stdin: String? = nil, environment: [String: String] = [:], executable: URL? = nil, defaults: UserDefaults? = nil,
-              launchStatus: Int32 = 0, now: Date = Date(timeIntervalSince1970: 1_700_000_000)) -> CLIHost {
+              launchStatus: Int32 = 0, now: Date = Date(timeIntervalSince1970: 1_700_000_000),
+              renderPDF: (@Sendable (String, PageSetup) async throws -> Data)? = nil) -> CLIHost {
         let recorder = recorder
         nonisolated(unsafe) let defaults = defaults  // UserDefaults is thread-safe; the SDK just does not say Sendable
-        return CLIHost(
+        var host = CLIHost(
             currentDirectory: root, environment: environment, home: root.appending(path: "home"), executable: executable,
             stdinIsTTY: stdin == nil, readStdin: { Data((stdin ?? "").utf8) },
             out: { recorder.out($0) }, err: { recorder.err($0) }, now: { now }, timeZone: TimeZone(identifier: "UTC")!,
             appDefaults: { defaults }, launch: { recorder.launch($0); return launchStatus }
         )
+        if let renderPDF { host.renderPDF = renderPDF }
+        return host
     }
 
     /// An empty preferences domain, so a developer's real MacDown2.0 settings cannot change a test.

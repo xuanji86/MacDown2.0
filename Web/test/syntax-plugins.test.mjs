@@ -126,3 +126,37 @@ test('front matter: +++ edge cases', () => {
   assert.doesNotMatch(renderResult('+++\ntitle = "secret"\n+++\n', base).html, /secret/);
   assert.equal(renderResult('---\ntitle: y\n---\n', base).frontMatter, 'title: y'); // YAML next to it is unchanged
 });
+
+// ---- Page break -----------------------------------------------------------------------------------------------------
+
+test('page break: every accepted spelling on a line of its own becomes one marker block', () => {
+  const marker = '<div class="md2-page-break" aria-hidden="true"></div>';
+  for (const src of [
+    '\\newpage', '\\pagebreak', '\\clearpage', '  \\NewPage  ', '{{< pagebreak >}}', '{{<pagebreak>}}',
+    '<div style="page-break-after: always"></div>', '<div style="page-break-after:always;"></div>', "<div style='page-break-before: always'></div>",
+    '<div style="break-after: page"></div>', '<DIV STYLE="Page-Break-After: Always"> </DIV>',
+  ]) {
+    assert.equal(html(`before\n\n${src}\n\nafter`), `<p>before</p>\n${marker}\n<p>after</p>`, src);
+  }
+});
+
+test('page break: works with raw HTML off, carries the source line, and may touch the paragraph above', () => {
+  const off = { ...base, allowRawHTML: false };
+  assert.equal(html('<div style="page-break-after: always"></div>', off), '<div class="md2-page-break" aria-hidden="true"></div>');
+  assert.match(renderResult('a\n\n\\newpage\n\nb', base).html, /<div class="md2-page-break" data-line="2" data-line-end="3" aria-hidden="true"><\/div>/);
+  assert.equal(html('text\n\\newpage\nmore'), '<p>text</p>\n<div class="md2-page-break" aria-hidden="true"></div>\n<p>more</p>');
+});
+
+test('page break: not inside code, not as part of a line, not other page-break styles', () => {
+  assert.doesNotMatch(html('```\n\\newpage\n```'), /md2-page-break/);
+  assert.doesNotMatch(html('    \\newpage'), /md2-page-break/); // indented code
+  assert.doesNotMatch(html('a \\newpage b'), /md2-page-break/);
+  assert.doesNotMatch(html('\\newpages'), /md2-page-break/);
+  assert.doesNotMatch(html('<div style="page-break-after: avoid"></div>'), /md2-page-break/);
+  assert.doesNotMatch(html('<div style="page-break-after: always; color: red"></div>'), /md2-page-break/);
+});
+
+test('page break: the live preview cuts the HTML into one segment per block, the marker included', () => {
+  const r = renderResult('a\n\n\\newpage\n\nb', base);
+  assert.equal(splitBlocks(r.html).length, r.blocks.length);
+});

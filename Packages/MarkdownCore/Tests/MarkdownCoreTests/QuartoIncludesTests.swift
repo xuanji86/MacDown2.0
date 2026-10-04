@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import QuartoExtension
+@testable import MarkdownCore
 
 @Test func includeTargetsResolveRelativeToTheIncludingFileAndNeverLeaveTheFolder() {
     #expect(QuartoIncludes.resolve("a.qmd", from: "") == "a.qmd")
@@ -66,4 +66,43 @@ private func reader(_ files: [String: String], asked: ((String) -> Void)? = nil)
     let all = Dictionary(uniqueKeysWithValues: (0..<200).map { ("f\($0).qmd", "x") })
     #expect(QuartoIncludes.files(for: text, readFile: reader(all)).count == QuartoIncludes.maxFiles)
     #expect(QuartoIncludes.files(for: "{{< include ../out.qmd >}}\n\n{{< include missing.qmd >}}", readFile: reader(["../out.qmd": "leak", "out.qmd": "leak"])).isEmpty)
+}
+
+@Test func includesInsideBlockquotesAndListsAreFoundLikeTheRendererFindsThem() {
+    let text = """
+    > {{< include quote.qmd >}}
+    >{{< include tight.qmd >}}
+    > > {{< include nested.qmd >}}
+    - {{< include bullet.qmd >}}
+    1. {{< include numbered.qmd >}}
+    - > {{< include both.qmd >}}
+      {{< include continued.qmd >}}
+    >     {{< include code-in-quote.qmd >}}
+    -     {{< include code-in-list.qmd >}}
+    > text {{< include text.qmd >}}
+    -{{< include nospace.qmd >}}
+    """
+    #expect(QuartoIncludes.targets(in: text) == ["quote.qmd", "tight.qmd", "nested.qmd", "bullet.qmd", "numbered.qmd", "both.qmd", "continued.qmd"])
+}
+
+@Test func anIncludeInsideAQuoteIsCollectedTransitively() {
+    let found = QuartoIncludes.files(for: "> {{< include child.qmd >}}\n", readFile: { $0 == "child.qmd" ? "> {{< include sub/grand.qmd >}}" : $0 == "sub/grand.qmd" ? "G" : nil })
+    #expect(found == ["child.qmd": "> {{< include sub/grand.qmd >}}", "sub/grand.qmd": "G"])
+}
+
+@Test func theFileReaderStaysInsideTheFolderAndReadsOnlyUTF8() throws {
+    let dir = FileManager.default.temporaryDirectory.appending(path: "QuartoIncludesTests-\(UUID().uuidString)", directoryHint: .isDirectory)
+    try FileManager.default.createDirectory(at: dir.appending(path: "sub"), withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: dir) }
+    try Data("child".utf8).write(to: dir.appending(path: "sub/child.qmd"))
+    try Data([0xFF, 0xFE, 0x00]).write(to: dir.appending(path: "bad.qmd"))
+    let outside = dir.deletingLastPathComponent().appending(path: "QuartoIncludesTests-outside-\(UUID().uuidString).qmd")
+    try Data("secret".utf8).write(to: outside)
+    defer { try? FileManager.default.removeItem(at: outside) }
+
+    let read = QuartoIncludes.fileReader(directory: dir)
+    #expect(read("sub/child.qmd") == "child")
+    #expect(read("bad.qmd") == nil && read("missing.qmd") == nil && read("sub") == nil)
+    #expect(read("../" + outside.lastPathComponent) == nil)
+    #expect(QuartoIncludes.fileReader(directory: nil)("sub/child.qmd") == nil)
 }

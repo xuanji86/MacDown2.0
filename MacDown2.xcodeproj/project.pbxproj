@@ -22,6 +22,8 @@
 		A100000000000000000000AA /* WebAssets in Frameworks */ = {isa = PBXBuildFile; productRef = A100000000000000000000AD /* WebAssets */; };
 		A100000000000000000000AF /* CLIKit in Frameworks */ = {isa = PBXBuildFile; productRef = A100000000000000000000B0 /* CLIKit */; };
 		A100000000000000000000B2 /* macdown2 in Embed Helpers */ = {isa = PBXBuildFile; fileRef = A100000000000000000000A1 /* macdown2 */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		A100000000000000000000C3 /* PrintKit in Frameworks */ = {isa = PBXBuildFile; productRef = A100000000000000000000C1 /* PrintKit */; };
+		A100000000000000000000C4 /* PrintKit in Frameworks */ = {isa = PBXBuildFile; productRef = A100000000000000000000C2 /* PrintKit */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -136,6 +138,7 @@
 				A10000000000000000000005 /* QuartoExtension in Frameworks */,
 				A10000000000000000000098 /* WorkspaceKit in Frameworks */,
 				A100000000000000000000AF /* CLIKit in Frameworks */,
+				A100000000000000000000C3 /* PrintKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -146,6 +149,7 @@
 				A100000000000000000000A8 /* CLIKit in Frameworks */,
 				A100000000000000000000A9 /* MarkdownCore in Frameworks */,
 				A100000000000000000000AA /* WebAssets in Frameworks */,
+				A100000000000000000000C4 /* PrintKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -228,6 +232,7 @@
 				A1000000000000000000002A /* QuartoExtension */,
 				A10000000000000000000097 /* WorkspaceKit */,
 				A100000000000000000000B0 /* CLIKit */,
+				A100000000000000000000C1 /* PrintKit */,
 			);
 			productName = MacDown2;
 			productReference = A10000000000000000000010 /* MacDown2.app */;
@@ -252,6 +257,7 @@
 				A100000000000000000000AB /* CLIKit */,
 				A100000000000000000000AC /* MarkdownCore */,
 				A100000000000000000000AD /* WebAssets */,
+				A100000000000000000000C2 /* PrintKit */,
 			);
 			productName = macdown2;
 			productReference = A100000000000000000000A1 /* macdown2 */;
@@ -296,6 +302,7 @@
 				A10000000000000000000095 /* XCLocalSwiftPackageReference "Packages/QuartoExtension" */,
 				A10000000000000000000096 /* XCLocalSwiftPackageReference "Packages/WorkspaceKit" */,
 				A100000000000000000000AE /* XCLocalSwiftPackageReference "Packages/CLIKit" */,
+				A100000000000000000000C0 /* XCLocalSwiftPackageReference "Packages/PrintKit" */,
 			);
 			productRefGroup = A10000000000000000000013 /* Products */;
 			projectDirPath = "";
@@ -617,6 +624,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/CLIKit;
 		};
+		A100000000000000000000C0 /* XCLocalSwiftPackageReference "Packages/PrintKit" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/PrintKit;
+		};
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCRemoteSwiftPackageReference section */
@@ -683,6 +694,14 @@
 		A100000000000000000000B0 /* CLIKit */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = CLIKit;
+		};
+		A100000000000000000000C1 /* PrintKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = PrintKit;
+		};
+		A100000000000000000000C2 /* PrintKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = PrintKit;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

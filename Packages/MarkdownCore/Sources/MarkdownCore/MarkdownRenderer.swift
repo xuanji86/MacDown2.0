@@ -40,6 +40,16 @@ public struct RenderOptions: Sendable, Codable, Hashable {
     /// Text of the files a flavor may read while rendering (Quarto `{{< include >}}`), by path relative to the document
     /// folder. The renderer cannot read files; the caller collects them (`DocumentFlavor.auxiliaryFiles`).
     public var files: [String: String] = [:]
+    /// Output that leaves the app (Copy HTML, export, PDF, `macdown2 render`): script, frames, event handlers and script URLs are
+    /// removed from `RenderResult.html`. Off for the preview, which keeps the document's raw HTML and defends itself with a CSP.
+    public var sanitize = false
+
+    /// These options for output that leaves the app: Copy HTML, export, PDF, print, `macdown2 render`.
+    public var forExport: RenderOptions {
+        var options = self
+        options.sanitize = true
+        return options
+    }
 
     public init() {}
 }

@@ -1,13 +1,15 @@
 import AppKit
 import MarkdownCore
 import OSLog
+import PrintKit
 import UniformTypeIdentifiers
 import WebAssets
 
 private let log = Logger(subsystem: "io.github.xuanji86.MacDown2", category: "export")
 
 /// File > Export > HTML… / PDF… and File > Print…. Renders with the current settings (`RenderSettings.current`) and the
-/// preview style that is selected now; pass `options` to override the former.
+/// preview style that is selected now; pass `options` to override the former. Paper, orientation and margins of the PDF and
+/// of the printout are Settings > Export (`PageSetup`).
 @MainActor
 enum DocumentExport {
     /// Checkbox in the HTML save panel: embed document-relative images as data URIs (default: keep the paths).
@@ -27,13 +29,9 @@ enum DocumentExport {
     static func pdf(of markdown: String, fileURL: URL?, options: RenderOptions = RenderSettings.current, window: NSWindow? = NSApp.keyWindow) async {
         guard let url = await save(.pdf, name: fileURL, window: window) else { return }
         do {
-            let printable = PrintPage()
             // Images are always embedded here: the offscreen page has no document folder to read them from.
-            try await printable.load(html: try await page(markdown, fileURL: fileURL, options: options, embedImages: true))
-            let info = PrintPage.printInfo()
-            info.jobDisposition = .save
-            info.dictionary()[NSPrintInfo.AttributeKey.jobSavingURL] = url
-            if !(await printable.run(info: info, panel: false)) { throw CocoaError(.fileWriteUnknown) }
+            let html = try await page(markdown, fileURL: fileURL, options: options, embedImages: true)
+            try await PrintPage.pdf(html: html, setup: PageSetup(defaults: AppDefaults.store)).write(to: url, options: .atomic)
         } catch {
             fail("Could not export PDF", error, window: window)
         }
@@ -44,42 +42,35 @@ enum DocumentExport {
         do {
             let printable = PrintPage()
             try await printable.load(html: try await page(markdown, fileURL: fileURL, options: options, embedImages: true))
-            _ = await printable.run(info: PrintPage.printInfo(), panel: true, sheetWindow: window)
+            _ = await printable.run(info: PrintPage.printInfo(PageSetup(defaults: AppDefaults.store)), panel: true, sheetWindow: window)
         } catch {
             fail("Could not print", error, window: window)
         }
     }
 
+    /// The system Page Setup sheet on the settings of Settings > Export; what the user confirms there is written back to them,
+    /// so there is one place that says what the paper is. (A paper size that is not one of `PageSetup.Paper` keeps the old one.)
     static func pageSetup() {
-        NSPageLayout().runModal(with: .shared)
+        let current = PageSetup(defaults: AppDefaults.store)
+        let info = PrintPage.printInfo(current)
+        guard NSPageLayout().runModal(with: info) == NSApplication.ModalResponse.OK.rawValue else { return }
+        PrintPage.pageSetup(from: info, previous: current).write(to: AppDefaults.store)
     }
 
     // MARK: Pieces
 
     private static func page(_ markdown: String, fileURL: URL?, options: RenderOptions, embedImages: Bool) async throws -> String {
-        let body = try await CopyHTML.render(markdown, options: options, fileURL: fileURL)
+        let body = try await CopyHTML.render(markdown, options: options, fileURL: fileURL)  // sanitized: this leaves the app
         let flavor = AppExtensions.flavor(for: fileURL)
         let defaults = AppDefaults.store
-        let style = PreviewStyles.resolve(
-            id: defaults.string(forKey: AppearanceKey.previewStyle) ?? AppearanceDefault.previewStyle,
-            followSystem: defaults.bool(forKey: AppearanceKey.previewStyleFollowsSystem)
-        )
+        // "Block remote images" (Settings > Rendering) is in `defaults`; with it on the page's CSP has no network origin and no file
+        // path either, so the images of the document travel inside the page whatever the Export HTML checkbox says.
+        let embedImages = embedImages || RemoteContent.blocksImages(in: defaults)
         return HTMLExporter.document(
-            body: body, title: fileURL?.deletingPathExtension().lastPathComponent ?? "Untitled", style: style,
-            inlineImages: embedImages ? imageSource(directory: fileURL?.deletingLastPathComponent()) : nil,
+            body: body, title: fileURL?.deletingPathExtension().lastPathComponent ?? "Untitled", defaults: defaults,
+            inlineImages: embedImages ? HTMLExporter.imageSource(directory: fileURL?.deletingLastPathComponent()) : nil,
             flavor: flavor?.id.rawValue ?? "markdown", stylesheets: flavor?.previewStylesheets ?? []
         )
-    }
-
-    /// Same containment rules as the preview's `macdown2-res://doc/` handler: nothing outside the document folder.
-    static func imageSource(directory: URL?) -> HTMLExporter.ImageSource {
-        { path in
-            guard case .file(let file) = DocumentFileResolver.resolve(path: "/" + path, root: directory),
-                  let mime = UTType(filenameExtension: file.pathExtension)?.preferredMIMEType, mime.hasPrefix("image/"),
-                  let data = try? Data(contentsOf: file)
-            else { return nil }
-            return (data, mime)
-        }
     }
 
     private static func save(_ type: UTType, name: URL?, window: NSWindow?, accessory: NSView? = nil) async -> URL? {

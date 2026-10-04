@@ -1,4 +1,5 @@
 import Foundation
+import MarkdownCore
 
 /// Everything the command reads from or does to the outside world, so tests can run it without a terminal, a clock or an app.
 public struct CLIHost: Sendable {
@@ -17,6 +18,11 @@ public struct CLIHost: Sendable {
     public var appDefaults: @Sendable () -> UserDefaults?
     /// Runs `/usr/bin/open` with these arguments and returns its exit status.
     public var launch: @Sendable ([String]) -> Int32
+    /// An exported page as a paginated PDF. Printing needs AppKit and WebKit, which this package stays clear of (the tool
+    /// would load them for every `macdown2 file.md`), so `CLI/main.swift` supplies it (PrintKit); tests supply a stub.
+    public var renderPDF: @Sendable (_ html: String, _ page: PageSetup) async throws -> Data = { _, _ in
+        throw CLIError(ExitCode.unavailable, "this build of macdown2 cannot write PDF")
+    }
 
     public static let bundleIdentifier = "io.github.xuanji86.MacDown2"
 
@@ -33,7 +39,12 @@ public struct CLIHost: Sendable {
             err: { FileHandle.standardError.write(Data($0.utf8)) },
             now: { Date() },
             timeZone: .current,
-            appDefaults: { UserDefaults(suiteName: bundleIdentifier) },
+            // A test launch of a Debug build keeps its preferences in a suite of its own; `render` reads that one, never the real
+            // domain, whenever the variable names a suite other than the app's own.
+            appDefaults: {
+                let suite = ProcessInfo.processInfo.environment["MACDOWN2_DEFAULTS_SUITE"]
+                return UserDefaults(suiteName: suite.flatMap { $0.isEmpty || $0 == bundleIdentifier ? nil : $0 } ?? bundleIdentifier)
+            },
             launch: { arguments in
                 let process = Process()
                 process.executableURL = URL(fileURLWithPath: "/usr/bin/open")

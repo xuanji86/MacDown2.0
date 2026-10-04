@@ -26,6 +26,7 @@
     "markdown-it-emoji": "3.1.0",
     "markdown-it-front-matter": "0.2.4",
     "mermaid": "12.1.0",
+    "parse5": "8.0.1",
     "smol-toml": "1.9.0",
     "wcwidth": "1.0.1"
   },

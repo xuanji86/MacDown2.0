@@ -60,6 +60,29 @@ import WorkspaceKit
     #expect(try Arguments.parse(["--version"]) == .version)
 }
 
+@Test func exportAndCSSArguments() throws {
+    #expect(try Arguments.parse(["render", "a.md", "--export", "html"]) == .render(RenderArgs(input: "a.md", export: .html)))
+    #expect(try Arguments.parse(["render", "a.md", "--export=PDF", "-o", "a.pdf"]) == .render(RenderArgs(input: "a.md", output: "a.pdf", export: .pdf)))
+    #expect(try Arguments.parse(["render", "--css", "my.css", "a.md"]) == .render(RenderArgs(input: "a.md", css: "my.css")))
+    #expect(try Arguments.parse(["render", "a.md", "--css=dir/my.css", "--embed-images"]) == .render(RenderArgs(input: "a.md", css: "dir/my.css", embedImages: true)))
+    // Each of them needs a complete page; the bare fragment is only for none of them.
+    #expect(RenderArgs(input: "a.md").isPage == false)
+    #expect(RenderArgs(input: "a.md", css: "x.css").isPage && RenderArgs(input: "a.md", embedImages: true).isPage && RenderArgs(input: "a.md", export: .html).isPage)
+}
+
+@Test func exportAndCSSMistakesAreUsageErrors() {
+    func usage(_ args: [String]) -> Bool {
+        do { _ = try Arguments.parse(args); return false } catch let error as CLIError { return error.code == ExitCode.usage } catch { return false }
+    }
+    #expect(usage(["render", "a.md", "--export"]))
+    #expect(usage(["render", "a.md", "--export", "docx"]))
+    #expect(usage(["render", "a.md", "--export="]))
+    #expect(usage(["render", "a.md", "--export", "pdf"]))  // a PDF never goes to the terminal
+    #expect(usage(["render", "a.md", "--css"]))
+    #expect(usage(["render", "a.md", "--css="]))
+    #expect(usage(["open", "a.md", "--export", "pdf"]))  // render's options, not open's
+}
+
 @Test func renderArguments() throws {
     #expect(try Arguments.parse(["render", "a.md"]) == .render(RenderArgs(input: "a.md")))
     #expect(try Arguments.parse(["render", "a.md", "-o", "out.html", "--standalone"]) == .render(RenderArgs(input: "a.md", output: "out.html", standalone: true)))
