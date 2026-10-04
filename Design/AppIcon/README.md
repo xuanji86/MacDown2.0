@@ -36,3 +36,7 @@ PNG 为 1024px 带 alpha 的栅格版（`01-background*.png` 不透明），SVG 
 
 - 「M↓」字形：Dustin Curtis 的 Markdown Mark，CC0 公共领域，可自由改绘；本稿按其 208×128 网格重绘并圆角化。
 - 原版 MacDown 图标（MIT，Tzu-ping Chung；图标作者 Matt Zanchelli）仅作风格参照，未复用任何像素。
+
+## 运行时图标样式(设置 › 通用 › App 图标)
+
+`App/IconStyles/appicon-{light,dark,clear,tinted}.png` 是 Icon Composer 的 `ictool` 从 `App/AppIcon.icon` 渲染出的真实外观(384 px),不是手绘;`.icon` 改动后跑 `Scripts/render-icon-variants.sh` 重新生成并提交。运行时由 `App/Settings/IconStyle.swift` 经 `NSApp.applicationIconImage` 覆盖 Dock 图标,「跟随系统」即不覆盖;磁盘上的图标不改(`NSWorkspace.setIcon` 会破坏签名与 Sparkle 更新)。
