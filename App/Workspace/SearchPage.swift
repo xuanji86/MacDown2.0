@@ -190,7 +190,7 @@ private struct SearchGroupHeader: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            Image(systemName: "doc.text").font(.system(size: 11)).foregroundStyle(.secondary).accessibilityHidden(true)
+            FileIconView(url: group.file)
             VStack(alignment: .leading, spacing: 0) {
                 Text(group.file.lastPathComponent).font(.system(size: 12, weight: .semibold)).foregroundStyle(.primary).lineLimit(1).truncationMode(.middle)
                 if !group.folder.isEmpty {

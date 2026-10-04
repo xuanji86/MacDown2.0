@@ -265,18 +265,7 @@ final class FileTableCoordinator: NSObject, NSTableViewDataSource, NSTableViewDe
     private func content(name: String, url: URL, isDirectory: Bool, depth: Int, tree: Bool) -> FileCellView.Content {
         let key = url.fileKey
         let openable = isDirectory || model.isOpenable(url)
-        let symbol: String
-        var tint: NSColor = .secondaryLabelColor
-        if isDirectory {
-            symbol = url.path.hasSuffix("com~apple~CloudDocs") ? "icloud.fill" : "folder.fill"
-            tint = SidebarStyle.folderTint
-        } else if url.pathExtension.lowercased() == "qmd" {
-            symbol = "doc.text"
-            tint = SidebarStyle.quartoTint
-        } else {
-            symbol = openable ? "doc.text" : "doc"
-        }
-        var c = FileCellView.Content(name: name, symbol: symbol, tint: tint)
+        var c = FileCellView.Content(name: name, url: url, isDirectory: isDirectory)
         c.depth = depth
         c.isTree = tree
         c.isDirty = ctx.dirtyKeys.contains(key)

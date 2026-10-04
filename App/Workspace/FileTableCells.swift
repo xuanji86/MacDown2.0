@@ -1,9 +1,8 @@
 import AppKit
 import WorkspaceKit
 
-/// Colors and symbols of the tree (design 06: `folder.system` #4A9BE6, Quarto #6F8BE0).
+/// Colors and symbols of the tree (design 06: Quarto #6F8BE0). File and folder icons are Finder's own (`FileIcons`).
 enum SidebarStyle {
-    static let folderTint = NSColor(srgbRed: 0x4A / 255, green: 0x9B / 255, blue: 0xE6 / 255, alpha: 1)
     static let quartoTint = NSColor(srgbRed: 0x6F / 255, green: 0x8B / 255, blue: 0xE0 / 255, alpha: 1)
     static let rowHeight: CGFloat = 24
     static let indent: CGFloat = 16
@@ -57,7 +56,8 @@ final class FileCellView: NSTableCellView, NSTextFieldDelegate {
     private let trailing = NSStackView()
     private var indent: NSLayoutConstraint!
     private var chevronWidth: NSLayoutConstraint!
-    private var iconTint: NSColor = .secondaryLabelColor
+    private var iconURL: URL?
+    private var iconIsDirectory = false
 
     /// (new name or nil if cancelled)
     var onEnd: ((String?) -> Void)?
@@ -120,6 +120,24 @@ final class FileCellView: NSTableCellView, NSTextFieldDelegate {
         ])
         textField = label
         imageView = icon
+        icon.imageScaling = .scaleProportionallyDown
+        icon.setAccessibilityElement(false)
+        NotificationCenter.default.addObserver(self, selector: #selector(iconsChanged(_:)), name: FileIcons.didChange, object: nil)
+    }
+
+    @objc private func iconsChanged(_ note: Notification) {
+        if let path = note.userInfo?["path"] as? String, path != iconURL?.path { return }
+        loadIcon()
+    }
+
+    private func loadIcon() {
+        guard let iconURL else { return }
+        icon.image = FileIcons.shared.icon(for: iconURL, isDirectory: iconIsDirectory, dark: prefersDarkIcons)
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        loadIcon()
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -128,8 +146,8 @@ final class FileCellView: NSTableCellView, NSTextFieldDelegate {
 
     struct Content {
         var name: String
-        var symbol: String
-        var tint: NSColor
+        var url: URL
+        var isDirectory: Bool
         var depth = 0
         /// A tree row: files keep the chevron's room so their names line up with the folders'. Favorites and recents do not.
         var isTree = true
@@ -144,9 +162,9 @@ final class FileCellView: NSTableCellView, NSTextFieldDelegate {
     }
 
     func configure(_ c: Content, toggle: @escaping () -> Void) {
-        iconTint = c.tint
-        icon.image = SidebarStyle.symbol(c.symbol)
-        icon.contentTintColor = c.tint
+        iconURL = c.url
+        iconIsDirectory = c.isDirectory
+        loadIcon()
         indent.constant = 4 + CGFloat(c.depth) * SidebarStyle.indent
         chevronWidth.constant = c.isTree ? 12 : 0
         chevron.isHidden = !c.hasChevron
@@ -168,10 +186,6 @@ final class FileCellView: NSTableCellView, NSTextFieldDelegate {
         label.attributedStringValue = text
         label.textColor = c.isPreview ? .secondaryLabelColor : .labelColor
         needsLayout = true
-    }
-
-    override var backgroundStyle: NSView.BackgroundStyle {
-        didSet { icon.contentTintColor = backgroundStyle == .emphasized ? .alternateSelectedControlTextColor : iconTint }
     }
 
     // MARK: Renaming in place
