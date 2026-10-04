@@ -1,9 +1,11 @@
 import AppKit
 import Foundation
+import OSLog
+import WebKit
 import WorkspaceKit
 
 /// Debug-only drivers for `Scripts/run-isolated.sh` launches, so behaviour that normally needs a keystroke can be checked
-/// without sending the desktop any input: both are inert unless the launch is isolated, and Release builds have neither.
+/// without sending the desktop any input: all are inert unless the launch is isolated, and Release builds have none.
 ///
 ///   MACDOWN2_TEST_UNTITLED_TEXT=<text>    the first untitled document starts with this text, as if typed
 ///   MACDOWN2_TEST_TERMINATE_AFTER=<secs>  quit through the normal Cmd-Q path (the unsaved-documents review) after a delay
@@ -20,6 +22,8 @@ import WorkspaceKit
 ///   MACDOWN2_TEST_EDIT_AFTER=<secs>       ... after this many seconds (default 2): the way to get a dirty document without input
 ///   MACDOWN2_TEST_PROMPT_ANSWER=keep|reload  answer the "changed on disk" sheet this way ...
 ///   MACDOWN2_TEST_PROMPT_DELAY=<secs>     ... after this many seconds (default 4; the sheet stays up that long to be photographed)
+///   MACDOWN2_TEST_TOGGLE_TASK_LINE=<n>    the preview PAGE clicks the task checkbox on source line n, with its own JavaScript
+///                                         (see `toggleTaskThroughPage`); `_DELAY`, `_LAYOUT=previewOnly`, `_UNDO=1` and `_SAVE=afterToggle|afterUndo` refine it
 enum IsolatedTestHooks {
     #if DEBUG
     private static func value(_ name: String) -> String? {
@@ -29,6 +33,8 @@ enum IsolatedTestHooks {
     private nonisolated(unsafe) static var typed = false
     private nonisolated(unsafe) static var searched = false
     private nonisolated(unsafe) static var framed = Set<Int>()
+    private nonisolated(unsafe) static var toggled = false
+    private static let hookLog = Logger(subsystem: "io.github.xuanji86.MacDown2", category: "task-toggle-hook")
     #endif
 
     @MainActor static func typeIntoUntitled(_ model: WindowModel) {
@@ -122,4 +128,77 @@ enum IsolatedTestHooks {
         DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { NSApp.terminate(nil) }
         #endif
     }
+
+    /// Drives PLAN I-5 without any input event. Once the preview has rendered and `MACDOWN2_TEST_TOGGLE_TASK_DELAY` seconds
+    /// (default 4: time for a "before" screenshot) have passed, the page clicks the checkbox of the item on source line
+    /// `MACDOWN2_TEST_TOGGLE_TASK_LINE` through its own JavaScript, so the real page -> token and version check -> editor path
+    /// runs. `MACDOWN2_TEST_TOGGLE_TASK_LAYOUT=previewOnly` switches to that layout first. `MACDOWN2_TEST_TOGGLE_TASK_UNDO=1`
+    /// then makes the preview's web view the first responder, as after a real click on it, and sends `undo:` to the first
+    /// responder in its chain that answers it (what Cmd-Z reaches). Everything found is logged:
+    /// `log show --predicate 'category == "task-toggle-hook"'`.
+    @MainActor static func toggleTaskThroughPage(model: WindowModel, preview: PreviewModel, editor: EditorHandle, document: MarkdownDocument) async {
+        #if DEBUG
+        guard !toggled, let raw = value("MACDOWN2_TEST_TOGGLE_TASK_LINE"), let line = Int(raw) else { return }
+        toggled = true
+        for _ in 0..<100 where preview.metadata == nil { try? await Task.sleep(for: .milliseconds(100)) }
+        try? await Task.sleep(for: .seconds(Double(value("MACDOWN2_TEST_TOGGLE_TASK_DELAY") ?? "") ?? 4))
+        if value("MACDOWN2_TEST_TOGGLE_TASK_LAYOUT") == "previewOnly" {
+            model.userSetLayout(SplitLayout(mode: .previewOnly))
+            editor.resignFocus()
+            try? await Task.sleep(for: .seconds(4))  // room for a screenshot of the layout before the click
+        }
+        hookLog.info("editor shown: \(model.layout.showsEditor, privacy: .public); text view alive: \(editor.textView != nil, privacy: .public); edited before: \(document.isDocumentEdited, privacy: .public)")
+        let found = try? await preview.page.callJavaScript(
+            "const box = [...document.querySelectorAll('input.task-list-item-checkbox')].find((b) => b.closest('[data-line]')?.dataset.line === String(line)); if (!box) return false; box.click(); return true",
+            arguments: ["line": line])
+        hookLog.info("page clicked line \(line): \(String(describing: found), privacy: .public)")
+        try? await Task.sleep(for: .seconds(1.5))
+        hookLog.info("after toggle: edited=\(document.isDocumentEdited, privacy: .public) canUndo=\(document.undoManager?.canUndo ?? false, privacy: .public) action=\(document.undoManager?.undoActionName ?? "-", privacy: .public) line=\(lineText(document.text, line), privacy: .public) editorLine=\(lineText(editor.textView?.string ?? "", line), privacy: .public)")
+        if value("MACDOWN2_TEST_TOGGLE_TASK_SAVE") == "afterToggle" { await autosave(document) }
+
+        guard value("MACDOWN2_TEST_TOGGLE_TASK_UNDO") == "1" else { return }
+        // The isolated instance is not frontmost (no key window), so the menu cannot be driven; the first responder is set
+        // where a real click would leave it and the responder chain is walked by hand: the first one that answers `undo:` is
+        // what Cmd-Z / Edit > Undo would reach, and it gets the action.
+        guard let window = editor.textView?.window, let web = webView(in: window) else { return }
+        hookLog.info("first responder set to the web view: \(window.makeFirstResponder(web), privacy: .public)")
+        var chain: [String] = []
+        var responder: NSResponder? = window.firstResponder
+        var handler: NSResponder?
+        while let current = responder {
+            let answers = current.responds(to: Selector(("undo:")))
+            chain.append("\(type(of: current))\(answers ? "(undo:)" : "")")
+            if answers, handler == nil { handler = current }
+            responder = current.nextResponder
+        }
+        hookLog.info("responder chain: \(chain.joined(separator: " > "), privacy: .public); window.undoManager is the document's: \(window.undoManager === document.undoManager, privacy: .public)")
+        handler?.perform(Selector(("undo:")), with: nil)
+        try? await Task.sleep(for: .seconds(1))
+        hookLog.info("after undo: line=\(lineText(document.text, line), privacy: .public) editorLine=\(lineText(editor.textView?.string ?? "", line), privacy: .public) edited=\(document.isDocumentEdited, privacy: .public) canUndo=\(document.undoManager?.canUndo ?? false, privacy: .public) canRedo=\(document.undoManager?.canRedo ?? false, privacy: .public)")
+        if value("MACDOWN2_TEST_TOGGLE_TASK_SAVE") == "afterUndo" { await autosave(document) }
+        #endif
+    }
+
+    #if DEBUG
+    /// Writes the document to its (temp-dir copy) file now, as the system's autosave would later, so the bytes can be compared.
+    @MainActor private static func autosave(_ document: MarkdownDocument) async {
+        let error: Error? = await withCheckedContinuation { continuation in
+            document.autosave(withImplicitCancellability: false) { continuation.resume(returning: $0) }
+        }
+        hookLog.info("saved: \(error.map { String(describing: $0) } ?? "ok", privacy: .public)")
+    }
+
+    private static func lineText(_ text: String, _ line: Int) -> String {
+        let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
+        return line < lines.count ? String(lines[line]) : "(none)"
+    }
+
+    private static func webView(in window: NSWindow?) -> WKWebView? {
+        func find(_ view: NSView) -> WKWebView? {
+            if let web = view as? WKWebView { return web }
+            return view.subviews.lazy.compactMap(find).first
+        }
+        return window?.contentView.flatMap(find)
+    }
+    #endif
 }

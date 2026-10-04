@@ -155,6 +155,7 @@ export async function launch({ routes = {} } = {}) {
     });
     const page = {
       origin,
+      send, // raw DevTools call on this page (e.g. Input.dispatchKeyEvent)
       get navigations() {
         return navigations;
       },

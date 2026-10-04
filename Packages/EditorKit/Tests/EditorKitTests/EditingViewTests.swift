@@ -240,4 +240,73 @@ struct EditingViewTests {
         view.deleteBackward(nil)
         #expect(state(view) == "|")
     }
+
+    // MARK: Edits that come from outside the editor (the preview ticks a task checkbox)
+
+    @Test func replaceUndoablyIsOneUndoStepAndKeepsTheSelection() {
+        let view = makeView("- [ ] a\n- ⟦[ ] b⟧\n")
+        var changes = 0
+        let token = NotificationCenter.default.addObserver(forName: NSText.didChangeNotification, object: view, queue: nil) { _ in changes += 1 }
+        defer { NotificationCenter.default.removeObserver(token) }
+
+        #expect(view.replaceUndoably(NSRange(location: 3, length: 1), with: "x", actionName: "Toggle Task"))
+        #expect(state(view) == "- [x] a\n- ⟦[ ] b⟧\n")  // the selection is exactly where it was
+        #expect(changes == 1)
+        #expect(undo.manager.undoActionName == "Toggle Task")
+        undo.manager.undo()
+        #expect(state(view) == "- [ ] a\n- ⟦[ ] b⟧\n")
+        #expect(!undo.manager.canUndo)  // one step, not two
+        undo.manager.redo()
+        #expect(view.string == "- [x] a\n- [ ] b\n")
+    }
+
+    /// NSTextView itself stays silent on undo and redo; the model that mirrors the text (and gets saved) listens for `textDidChange`.
+    @Test func undoAndRedoTellTheDelegateTheTextChanged() {
+        for how in ["typing", "replace", "command"] {
+            let view = makeView("- [ ] a|\n")
+            var changes = 0
+            let token = NotificationCenter.default.addObserver(forName: NSText.didChangeNotification, object: view, queue: nil) { _ in changes += 1 }
+            defer { NotificationCenter.default.removeObserver(token) }
+            switch how {
+            case "typing": type("b", in: view)
+            case "replace": view.replaceUndoably(NSRange(location: 3, length: 1), with: "x", actionName: "t")
+            default: view.perform(.bold)
+            }
+            let edited = view.string
+            #expect(changes == 1, "\(how)")
+            undo.manager.undo()
+            #expect(view.string == "- [ ] a\n", "\(how) undone")
+            #expect(changes == 2, "\(how): undo announced")
+            undo.manager.redo()
+            #expect(view.string == edited, "\(how) redone")
+            #expect(changes == 3, "\(how): redo announced")
+        }
+    }
+
+    @Test func aCaretInsideTheReplacedMarkStaysPut() {
+        let view = makeView("- [|] a\n")
+        view.replaceUndoably(NSRange(location: 3, length: 1), with: "x", actionName: "t")
+        #expect(view.selectedRange() == NSRange(location: 3, length: 0))
+    }
+
+    @Test func replaceUndoablyDoesNotJoinTheTypingBeforeIt() {
+        let view = makeView("- [ ] a|\n")
+        type("b", in: view)
+        RunLoop.current.run(until: Date())  // the typing's undo group ends with its event, as it does in the app
+        view.replaceUndoably(NSRange(location: 3, length: 1), with: "x", actionName: "Toggle Task")
+        #expect(view.string == "- [x] ab\n")
+        undo.manager.undo()
+        #expect(view.string == "- [ ] ab\n")  // the toggle alone; "b" is still there
+        undo.manager.undo()
+        #expect(view.string == "- [ ] a\n")
+    }
+
+    @Test func replaceUndoablyRefusesWhileComposingOrOutOfRange() {
+        let view = makeView("- [ ] a|\n")
+        #expect(!view.replaceUndoably(NSRange(location: 99, length: 1), with: "x", actionName: "t"))
+        view.setMarkedText("ni", selectedRange: NSRange(location: 2, length: 0), replacementRange: NSRange(location: NSNotFound, length: 0))
+        let before = view.string
+        #expect(!view.replaceUndoably(NSRange(location: 3, length: 1), with: "x", actionName: "t"))
+        #expect(view.string == before)
+    }
 }
