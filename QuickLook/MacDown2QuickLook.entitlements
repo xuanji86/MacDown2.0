@@ -10,5 +10,11 @@
 	<array>
 		<string>/</string>
 	</array>
+	<!-- Read-only access to the app's own preferences domain (no App Group without a signing team), so the preview
+	     uses the same render switches, preview style and extension switches as the app. Approved by the user. -->
+	<key>com.apple.security.temporary-exception.shared-preference.read-only</key>
+	<array>
+		<string>io.github.xuanji86.MacDown2</string>
+	</array>
 </dict>
 </plist>
