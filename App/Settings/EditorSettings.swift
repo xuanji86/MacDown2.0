@@ -12,6 +12,7 @@ enum EditorSettingKey {
     static let tabInsertsSpaces = "editorTabInsertsSpaces"
     static let tabWidth = "editorTabWidth"
     static let listMarker = "editorListMarker"
+    static let editorOnRight = "editor.onRight"  // the layout swap lives in DocumentView, not in EditorKit
 }
 
 /// The editor-side settings in one place: the editor pane reads them, the Settings page binds them.
@@ -36,6 +37,7 @@ struct EditorSettings: DynamicProperty {
     @AppStorage(EditorViewSettings.Key.maxWidth) var maxWidth = Double(EditorViewSettings().maxWidth)
     @AppStorage(EditorViewSettings.Key.showInvisibles) var showInvisibles = EditorViewSettings().showsInvisibles
     @AppStorage(EditorViewSettings.Key.smartHome) var smartHome = EditorViewSettings().smartHome
+    @AppStorage(EditorSettingKey.editorOnRight) var editorOnRight = false
 
     var behavior: EditorBehavior {
         var b = EditorBehavior()

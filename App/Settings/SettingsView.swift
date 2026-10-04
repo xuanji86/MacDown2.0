@@ -108,6 +108,7 @@ private struct EditorPage: View {
                 }
                 Toggle("显示行号", isOn: editor.$lineNumbers)
                 Toggle("显示不可见字符(空格、Tab、换行)", isOn: editor.$showInvisibles)
+                Toggle("编辑器在右侧(预览在左)", isOn: editor.$editorOnRight)
                 Toggle("限制编辑区宽度并居中", isOn: editor.$limitWidth)
                 Stepper(value: editor.$maxWidth, in: Double(EditorViewSettings.maxWidthRange.lowerBound)...Double(EditorViewSettings.maxWidthRange.upperBound), step: 20) {
                     Text("最大宽度:\(Int(editor.maxWidth)) px")
