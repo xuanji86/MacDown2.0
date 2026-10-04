@@ -87,6 +87,13 @@ pre { padding: 14px 16px; overflow: auto; background: var(--bg-subtle); border: 
 #doc pre code, #doc pre code.hljs { padding: 0; background: none; border: 0; font-size: 1em; }
 #doc pre code:not(.hljs) { color: var(--fg); }
 
+/* Mermaid: the renderer emits a code block (`mermaid-source`); where scripts run, mermaid.chunk.js draws the diagram into
+   that same <pre> (data-mermaid="ok") and the source is hidden. A failed diagram keeps its source and shows the error. */
+pre.mermaid-source[data-mermaid="ok"] { padding: 0; text-align: center; background: none; border: 0; }
+pre.mermaid-source[data-mermaid="ok"] > code { display: none; }
+.mermaid-svg svg { max-width: 100%; height: auto; }
+.mermaid-error { margin-top: 8px; padding: 6px 10px; font: 12px/1.4 var(--font-mono); text-align: left; white-space: pre-wrap; color: var(--err-fg); background: var(--err-bg); border-radius: 6px; }
+
 table { display: block; width: max-content; max-width: 100%; overflow: auto; border-collapse: collapse; }
 th, td { padding: 6px 13px; border: 1px solid var(--border); }
 th { font-weight: 600; background: var(--bg-subtle); }

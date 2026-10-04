@@ -71,3 +71,23 @@ test('flavors register and unknown flavors throw', () => {
   const out = JSON.parse(render('hi', JSON.stringify({ ...defaults, flavor: 'test' })));
   assert.match(out.html, /<p class="test-flavor" data-line="0"/);
 });
+
+test('mermaid fences become code blocks tagged mermaid-source (what exports, Quick Look and JSC show)', () => {
+  const src = 'para\n\n```mermaid\ngraph TD\n  A --> B & C\n```\n\n```js\nlet a;\n```\n';
+  const { html, blocks } = renderResult(src, defaults);
+  assert.match(html, /<pre data-line="2" data-line-end="6" data-lang="mermaid" class="mermaid-source"><code class="language-mermaid">graph TD\n  A --&gt; B &amp; C\n<\/code><\/pre>/);
+  assert.match(html, /<pre data-line="7" data-line-end="10" data-lang="js"><code class="hljs language-js">/); // other languages are untouched
+  assert.deepEqual(blocks.map((b) => [b.lineStart, b.lineEnd]), [[0, 1], [2, 6], [7, 10]]);
+  assert.doesNotMatch(renderResult('```Mermaid\nx\n```', defaults).html, /mermaid-source/); // the info string is case-sensitive
+});
+
+test('mermaid-source joins classes that other rules put on the fence', () => {
+  flavors.register('fence-class', (md) => {
+    md.core.ruler.push('fence_class', (state) => {
+      for (const t of state.tokens) if (t.type === 'fence') t.attrJoin('class', 'extra');
+    });
+  });
+  const html = renderResult('```mermaid\nx\n```', { ...defaults, flavor: 'fence-class', codeLineNumbers: true }).html;
+  assert.match(html, /<pre [^>]*class="extra mermaid-source line-numbers"[^>]*>/);
+  assert.equal(html.match(/class="extra/g).length, 1);
+});

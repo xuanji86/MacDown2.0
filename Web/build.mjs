@@ -1,5 +1,6 @@
 // Builds the vendored web assets: render.bundle.js, preview.bundle.js (+ preview.html, preview-styles/*.css + styles.json),
-// katex/ (CSS + woff2 fonts), hljs-themes/, flavors.json, quarto.chunk.js + quarto-approx.css, THIRD_PARTY_LICENSES.txt.
+// katex/ (CSS + woff2 fonts), hljs-themes/, flavors.json, quarto.chunk.js + quarto-approx.css, mermaid.chunk.js,
+// THIRD_PARTY_LICENSES.txt.
 // Usage: node build.mjs [outDir]   (default: the WebAssets package resources; drift check passes a temp dir)
 import { build } from 'esbuild';
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
@@ -58,6 +59,38 @@ const CHUNK_BUDGET = 120 * 1024; // PLAN 4.1.2
 const chunkSize = statSync(join(outDir, 'quarto.chunk.js')).size;
 if (chunkSize > CHUNK_BUDGET) throw new Error(`quarto.chunk.js is ${chunkSize} bytes, over the ${CHUNK_BUDGET} budget`);
 
+// Mermaid chunk (PLAN 4.1.2): the preview page loads it with a nonce'd <script> and the print page evaluates it, only when
+// a document has a mermaid block. It is big (every diagram type, d3, layout engines) and deliberately in neither
+// bundle above; Scripts/check-web-drift.sh asserts it does not leak into them.
+//
+// elkjs (Mermaid's optional `layout: elk`) is EPL-2.0 with no GPL secondary-licence notice, which GPL-3.0 cannot ship
+// with, so it is replaced by a stub: dagre (the default layout) is untouched, and a document that asks for ELK gets a
+// clear error on its diagram. Two hooks: the `elkjs` package itself, and Mermaid's own `elk-<hash>.mjs` layout module
+// (its only importer; the hash changes with the pinned version, and the drift check fails if elk code ever leaks in).
+const ELK_STUB = `export const render = async () => { throw new Error('ELK 布局未内置（许可原因）/ ELK layout is not bundled (licence)'); };
+export default class ELK { constructor() { throw new Error('ELK 布局未内置（许可原因）/ ELK layout is not bundled (licence)'); } }`;
+const withoutElk = {
+  name: 'without-elk',
+  setup(b) {
+    b.onResolve({ filter: /^elkjs(\/|$)|\/elk-[A-Z0-9]+\.mjs$/ }, (a) => ({ path: a.path, namespace: 'elk-stub' }));
+    b.onLoad({ filter: /.*/, namespace: 'elk-stub' }, () => ({ contents: ELK_STUB, loader: 'js' }));
+  },
+};
+const mermaid = await build({
+  plugins: [withoutElk],
+  entryPoints: [join(here, 'src/mermaid/index.ts')],
+  outfile: join(outDir, 'mermaid.chunk.js'),
+  bundle: true,
+  format: 'iife',
+  globalName: 'MacDown2Mermaid',
+  target: 'es2022',
+  minify: true,
+  legalComments: 'none',
+  metafile: true,
+  tsconfigRaw: '{}',
+  logLevel: 'warning',
+});
+
 // Preview styles: _base.css is prepended to every <style>.css; styles.json (the registry, also bundled into the page and
 // read by the app) says which hljs theme and light/dark partner each one has.
 const stylesDir = join(here, 'src/preview/preview-styles');
@@ -98,18 +131,19 @@ for (const dir of readdirSync(join(here, 'src'))) {
 }
 writeFileSync(join(outDir, 'flavors.json'), `${JSON.stringify(flavors, null, 2)}\n`);
 
-// License texts of every npm package that ended up in a bundle.
-const packages = new Set();
-for (const input of [...Object.keys(metafile.inputs), ...Object.keys(quarto.metafile.inputs)]) {
-  const m = input.match(/node_modules\/((?:@[^/]+\/)?[^/]+)\//);
-  if (m) packages.add(m[1]);
+// License texts of every npm package that ended up in a bundle. Mermaid's dependency tree may nest packages
+// (node_modules/a/node_modules/b), so the innermost node_modules segment names the package and gives its directory.
+const packages = new Map();
+for (const input of [...Object.keys(metafile.inputs), ...Object.keys(quarto.metafile.inputs), ...Object.keys(mermaid.metafile.inputs)]) {
+  const m = input.slice(Math.max(input.indexOf('node_modules/'), 0)).match(/^(.*node_modules\/(?:@[^/]+\/)?[^/]+)\//); // input paths are relative to the cwd
+  if (m) packages.set(m[1], join(here, m[1]));
 }
-const notices = [...packages].sort().map((name) => {
-  const root = join(here, 'node_modules', name);
-  const { version, license } = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
+const notices = [...packages.values()].sort().map((root) => {
+  const { name, version, license } = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
   const file = readdirSync(root).find((f) => /^licen[sc]e/i.test(f));
   if (!file) throw new Error(`${name}: no LICENSE file to bundle`);
-  return `${name} ${version} (${license})\n\n${readFileSync(join(root, file), 'utf8').trim()}\n`;
+  const label = typeof license === 'string' ? ` (${license})` : ''; // khroma ships a LICENSE file but no license field
+  return `${name} ${version}${label}\n\n${readFileSync(join(root, file), 'utf8').trim()}\n`;
 });
 notices.push(readFileSync(join(here, 'src/render/katex-fonts-license.txt'), 'utf8').trim() + '\n');
 notices.push(readFileSync(join(here, 'src/quarto/vendored/LICENSE.txt'), 'utf8').trim() + '\n');

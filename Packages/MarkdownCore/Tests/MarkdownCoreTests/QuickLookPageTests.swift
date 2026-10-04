@@ -23,7 +23,9 @@ private func page(_ markdown: String, utType: String = "net.daringfireball.markd
 @Test func mermaidStaysACodeBlock() async throws {
     let html = try await page("```mermaid\ngraph TD\n  A --> B\n```\n").html
     #expect(html.contains(#"data-lang="mermaid""#))
+    #expect(html.contains(#"class="mermaid-source""#))
     #expect(html.contains("A --&gt; B"))
+    #expect(!html.contains("<script"))  // nothing here to draw it: the chunk is only ever loaded by the preview and print pages
 }
 
 @Test func rawHTMLIsEscaped() async throws {

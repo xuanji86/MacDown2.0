@@ -1,5 +1,9 @@
 import AppKit
+import OSLog
+import WebAssets
 import WebKit
+
+private let log = Logger(subsystem: "io.github.xuanji86.MacDown2", category: "print")
 
 /// Paper output for the exported HTML. `WebPage` has no print or pagination API (its `exported(as: .pdf)` is one tall
 /// strip as wide as the view, PLAN §4.7), so this lays the page out in an offscreen `WKWebView` and lets AppKit
@@ -33,7 +37,25 @@ final class PrintPage: NSObject, WKNavigationDelegate {
             loaded = continuation
             webView.loadHTMLString(html, baseURL: nil)
         }
+        await drawDiagrams()
         _ = try? await webView.callAsyncJavaScript("await document.fonts.ready", contentWorld: .defaultClient)
+    }
+
+    /// Mermaid blocks arrive as plain code blocks (`pre.mermaid-source`, see `HTMLExporter`). The page itself runs no
+    /// scripts, so the app injects mermaid.chunk.js into its own content world (`allowsContentJavaScript` only stops
+    /// the page's scripts) and waits until every diagram is drawn, so pagination sees the final heights. Light theme:
+    /// paper is white. A failed diagram stays a code block with the error under it; a missing chunk leaves all of them.
+    private func drawDiagrams() async {
+        let world = WKContentWorld.defaultClient
+        guard let count = try? await webView.callAsyncJavaScript("return document.querySelectorAll('pre.mermaid-source').length", contentWorld: world) as? Int, count > 0,
+              let chunk = WebAssets.url("mermaid.chunk.js"), let source = try? String(contentsOf: chunk, encoding: .utf8)
+        else { return }
+        do {
+            _ = try await webView.evaluateJavaScript(source, in: nil, contentWorld: world)
+            _ = try await webView.callAsyncJavaScript("await MacDown2Mermaid.renderAll(document, false)", contentWorld: world)
+        } catch {
+            log.error("Mermaid diagrams not drawn for printing: \(String(describing: error), privacy: .public)")
+        }
     }
 
     /// The system page setup (paper, orientation) with at least `minimumMargin` points on every side; a bigger margin
