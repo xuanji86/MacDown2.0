@@ -40,33 +40,45 @@ struct StatusBar: View {
     }
 
     private var encodingMenu: some View {
-        let format = document.format
-        // Re-reading discards unsaved edits, so it waits until the document is saved; an unsaved new document has no file to re-read.
-        let canReopen = document.fileURL != nil && !document.editedFlag.value
-        return Menu {
-            Section("用此编码重新打开") {
-                ForEach(TextEncoding.allCases, id: \.self) { encoding in
-                    Toggle(encoding.displayName, isOn: Binding(get: { format.encoding == encoding }, set: { _ in reopen(as: encoding) }))
-                }
-            }
-            .disabled(!canReopen)
-            Divider()
-            Button("转为 UTF-8 保存") { document.convertToUTF8() }
-                .disabled(format.encoding == .utf8)
+        Menu {
+            EncodingMenuItems(document: document)
         } label: {
-            Text(format.label)
+            Text(document.format.label)
         }
         .menuStyle(.button)
         .menuIndicator(.hidden)
         .buttonStyle(.plain)
         .fixedSize()
-        .help(canReopen ? "文件编码与换行符。点击可换编码重新打开" : "文件编码与换行符。保存后才能换编码重新打开")
+        .help(document.canReopenWithEncoding ? "文件编码与换行符。点击可换编码重新打开" : "文件编码与换行符。保存后才能换编码重新打开")
+    }
+}
+
+/// "Reopen with encoding" and "convert to UTF-8": the status bar's encoding menu, and File ▸ 编码 for when the bar is hidden.
+struct EncodingMenuItems: View {
+    let document: MarkdownDocument
+
+    var body: some View {
+        let format = document.format
+        Section("用此编码重新打开") {
+            ForEach(TextEncoding.allCases, id: \.self) { encoding in
+                Toggle(encoding.displayName, isOn: Binding(get: { format.encoding == encoding }, set: { _ in reopen(as: encoding) }))
+            }
+        }
+        .disabled(!document.canReopenWithEncoding)
+        Divider()
+        Button("转为 UTF-8 保存") { document.convertToUTF8() }
+            .disabled(format.encoding == .utf8)
     }
 
     private func reopen(as encoding: TextEncoding) {
         guard encoding != document.format.encoding else { return }
         do { try document.reopen(as: encoding) } catch { document.presentError(error) }
     }
+}
+
+extension MarkdownDocument {
+    /// Re-reading discards unsaved edits, so it waits until the document is saved; an unsaved new document has no file to re-read.
+    var canReopenWithEncoding: Bool { fileURL != nil && !editedFlag.value }
 }
 
 private extension CountMode {
