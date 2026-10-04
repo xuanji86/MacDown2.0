@@ -32,6 +32,7 @@ struct FormatCommands: Commands {
             item("Ordered List", .orderedList).keyboardShortcut("o", modifiers: [.command, .shift])
             item("Blockquote", .blockquote).keyboardShortcut("b", modifiers: [.command, .shift])
             item("Code Block", .codeBlock).keyboardShortcut("k", modifiers: [.command, .option])
+            item("Insert Page Break", .pageBreak)
             Divider()
             item("Link", .link).keyboardShortcut("k", modifiers: [.command, .shift])
             item("Image", .image).keyboardShortcut("i", modifiers: [.command, .shift])

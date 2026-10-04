@@ -158,7 +158,7 @@ final class PreviewModel {
     /// Options for rendering `markdown` now (settings + flavor + the files the flavor reads), as the page's JSON, and
     /// the chunks and stylesheets to have loaded first.
     private func resolvedOptions(for markdown: String) -> (json: String, flavor: [String: [String]]) {
-        let resolved = options.rendering(as: flavor, markdown: markdown, readFile: AppExtensions.fileReader(directory: documentDirectory))
+        let resolved = options.rendering(as: flavor, markdown: markdown, readFile: QuartoIncludes.fileReader(directory: documentDirectory))
         return (Self.json(resolved), ["chunks": resolved.renderChunks, "stylesheets": flavor?.previewStylesheets ?? []])
     }
 

@@ -128,13 +128,8 @@ nav.toc > ul { padding-left: 0; }
 hr.footnotes-sep { margin-top: 2em; }
 .katex-block { overflow-x: auto; overflow-y: hidden; }
 
-@media print {
-  html, body, #doc { background: none; box-shadow: none; }
-  #doc { max-width: none; margin: 0; padding: 0; }
-  #error { display: none; }
-  pre, blockquote, table, img, .markdown-alert { break-inside: avoid; }
-  h1, h2, h3, h4, h5, h6 { break-after: avoid; }
-}
+/* Page break (`\newpage`, see render/plugins/page-break.ts): a thin dashed rule on screen; print.css turns it into a real break. */
+.md2-page-break { height: 0; margin: 1.5em 0; border-top: 1px dashed var(--fg-muted); opacity: 0.45; }
 
 /* Academic: serif, justified, booktabs tables; reads like a paper and prints well. */
 :root {

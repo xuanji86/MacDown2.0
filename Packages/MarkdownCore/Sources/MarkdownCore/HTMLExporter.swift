@@ -1,4 +1,5 @@
 import Foundation
+import UniformTypeIdentifiers
 import WebAssets
 
 /// Builds the standalone HTML file for File > Export > HTML and the page the print path renders. Pure: no WebView, no
@@ -21,22 +22,27 @@ public enum HTMLExporter {
     ///   - flavor: the document's flavor id; `stylesheets` are the extra WebAssets files it needs (e.g. `quarto-approx.css`).
     ///   - blockRemoteImages: adds a CSP with no network origin (`RemoteContent.printContentSecurityPolicy`), so printing or
     ///     saving a PDF fetches nothing: a remote `<img>` stays empty. For the print path; a saved HTML file would carry it too.
+    ///   - userCSS: the text of the user's own stylesheet (`macdown2 render --css`), the last thing in the page so it wins.
     public static func document(
         body: String, title: String, style: (light: String, dark: String?) = PreviewStyles.resolve(id: PreviewStyles.defaultID, followSystem: false),
-        inlineImages: ImageSource? = nil, flavor: String = "markdown", stylesheets: [String] = [], blockRemoteImages: Bool = false
+        inlineImages: ImageSource? = nil, flavor: String = "markdown", stylesheets: [String] = [], blockRemoteImages: Bool = false, userCSS: String? = nil
     ) -> String {
         var body = stripSourceLines(body)
         if let inlineImages { body = inlineRelativeImages(in: body, source: inlineImages) }
         let math = body.contains(#"class="katex"#) ? "<style>\(katexCSS())</style>\n" : ""
-        let extra = stylesheets.map { "<style>\(asset($0))</style>\n" }.joined()
+        // print.css (paper rules: no desk colour, wrapping code, page breaks) comes after everything that is the document's own
+        // look, and the user's stylesheet after that.
+        let extra = (stylesheets + ["print.css"]).map { "<style>\(asset($0))</style>\n" }.joined()
+            + (userCSS.map { "<style>\(styleText($0))</style>\n" } ?? "")
         let csp = blockRemoteImages ? #"<meta http-equiv="Content-Security-Policy" content="\#(RemoteContent.printContentSecurityPolicy)">"# + "\n" : ""
         return """
         <!doctype html>
         <html>
         <head>
         <meta charset="utf-8">
-        \(csp)<meta name="viewport" content="width=device-width, initial-scale=1">
-        <title>\(escape(title))</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta http-equiv="Content-Security-Policy" content="\(contentSecurityPolicy)">
+        \(csp)<title>\(escape(title))</title>
         <style>\(styleCSS(style))</style>
         \(math)\(extra)</head>
         <body>
@@ -49,7 +55,16 @@ public enum HTMLExporter {
         """
     }
 
+    /// The page runs no script of its own (KaTeX, highlighting and the style are all static; Mermaid is drawn by the app into the
+    /// print page, or stays a code block), so a browser or viewer that opens the file is told to run none, whatever got into it.
+    static let contentSecurityPolicy = "script-src 'none'; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'"
+
     // MARK: Style
+
+    /// CSS as the content of a `<style>` element: nothing in it may end the element early.
+    static func styleText(_ css: String) -> String {
+        css.replacingOccurrences(of: "</style", with: #"<\/style"#, options: .caseInsensitive)
+    }
 
     /// Light, fixed styles go in as they are. A dark style, or a light/dark pair, is for the screen only: paper always
     /// gets the light member (the dark styles keep light text, which would vanish on a white sheet once the print
@@ -93,6 +108,18 @@ public enum HTMLExporter {
     }
 
     // MARK: Images
+
+    /// Reads document-relative images from `directory` for `document(inlineImages:)`, with the same containment rules as the
+    /// preview's `macdown2-res://doc/` handler (nothing outside the document folder, no non-image files); nil without a folder.
+    public static func imageSource(directory: URL?) -> ImageSource {
+        { path in
+            guard case .file(let file) = DocumentFileResolver.resolve(path: "/" + path, root: directory),
+                  let mime = UTType(filenameExtension: file.pathExtension)?.preferredMIMEType, mime.hasPrefix("image/"),
+                  let data = try? Data(contentsOf: file)
+            else { return nil }
+            return (data, mime)
+        }
+    }
 
     private static let imgSrc = try! NSRegularExpression(pattern: #"(<img\b[^>]*?\bsrc=)(["'])(.*?)\2"#, options: [.dotMatchesLineSeparators])
 

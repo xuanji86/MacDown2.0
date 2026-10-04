@@ -1,6 +1,6 @@
 // Builds the vendored web assets: render.bundle.js, preview.bundle.js (+ preview.html, preview-styles/*.css + styles.json),
 // katex/ (CSS + woff2 fonts), hljs-themes/, flavors.json, quarto.chunk.js + quarto-approx.css, mermaid.chunk.js,
-// THIRD_PARTY_LICENSES.txt.
+// print.css, THIRD_PARTY_LICENSES.txt.
 // Usage: node build.mjs [outDir]   (default: the WebAssets package resources; drift check passes a temp dir)
 import { build } from 'esbuild';
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
@@ -39,6 +39,7 @@ await build({
   logLevel: 'warning',
 });
 cpSync(join(here, 'src/preview/preview.html'), join(outDir, 'preview.html'));
+cpSync(join(here, 'src/preview/print.css'), join(outDir, 'print.css')); // paper rules; HTMLExporter inlines it into exported / printed pages
 
 // Quarto flavor chunk (PLAN 4.1.2): loaded after render.bundle.js, only for .qmd while the extension is on. markdown-it
 // itself is not bundled (the chunk only imports its types), the main bundle never contains any of this.

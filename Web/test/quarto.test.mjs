@@ -236,3 +236,12 @@ test('the same examples render as plain Markdown when the flavor is not loaded (
   const out = renderResult(src, quartoOptions({ flavor: 'markdown', renderChunks: [] })).html;
   assert.doesNotMatch(out, /class="[^"]*(callout|quarto-)/);
 });
+
+test('include: also inside a blockquote or a list item (QuartoIncludes.targets finds the same lines)', () => {
+  const f = { 'q.qmd': 'quoted text', 'l.qmd': 'listed text' };
+  const quote = html('> {{< include q.qmd >}}', { files: f });
+  assert.match(quote, /<blockquote>[\s\S]*<div class="quarto-include" data-include="q.qmd">[\s\S]*quoted text/);
+  const list = html('- {{< include l.qmd >}}', { files: f });
+  assert.match(list, /<li>[\s\S]*<div class="quarto-include" data-include="l.qmd">[\s\S]*listed text/);
+  assert.doesNotMatch(html('>     {{< include q.qmd >}}', { files: f }), /quarto-include/); // code in a quote, not an include
+});

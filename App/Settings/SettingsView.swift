@@ -15,6 +15,7 @@ struct SettingsView: View {
             Tab("Editor", systemImage: "square.and.pencil") { EditorPage() }
             Tab("Markdown", systemImage: "text.badge.checkmark") { MarkdownPage() }
             Tab("Rendering", systemImage: "eye") { RenderingPage() }
+            Tab("Export", systemImage: "square.and.arrow.up") { ExportPage() }
             Tab("扩展", systemImage: "puzzlepiece.extension") { ExtensionsPage() }
             Tab("Updates", systemImage: "arrow.triangle.2.circlepath") { UpdatesPage() }
         }
@@ -278,6 +279,72 @@ private struct RenderingPage: View {
             }
         }
         .formStyle(.grouped)
+    }
+}
+
+// MARK: Export
+
+/// Paper, orientation and margins for File > Export > PDF and Print (`PageSetup`, MarkdownCore; `macdown2 render --export pdf`
+/// reads the same keys). Page Setup… in the File menu edits these too.
+private struct ExportPage: View {
+    @AppStorage(PageSetup.Key.paper) private var paper = PageSetup.Paper.standard().rawValue
+    @AppStorage(PageSetup.Key.orientation) private var orientation = PageSetup.Orientation.portrait.rawValue
+    @AppStorage(PageSetup.Key.top) private var top = PageSetup.defaultMargin
+    @AppStorage(PageSetup.Key.right) private var right = PageSetup.defaultMargin
+    @AppStorage(PageSetup.Key.bottom) private var bottom = PageSetup.defaultMargin
+    @AppStorage(PageSetup.Key.left) private var left = PageSetup.defaultMargin
+
+    private static let usesInches = Locale.current.measurementSystem == .us
+
+    var body: some View {
+        Form {
+            Section("纸张") {
+                Picker("纸张大小", selection: $paper) {
+                    ForEach(PageSetup.Paper.allCases, id: \.rawValue) { Text($0.title).tag($0.rawValue) }
+                }
+                Picker("方向", selection: $orientation) {
+                    Text("纵向").tag(PageSetup.Orientation.portrait.rawValue)
+                    Text("横向").tag(PageSetup.Orientation.landscape.rawValue)
+                }
+            }
+            Section("页边距(\(Self.usesInches ? "英寸" : "毫米"))") {
+                MarginField(label: "上", points: $top, inches: Self.usesInches)
+                MarginField(label: "下", points: $bottom, inches: Self.usesInches)
+                MarginField(label: "左", points: $left, inches: Self.usesInches)
+                MarginField(label: "右", points: $right, inches: Self.usesInches)
+            }
+            Section {
+                Button("恢复默认") {
+                    let standard = PageSetup()
+                    paper = standard.paper.rawValue
+                    orientation = standard.orientation.rawValue
+                    (top, right, bottom, left) = (standard.top, standard.right, standard.bottom, standard.left)
+                }
+                Text("用于「导出 PDF」「打印」和 macdown2 render --export pdf。单独一行的 \\newpage 或 <div style=\"page-break-after: always\"></div>(格式 ▸ 插入分页符)会另起一页;预览里显示为一条虚线。")
+                    .font(.callout).foregroundStyle(.secondary)
+            }
+        }
+        .formStyle(.grouped)
+    }
+}
+
+/// A margin kept in points, edited in the user's unit.
+private struct MarginField: View {
+    let label: String
+    @Binding var points: Double
+    let inches: Bool
+
+    private var unit: Binding<Double> {
+        let perPoint = inches ? 1.0 / 72 : 25.4 / 72
+        return Binding(
+            get: { points * perPoint },
+            set: { points = min(max($0 / perPoint, PageSetup.marginRange.lowerBound), PageSetup.marginRange.upperBound) }
+        )
+    }
+
+    var body: some View {
+        TextField(label, value: unit, format: .number.precision(.fractionLength(0...2)))
+            .multilineTextAlignment(.trailing)
     }
 }
 

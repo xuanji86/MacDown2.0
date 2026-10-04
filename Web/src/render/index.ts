@@ -12,8 +12,10 @@ import emojiPlugin from 'markdown-it-emoji/lib/full.mjs';
 import { cjkEmphasis } from './plugins/cjk-emphasis.ts';
 import { codeBlocks } from './plugins/code.ts';
 import { frontMatter, type FrontMatterDisplay } from './plugins/front-matter.ts';
+import { pageBreak } from './plugins/page-break.ts';
 import { toc } from './plugins/toc.ts';
 import { underline } from './plugins/underline.ts';
+import { sanitizeHtml } from './sanitize.ts';
 import { hash53, slugify, textStats, type TextStats } from './text.ts';
 
 export interface RenderOptions {
@@ -32,6 +34,8 @@ export interface RenderOptions {
   // Text of files a flavor may read while rendering, by path relative to the document folder (the app reads them
   // beforehand; a flavor chunk finds them in `env.files`). Not part of the instance cache key.
   files?: Record<string, string>;
+  // Output that leaves the app (Copy HTML, export, PDF, CLI): active content removed from `html` (sanitize.ts). The preview does not set it.
+  sanitize?: boolean;
 }
 
 export interface BlockMap { lineStart: number; lineEnd: number; hash: number }
@@ -154,6 +158,7 @@ function instance(o: RenderOptions): MarkdownIt {
   if (ext.has('taskLists')) md.use(tasklist);
   if (ext.has('underline')) md.use(underline);
   if (ext.has('toc')) md.use(toc);
+  md.use(pageBreak); // always on: `\newpage` as text is never what anyone wants
   if (ext.has('frontMatter')) md.use(frontMatter, o.frontMatterDisplay === 'table' ? 'table' : 'hidden');
   md.use(codeBlocks, { highlight: o.codeHighlighting, lineNumbers: o.codeLineNumbers });
   setup(md, o);
@@ -197,7 +202,7 @@ export function renderResult(source: string, options: RenderOptions): RenderResu
     if (owner.map) tasks.push({ line: owner.map[0], mark: t.map[0] });
   }
   const fm = tokens.find((t) => t.type === 'front_matter');
-  const result: RenderResult = { html, blocks, tasks, outline: env.outline, stats: textStats(collectText(tokens)) };
+  const result: RenderResult = { html: options.sanitize ? sanitizeHtml(html) : html, blocks, tasks, outline: env.outline, stats: textStats(collectText(tokens)) };
   if (fm) result.frontMatter = fm.meta as unknown as string;
   return result;
 }

@@ -1,0 +1,52 @@
+/* Paper output: File > Export > PDF, Print, `macdown2 render --export pdf`. HTMLExporter inlines this after the preview
+   style. AppKit paginates the page (PrintKit): paper size and margins come from the print settings, so there is no @page
+   rule here, and the page is as wide as the printable area. */
+
+/* CJK that can be searched and copied out of the PDF. WebKit writes the PDF's text layer from the font, and the system CJK
+   fonts (PingFang SC, Songti SC, ...) map many common ideographs to the Kangxi *radical* code points (文 -> ⽂, 一 -> ⼀,
+   页 -> ⻚), which no search for the real character matches. Hiragino Sans GB writes the real ones, so it takes the
+   ideographs; Latin, kana, Hangul and punctuation stay in the style's own fonts. The two weights are Hiragino's own
+   (WebKit would otherwise fake bold). */
+@font-face {
+  font-family: "MD2 CJK";
+  font-weight: 400;
+  src: local("HiraginoSansGB-W3"), local("Hiragino Sans GB");
+  unicode-range: U+3400-4DBF, U+4E00-9FFF, U+F900-FAFF, U+20000-2FA1F;
+}
+@font-face {
+  font-family: "MD2 CJK";
+  font-weight: 700;
+  src: local("HiraginoSansGB-W6"), local("Hiragino Sans GB");
+  unicode-range: U+3400-4DBF, U+4E00-9FFF, U+F900-FAFF, U+20000-2FA1F;
+}
+
+@media print {
+  * { -webkit-print-color-adjust: exact; print-color-adjust: exact; } /* code, table and alert backgrounds are part of the look */
+  html, body, #doc { background: none; box-shadow: none; } /* no grey desk behind the page, no sheet of paper on the paper */
+  #doc { max-width: none; margin: 0; padding: 0; }
+  #error { display: none; }
+
+  body { font-family: "MD2 CJK", var(--font-body); }
+  h1, h2, h3, h4, h5, h6 { font-family: "MD2 CJK", var(--font-heading); }
+  code, pre { font-family: "MD2 CJK", var(--font-mono); }
+
+  /* A code block is cut off at the paper's edge otherwise (it scrolls on screen). */
+  pre, pre code { white-space: pre-wrap; overflow-wrap: anywhere; overflow: visible; }
+  .katex-block { overflow: visible; }
+  table { display: table; width: auto; max-width: 100%; overflow: visible; }
+  th, td { overflow-wrap: anywhere; }
+  thead { display: table-header-group; } /* repeated on every page a long table runs over */
+
+  /* Keep these in one piece. Block-level things taller than a page are split anyway; a row never is. */
+  pre, blockquote, img, figure, .markdown-alert, .mermaid-svg, nav.toc, tr { break-inside: avoid; page-break-inside: avoid; }
+  /* A table is kept whole while it is short (13 rows or fewer); a longer one flows and repeats its header. */
+  table:not(:has(tbody tr:nth-child(14))) { break-inside: avoid; page-break-inside: avoid; }
+  /* A heading stays with the text after it. `break-after: avoid` is what browsers honour; WebKit's print layout does not, so
+     PrintKit also wraps each heading and the block after it in div.md2-keep (a short block only) and that div is kept whole. */
+  h1, h2, h3, h4, h5, h6 { break-after: avoid-page; page-break-after: avoid; }
+  .md2-keep { break-inside: avoid; page-break-inside: avoid; }
+  #doc > .md2-keep:first-child > :first-child { margin-top: 0; }
+  p, li, blockquote { orphans: 3; widows: 3; }
+
+  .md2-page-break { height: 0; margin: 0; border: 0; opacity: 1; break-after: page; page-break-after: always; }
+}

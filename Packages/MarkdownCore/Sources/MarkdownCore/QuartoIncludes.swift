@@ -1,8 +1,9 @@
 import Foundation
 
 /// `{{< include file.qmd >}}` support, Swift half. The preview and export renderers cannot read files, so before each
-/// render the app asks `files(for:readFile:)` which files the document can reach and hands their text over as
-/// `RenderOptions.files`; `Web/src/quarto/rules/include.ts` then inlines them. That rule enforces the limits itself
+/// render the app (and `macdown2 render`) asks `files(for:readFile:)` which files the document can reach and hands their
+/// text over as `RenderOptions.files`. It lives here, not in QuartoExtension, because the command-line tool must not link
+/// an extension module; `Web/src/quarto/rules/include.ts` then inlines them. That rule enforces the limits itself
 /// (inside the document folder, 5 levels, no cycles); this side only has to find the same paths and stop. The path rules
 /// in `resolve` mirror `resolveInclude` there; keep the two in step.
 public enum QuartoIncludes {
@@ -11,8 +12,13 @@ public enum QuartoIncludes {
     /// lazy: 64 files per render; a document with more shows "not found" for the rest. Raise it, or read lazily per level.
     public static let maxFiles = 64
 
+    /// The renderer's block rule sees a line after the container prefixes are gone, so the shortcode may also follow
+    /// blockquote markers (`> `, `> > `) and list markers (`- `, `1. `). Up to three spaces of indentation per container; four
+    /// or more is a code block, as it is for the renderer.
+    // lazy: a list item whose content starts four or more columns in (`10. `, a nested list) is not recognised and its include shows "not found"; upgrade = ask the renderer which includes it hit.
     private static let include = try! NSRegularExpression(
-        pattern: #"^ {0,3}\{\{<[ \t]*include[ \t]+(?:"([^"]+)"|'([^']+)'|(\S+?))[ \t]*>\}\}[ \t]*$"#, options: [.anchorsMatchLines])
+        pattern: #"^(?: {0,3}(?:>[ \t]?|(?:[-+*]|\d{1,9}[.)])[ \t]{1,4}(?![ \t])))* {0,3}\{\{<[ \t]*include[ \t]+(?:"([^"]+)"|'([^']+)'|(\S+?))[ \t]*>\}\}[ \t]*$"#,
+        options: [.anchorsMatchLines])
 
     /// Path of an include `target` relative to the document folder, given the folder of the file that contains the
     /// include (`""` = the document folder). nil: absolute, a URL, or it leaves the document folder.
@@ -60,5 +66,18 @@ public enum QuartoIncludes {
             }
         }
         return found
+    }
+
+    /// The reader for `files(for:readFile:)`: text of a file inside `directory` (the document's folder), with the same containment
+    /// as the preview's `macdown2-res://doc/` handler. nil for anything that is not a readable UTF-8 file in the folder.
+    // lazy: files over 1 MB are not read (a document does not include its dataset); no encoding sniffing
+    public static func fileReader(directory: URL?) -> (String) -> String? {
+        { path in
+            guard case .file(let file) = DocumentFileResolver.resolve(path: "/" + path, root: directory),
+                  (try? file.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? .max <= 1_000_000,
+                  let data = try? Data(contentsOf: file)
+            else { return nil }
+            return String(data: data, encoding: .utf8)
+        }
     }
 }

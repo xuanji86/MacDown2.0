@@ -11,12 +11,13 @@ enum CopyHTML {
     private static var renderer: JSCRenderer?
 
     /// The document as rendered HTML (source-line attributes included), with the current Markdown / Rendering settings
-    /// unless `options` says otherwise. One renderer serves both copy and export.
+    /// unless `options` says otherwise. One renderer serves both copy and export, and both are output that leaves the app: script,
+    /// frames, event handlers and script URLs a hostile document carries are removed (the preview has a CSP instead).
     /// `fileURL` decides the flavor (a .qmd renders with the Quarto chunk while that extension is on) and where includes are read.
     static func render(_ markdown: String, options: RenderOptions = RenderSettings.current, fileURL: URL? = nil) async throws -> String {
         let renderer = try renderer ?? JSCRenderer()
         self.renderer = renderer
-        return try await renderer.render(markdown, options: AppExtensions.renderOptions(options, markdown: markdown, fileURL: fileURL)).html
+        return try await renderer.render(markdown, options: AppExtensions.renderOptions(options, markdown: markdown, fileURL: fileURL).forExport).html
     }
 
     static func copy(_ markdown: String, fileURL: URL? = nil, to pasteboard: NSPasteboard = .general) async {

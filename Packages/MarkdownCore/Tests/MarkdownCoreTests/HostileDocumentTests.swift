@@ -48,3 +48,48 @@ private func hostile() throws -> String {
     // the hostile heading never becomes more than text in the outline
     #expect(r.outline.contains { $0.text.contains("<img") })
 }
+
+// Export and Copy HTML: output that leaves the app carries no active content from the document (CopyHTML.render and the CLI
+// ask for `RenderOptions.forExport`). The control is the same document rendered for the preview, which keeps it.
+
+private func liveMarkup(in html: String) -> [String] {
+    var found: [String] = []
+    for tag in ["<script", "<iframe", "<frame", "<object", "<embed", "<applet", "<meta", "<base", "<link", "<noscript", "<animate", "<set "] where html.range(of: tag, options: .caseInsensitive) != nil {
+        found.append(tag)
+    }
+    for tag in html.matches(of: /<[a-zA-Z][^>]*>/) {
+        let unquoted = String(tag.output).replacing(/"[^"]*"/, with: "\"\"")
+        if unquoted.range(of: #"\son[a-z]+\s*="#, options: [.regularExpression, .caseInsensitive]) != nil { found.append("handler in \(tag.output)") }
+    }
+    if html.range(of: #"(?:href|src|data|action)="\s*(?:javascript|vbscript|data:text|file|blob):"#, options: [.regularExpression, .caseInsensitive]) != nil { found.append("script or file URL") }
+    return found
+}
+
+@Test func theHostileDocumentReachesThePreviewButNotAnExport() async throws {
+    let renderer = try JSCRenderer()
+    let preview = try await renderer.render(hostile(), options: RenderOptions()).html
+    #expect(!liveMarkup(in: preview).isEmpty, "the control no longer carries the payloads")
+
+    let exported = try await renderer.render(hostile(), options: RenderOptions().forExport).html
+    #expect(liveMarkup(in: exported) == [])
+    let page = HTMLExporter.document(body: exported, title: "t", inlineImages: { _ in nil })
+    #expect(liveMarkup(in: String(page[page.range(of: "<article")!.lowerBound...])) == [])
+    #expect(page.contains(#"<meta http-equiv="Content-Security-Policy" content="script-src 'none'"#))  // belt and braces for whatever else gets in
+    #expect(exported.contains("<a href=\"https://example.com/\" target=\"_blank\" rel=\"opener\">new window</a>"))  // ordinary raw HTML stays
+}
+
+@Test func exportOptionsAreSanitizedAndNothingElseChanges() {
+    var options = RenderOptions()
+    options.hardBreaks = true
+    #expect(options.sanitize == false)
+    let exported = options.forExport
+    #expect(exported.sanitize && exported.hardBreaks)
+    #expect(RenderOptions().sanitize == false)  // the preview's options are untouched
+}
+
+@Test func rawHTMLOffAndSanitizeAgree() async throws {
+    var options = RenderOptions.init()
+    options.allowRawHTML = false
+    let escaped = try await JSCRenderer().render(hostile(), options: options.forExport).html
+    #expect(liveMarkup(in: escaped) == [])
+}

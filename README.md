@@ -38,7 +38,7 @@ What survives is the part that mattered: the dark editor beside a white page, th
 | **Syntax** | GFM tables and strikethrough, task lists, footnotes, `==highlight==`, `H~2~O` subscript and `x^2^` superscript, `[TOC]`, front matter. Emphasis is CJK-aware — `**「重点」**的` bolds correctly. |
 | **Math & code** | KaTeX for `$$…$$`, `\[…\]` and `\(…\)`, with inline `$…$` as an option. Code blocks highlighted by highlight.js. |
 | **Themes** | 6 editor themes, 8 preview themes, chosen independently — or let both follow the system appearance. |
-| **Export** | Single-file HTML with embedded images, paginated PDF, print, copy as HTML. |
+| **Export** | Single-file HTML with embedded images, paginated PDF (paper, orientation and margins in **Settings › Export**; **Format › Insert Page Break**), print, copy as HTML. Exported and copied HTML never carries script, frames or event handlers from the document. |
 | **Quick Look** | Press Space in Finder to see the rendered document. |
 | **Quarto** | `.qmd` support ships as a built-in extension, on by default. An approximate preview of callouts, `:::` divs, cross-references, citations, shortcodes and `{{< include >}}`; code cells are highlighted, never executed. |
 | **And** | A Settings window, a document outline, an optional status bar with line, column and word count (Chinese counted by character; View ▸ Show Status Bar), and Sparkle for updates once releases begin. |
@@ -66,12 +66,15 @@ macdown2 notes.md docs/      # open files; a folder opens as a workspace
 cat draft.md | macdown2      # piped text is saved to ~/Library/Caches/io.github.xuanji86.MacDown2/stdin/ and opened
 macdown2 --preview-only a.md # open with the preview only (also --editor-only, --both)
 macdown2 render a.md --standalone -o a.html    # render without starting the app
+macdown2 render a.md --export pdf -o a.pdf --css my.css   # paginated PDF, also without the app (also --export html)
 macdown2 --help
 ```
 
 `--both`, `--editor-only` and `--preview-only` set the layout of the window the files open in, whether the app is already running or not (one of them at most, and a file or folder is needed). Without a flag, a new window uses **Settings › Editor › Layout**, a folder opened again brings back the layout it last had, and a restored window keeps its own.
 
-Exit status: 0 ok, 64 bad arguments, 66 file problem, 70 rendering failed.
+`render --export pdf` uses the paper size, orientation and margins from **Settings › Export** and prints from a hidden WebKit view inside the `macdown2` process: no app window, no Dock icon. It needs a logged-in macOS session (it will not work over plain `ssh` or in a launchd daemon) and `-o`, since a PDF is not written to the terminal. `--css file.css` adds your stylesheet after the preview style; only that one local file is read (a URL, or an `@import` in it, is refused). `--embed-images` puts document-relative images into an HTML page. A line of its own with `\newpage`, `{{< pagebreak >}}` or `<div style="page-break-after: always"></div>` starts a new page in PDF and print (a dashed rule in the preview).
+
+Exit status: 0 ok, 64 bad arguments, 66 file problem, 69 PDF writer unavailable, 70 rendering failed.
 
 ## Build from source
 

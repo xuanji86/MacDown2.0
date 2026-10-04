@@ -45,6 +45,8 @@ public enum MarkdownCommand: Equatable, Sendable {
     /// Toggles: applying the command to lines that already have the marker removes it.
     case unorderedList, orderedList, blockquote
     case codeBlock
+    /// A page break for PDF / print on a line of its own (`MarkdownCommand.pageBreakMarker`), after the selection's last line.
+    case pageBreak
     /// Wrap the selection; a URL on the clipboard (or the selection itself being a URL) is filled in.
     case link, image
     case indent, outdent
@@ -65,12 +67,18 @@ public enum MarkdownCommand: Equatable, Sendable {
         case .orderedList: return Lines.orderedList(text, selection)
         case .blockquote: return Lines.blockquote(text, selection)
         case .codeBlock: return Inline.codeBlock(text, selection)
+        case .pageBreak: return Inline.pageBreak(text, selection)
         case .link: return Inline.link(text, selection, url: Self.url(in: clipboard), image: false)
         case .image: return Inline.link(text, selection, url: Self.url(in: clipboard), image: true)
         case .indent: return Lines.indent(text, selection, behavior)
         case .outdent: return Lines.outdent(text, selection, behavior)
         }
     }
+
+    /// What Insert Page Break writes. Plain HTML that Typora, VS Code, Marked, md-to-pdf and most other Markdown tools turn into a
+    /// page break, and that other renderers show as nothing; the renderer here also takes Pandoc's `\newpage` and Quarto's
+    /// `{{< pagebreak >}}` (Web/src/render/plugins/page-break.ts).
+    public static let pageBreakMarker = #"<div style="page-break-after: always"></div>"#
 
     /// `text` trimmed, if it is a single http(s)/ftp/mailto URL; nil otherwise.
     public static func url(in text: String?) -> String? {
@@ -143,6 +151,29 @@ enum Inline {
             replacement: lead + "```\n" + body + "\n```" + trail,
             selection: NSRange(location: start + lead.utf16.count + 4, length: body.utf16.count)
         )
+    }
+
+    /// The page-break marker on a line of its own, below the line the selection ends on (replacing that line when it is blank),
+    /// with a blank line on each side; the caret lands on the line after it.
+    static func pageBreak(_ text: NSString, _ sel: NSRange) -> TextEdit {
+        var end = NSMaxRange(sel)
+        if sel.length > 0, text.character(at: end - 1) == 0x0A { end -= 1 }  // a selection of whole lines ends on their last one
+        var lineStart = 0, lineEnd = 0, contentsEnd = 0
+        text.getLineStart(&lineStart, end: &lineEnd, contentsEnd: &contentsEnd, for: NSRange(location: end, length: 0))
+        let blank = text.substring(with: NSRange(location: lineStart, length: contentsEnd - lineStart)).allSatisfy { $0 == " " || $0 == "\t" }
+        let range = blank ? NSRange(location: lineStart, length: contentsEnd - lineStart) : NSRange(location: contentsEnd, length: 0)
+        var replacement = (blank ? "" : "\n\n") + MarkdownCommand.pageBreakMarker
+        let hasNewline = lineEnd > contentsEnd
+        if !hasNewline {
+            replacement += "\n"  // the file ends here: end it with a newline
+        } else if lineEnd < text.length {  // a following line that is not blank would touch the marker
+            var nextEnd = 0, nextContentsEnd = 0
+            text.getLineStart(nil, end: &nextEnd, contentsEnd: &nextContentsEnd, for: NSRange(location: lineEnd, length: 0))
+            if !text.substring(with: NSRange(location: lineEnd, length: nextContentsEnd - lineEnd)).allSatisfy({ $0 == " " || $0 == "\t" }) { replacement += "\n" }
+        }
+        let newLength = text.length - range.length + (replacement as NSString).length
+        let caret = min(range.location + (replacement as NSString).length + (hasNewline ? 1 : 0), newLength)
+        return TextEdit(range: range, replacement: replacement, selection: NSRange(location: caret, length: 0))
     }
 
     /// `[sel](url)` / `![sel](url)`. Caret lands where the user types next: the empty `[]`, the empty `()`, or after.
