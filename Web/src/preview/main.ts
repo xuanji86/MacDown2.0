@@ -11,7 +11,7 @@ import { planPatch } from './dom-patch.ts';
 import { rewriteImages } from './images.ts';
 import { rewriteLinks, startAnchorScrolling, stripActiveContent } from './links.ts';
 import { renderMermaid, setMermaidStyle } from './mermaid-loader.ts';
-import { pageYToLine, recordAnchor, scrollToLine as scrollBlocksToLine, startAnchoring, startScrollReporting, type BlockHandle } from './scroll.ts';
+import { blockNodes, elements, pageYToLine, recordAnchor, scrollToLine as scrollBlocksToLine, startAnchoring, startScrollReporting, type BlockHandle } from './scroll.ts';
 import { alignSegments, splitBlocks, type Segment } from './split-html.ts';
 import { DEFAULT_STYLE, styleLinks } from './styles.ts';
 import { enableTaskCheckboxes, focusedTaskLine, restoreTaskFocus, setRenderVersion, startTaskToggling } from './tasks.ts';
@@ -83,27 +83,18 @@ function handlesFrom(nodes: Node[]): BlockHandle[] {
 }
 
 function remove(h: BlockHandle): void {
-  for (let n: Node | null = h.first; n; ) {
-    const next: Node | null = n.nextSibling;
-    (n as ChildNode).remove();
-    if (n === h.last) break;
-    n = next;
-  }
+  for (const n of blockNodes(h)) (n as ChildNode).remove();
 }
 
 // Shift data-line / data-line-end of a kept block by `delta` lines (something above it gained or lost lines).
 function shiftLines(h: BlockHandle, delta: number): void {
-  for (let n: Node | null = h.first; n; n = n.nextSibling) {
-    if (n.nodeType === 1) {
-      const el = n as Element;
-      for (const t of [el, ...el.querySelectorAll('[data-line]')]) {
-        for (const attr of ['data-line', 'data-line-end']) {
-          const v = t.getAttribute(attr);
-          if (v !== null) t.setAttribute(attr, String(Number(v) + delta));
-        }
+  for (const el of elements(h)) {
+    for (const t of [el, ...el.querySelectorAll('[data-line]')]) {
+      for (const attr of ['data-line', 'data-line-end']) {
+        const v = t.getAttribute(attr);
+        if (v !== null) t.setAttribute(attr, String(Number(v) + delta));
       }
     }
-    if (n === h.last) break;
   }
 }
 
@@ -174,10 +165,12 @@ function patch(html: string, segs: Segment[], lines: Lines[], st: State): number
 // `version` is the app's counter for this render; checkbox clicks carry it back so the app knows which text the page shows.
 // `edit`: when the text is made of this page's preview edits, the base render and number of the last one it contains (editing.ts);
 // while the page shows more than that, or an input method is composing, the render is held back and `{deferred: true}` returned.
+// `rebuild`: forget the block table first (the whole page is built again), only when the render is applied.
 // On a render failure the previous content stays, the error bar shows the message, the error goes to Swift over
 // the bridge, and `{error}` is returned.
-export function update(md: string, optionsJSON: string, version = 0, edit: { base: number; seq: number } | null = null): string {
+export function update(md: string, optionsJSON: string, version = 0, edit: { base: number; seq: number } | null = null, rebuild = false): string {
   if (beforeUpdate(md, edit) === 'defer') return JSON.stringify({ deferred: true });
+  if (rebuild) invalidate();
   const t0 = performance.now();
   const focusedTask = focusedTaskLine();
   try {
@@ -220,6 +213,7 @@ export function update(md: string, optionsJSON: string, version = 0, edit: { bas
     const ms = (a: number, b: number): number => Math.round((b - a) * 100) / 100;
     return JSON.stringify({ ...meta, perf: { mode, created, render: ms(t0, t1), split: ms(t1, t2), apply: ms(t2, t3), patch: ms(t1, t3), total: ms(t0, t3) } });
   } catch (e) {
+    afterUpdate(); // the old content stays: so does edit mode
     const message = errorText(e);
     errorBar().textContent = `Render error: ${message}`;
     errorBar().hidden = false;

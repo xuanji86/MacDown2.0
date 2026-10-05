@@ -128,19 +128,28 @@ export function selectedSource(): [number, number] | null {
   const me = hs === he ? ms : mapBlock(he);
   const ps = ms && handleOf(r.startContainer) === hs ? pointIn(ms, r.startContainer, r.startOffset) : null;
   const pe = me && handleOf(r.endContainer) === he ? pointIn(me, r.endContainer, r.endOffset) : null;
+  // Each end goes to the nearest mapped character inside the selection, else to the mapped text's edge next to it (a selection
+  // that starts after a block's last character, or ends before the next block's first, takes nothing of that block); only a block
+  // with no mapped text at all stands in whole.
   const limit = hs === he && pe ? pe.k : Infinity;
-  if (ms && ps) {
-    for (let k = ps.k; k < ms.offsets.length && k < limit; k++) {
-      if (ms.offsets[k] >= 0) {
-        from = ms.offsets[k];
-        break;
-      }
+  if (ms && ps && ms.placed) {
+    let k = ps.k;
+    while (k < ms.offsets.length && k < limit && ms.offsets[k] < 0) k++;
+    if (k < ms.offsets.length && k < limit) from = ms.offsets[k];
+    else {
+      for (k = ps.k - 1; k >= 0 && ms.offsets[k] < 0; k--);
+      from = k >= 0 ? ms.offsets[k] + 1 : ms.offsets.find((o) => o >= 0)!;
     }
   }
-  if (me && pe) {
+  if (me && pe && me.placed) {
     const floor = hs === he && ps ? ps.k : 0;
-    for (let k = pe.k - 1; k >= floor; k--) {
-      if (me.offsets[k] >= 0) {
+    let k = pe.k - 1;
+    while (k >= floor && me.offsets[k] < 0) k--;
+    if (k >= floor) to = me.offsets[k] + 1;
+    else {
+      for (k = pe.k; k < me.offsets.length && me.offsets[k] < 0; k++);
+      if (k < me.offsets.length) to = me.offsets[k];
+      else for (k = me.offsets.length - 1; k >= 0; k--) if (me.offsets[k] >= 0) {
         to = me.offsets[k] + 1;
         break;
       }

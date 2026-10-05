@@ -117,12 +117,13 @@ struct EditorPane: NSViewRepresentable {
 
         func textViewDidChangeSelection(_ notification: Notification) {
             guard let textView = notification.object as? MarkdownTextView else { return }
-            scrollSync.caretMoved(in: textView)
             status?.selectionChanged(in: textView)
-            // Two-way selection: only a selection the user makes here goes to the preview (an edit typed in the preview moves this
-            // view's selection too, while the preview has the focus), and working here ends the preview's highlight.
-            if textView.window?.firstResponder === textView, !textView.hasMarkedText() {
-                textView.clearPeerHighlight()
+            // Only what happens here moves the preview: an edit typed in the preview moves this view's selection too (while the preview
+            // has the focus), and must neither scroll the preview to it ("preview follows the caret") nor highlight it there.
+            guard textView.window?.firstResponder === textView else { return }
+            scrollSync.caretMoved(in: textView)
+            if !textView.hasMarkedText() {
+                textView.clearPeerHighlight()  // working here ends the preview's highlight in this view
                 editor?.onSelectionChange?(textView.selectedRange())
             }
         }

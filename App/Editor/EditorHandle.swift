@@ -51,20 +51,20 @@ final class EditorHandle {
     /// layout (a hidden pane is only faded out), so the same path serves split and preview-only. Returns the editor's new
     /// text, or nil when nothing was changed.
     func toggleTask(_ task: TaskItem, checked: Bool, renderedText: String) -> String? {
-        guard let textView, textView.string == renderedText,
+        guard let textView, textView.string.isIdentical(to: renderedText),
               let edit = TaskToggle.edit(in: renderedText, task: task, checked: checked),
               textView.replaceUndoably(edit.range, with: edit.replacement, actionName: String(localized: "Toggle Task"))
         else { return nil }
         return textView.string
     }
 
-    /// Text edited in the preview (PLAN M2): `edit` made on `expectedText`, which the editor must hold exactly (the page's text and the
-    /// editor's agree, so the edit means what the user saw). Typed into the text view as typing there is, so undo and redo work as for
-    /// keystrokes in the editor, and the model, the autosave and the next render follow as usual. Returns the editor's new text, or
-    /// nil when nothing was changed.
+    /// Text edited in the preview (PLAN M2): `edit` made on `expectedText`, which the editor must hold exactly, unit for unit, with the
+    /// edit's characters where the page saw them (`PreviewEditChain.fits`: one check, here). Typed into the text view as typing there
+    /// is, so undo and redo work as for keystrokes in the editor (the edit says whether it starts a new step), and the model, the
+    /// autosave and the next render follow as usual. Returns the editor's new text, or nil when nothing was changed.
     func applyPreviewEdit(_ edit: PreviewEdit, expectedText: String) -> String? {
-        guard let textView, textView.string == expectedText, PreviewEditChain.isApplicable(edit, to: expectedText),
-              textView.typeExternally(edit.replacement, replacing: edit.range, startsNewStep: edit.seq == 1)
+        guard let textView, textView.string.isIdentical(to: expectedText), PreviewEditChain.fits(edit, in: expectedText),
+              textView.typeExternally(edit.replacement, replacing: edit.range, startsNewStep: edit.startsStep)
         else { return nil }
         return textView.string
     }
@@ -73,9 +73,13 @@ final class EditorHandle {
     /// editor holds that same text and no input method is composing; nil clears it.
     func showPeerHighlight(_ range: NSRange?, text: String) {
         guard let textView else { return }
-        guard let range, range.length > 0, !textView.hasMarkedText(), textView.string == text else { return textView.clearPeerHighlight() }
+        guard let range, range.length > 0, !textView.hasMarkedText(), textView.string.isIdentical(to: text) else { return textView.clearPeerHighlight() }
         textView.showPeerHighlight([range])
     }
+
+    #if DEBUG
+    isolated deinit { debugLifetime.info("EditorHandle freed") }
+    #endif
 
     func clearPeerHighlight() { textView?.clearPeerHighlight() }
 

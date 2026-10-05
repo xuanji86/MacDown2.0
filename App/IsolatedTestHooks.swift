@@ -59,6 +59,12 @@ import WorkspaceKit
 ///                                         page's highlight is logged; `MACDOWN2_TEST_PAGE_SELECT=<line>:<a>:<b>` then selects characters
 ///                                         a ..< b of the first text node of the block on <line> in the page and logs what the editor shows.
 ///                                         Everything is logged: `log show --predicate 'category == "preview-edit-hook"'`
+#if DEBUG
+/// Debug builds log a closed window and its models going away (`WindowModel`, `PreviewModel`, `EditorHandle` deinit), to check that
+/// nothing keeps a window's objects alive: `log show --predicate 'category == "lifetime"' --info`.
+let debugLifetime = Logger(subsystem: "io.github.xuanji86.MacDown2", category: "lifetime")
+#endif
+
 enum IsolatedTestHooks {
     #if DEBUG
     private static func value(_ name: String) -> String? {

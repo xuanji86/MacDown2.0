@@ -411,22 +411,12 @@ function closingSequenceEnd(line: string): number {
  *  one probe per batch of placed characters (one, unless a block places more characters than there are free private-use code
  *  points, about 137 000), or an empty list when nothing could be placed. */
 export function probeBlock(text: string, options: RenderOptions, first: boolean, context?: BlockContext | null): InlineProbe[] {
-  const o = first || !options.extensions.includes('frontMatter') ? options : { ...options, extensions: options.extensions.filter((e) => e !== 'frontMatter') };
-  const { md, track } = instrumented(o);
-  const env: Record<string, unknown> = { outline: [] };
-  if (context?.references) env.references = { ...context.references };
-  if (context?.labels) env.footnotes = { refs: { ...context.labels } };
+  const { md, o, track, env, tokens } = parseBlock(text, options, first, context);
   const lines = text.split('\n');
   const lineStarts: number[] = [];
   for (let i = 0, at = 0; i < lines.length; i++) {
     lineStarts.push(at);
     at += lines[i].length + 1;
-  }
-  let tokens: Token[];
-  try {
-    tokens = md.parse(text, env);
-  } finally {
-    if (o.extensions.includes('math')) md.render('', { outline: [] }); // KaTeX's global macros reset, as renderResult does
   }
   // Claims: (token, unit, block offset), in rendering order.
   const claimed: Array<{ t: Token; k: number; at: number }> = [];
@@ -451,8 +441,7 @@ export function probeBlock(text: string, options: RenderOptions, first: boolean,
   }
   if (!claimed.length) return [];
   // The footnote section comes after the block, never inside it.
-  const tail = tokens.findIndex((t) => t.type === 'footnote_block_open');
-  const body = tail < 0 ? tokens : tokens.slice(0, tail);
+  const body = withoutFootnotes(tokens);
   // Sentinels: private-use code points the block does not contain, the BMP's first (one unit each), then planes 15 and 16 (a
   // surrogate pair each: the probe's text is then longer than the page's, readProbe walks both).
   const used = new Set<number>();
@@ -499,6 +488,39 @@ export function probeBlock(text: string, options: RenderOptions, first: boolean,
   return probes;
 }
 
+/** The block on its own, parsed by the instrumented renderer (the front matter extension only for the document's first block). */
+function parseBlock(text: string, options: RenderOptions, first: boolean, context?: BlockContext | null) {
+  const o = first || !options.extensions.includes('frontMatter') ? options : { ...options, extensions: options.extensions.filter((e) => e !== 'frontMatter') };
+  const { md, track } = instrumented(o);
+  const env: Record<string, unknown> = { outline: [] };
+  if (context?.references) env.references = { ...context.references };
+  if (context?.labels) env.footnotes = { refs: { ...context.labels } };
+  let tokens: Token[];
+  try {
+    tokens = md.parse(text, env);
+  } finally {
+    if (o.extensions.includes('math')) md.render('', { outline: [] }); // KaTeX's global macros reset, as renderResult does
+  }
+  return { md, o, track, env, tokens };
+}
+
+// The footnote section comes after the block, never inside it.
+function withoutFootnotes(tokens: Token[]): Token[] {
+  const tail = tokens.findIndex((t) => t.type === 'footnote_block_open');
+  return tail < 0 ? tokens : tokens.slice(0, tail);
+}
+
+/** The block `text` rendered on its own exactly as `probeBlock` renders it, without sentinels: what the page checks an edit
+ *  against before making it (the block must show what the user typed, nothing else). */
+export function renderBlock(text: string, options: RenderOptions, first: boolean, context?: BlockContext | null): string {
+  const { md, o, env, tokens } = parseBlock(text, options, first, context);
+  try {
+    return md.renderer.render(withoutFootnotes(tokens), md.options, env);
+  } finally {
+    if (o.extensions.includes('math')) md.render('', { outline: [] });
+  }
+}
+
 /** The whole document's link reference definitions and footnote labels (block phase only), for blocks that use them. */
 export function documentContext(source: string, options: RenderOptions): BlockContext {
   const { md } = instrumented(options);
@@ -508,4 +530,4 @@ export function documentContext(source: string, options: RenderOptions): BlockCo
   return { references: found.references, labels: found.footnotes?.refs };
 }
 
-export const inlineMap = { probe: probeBlock, context: documentContext };
+export const inlineMap = { probe: probeBlock, render: renderBlock, context: documentContext };

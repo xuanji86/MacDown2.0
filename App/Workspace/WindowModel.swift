@@ -151,6 +151,10 @@ final class WindowModel {
 
     func closeWindow() { window?.performClose(nil) }
 
+    #if DEBUG
+    isolated deinit { debugLifetime.info("WindowModel freed") }
+    #endif
+
     /// Does closing this window have to ask about unsaved changes?
     var needsCloseReview: Bool {
         controller.session.tabs.contains { tab in

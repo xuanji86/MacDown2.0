@@ -8,8 +8,12 @@ export type BridgeMessage =
   // the preview's selection as a source range [from, to) of the text of render `version` (-1, -1: none), peer.ts
   | { type: 'selection'; token: string; version: number; from: number; to: number }
   // a text edit made in the preview (editing.ts): source [from, to) replaced by `text`, in the text of render `base` with this
-  // burst's edits 1 ..< seq already applied; the app applies it only if its editor holds exactly that text
-  | { type: 'previewEdit'; token: string; base: number; seq: number; from: number; to: number; text: string }
+  // burst's edits 1 ..< seq already applied; the app applies it only if its editor holds exactly that text, with `removed` in
+  // [from, to) and `before` / `after` right around it. `step`: it starts a new undo step (else it continues the last typing)
+  | {
+      type: 'previewEdit'; token: string; base: number; seq: number; from: number; to: number; text: string; step: boolean;
+      removed: string; before: string; after: string;
+    }
   // the page held back a render while an edit or an input method was in flight, and now wants the app's current text again
   | { type: 'resync'; token: string };
 

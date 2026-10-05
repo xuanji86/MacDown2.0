@@ -89,12 +89,14 @@ struct DocumentView: View {
         .onAppear {
             scrollSync.attach(preview: preview)
             preview.onToggleTask = { [editor] task, checked, text in editor.toggleTask(task, checked: checked, renderedText: text) }
-            // Preview editing and two-way selection (PLAN M2): edits typed in the preview go into the editor, each pane shows the other's selection.
-            preview.onPreviewEdit = { [editor] edit, expected in editor.applyPreviewEdit(edit, expectedText: expected) }
-            preview.onPreviewSelection = { [editor] range, text in editor.showPeerHighlight(range, text: text) }
-            editor.onSelectionChange = { [preview, model] range in
-                guard let text = model.activeDocument?.text else { return }
-                preview.showEditorSelection(range, in: text)
+            // Preview editing and two-way selection (PLAN M2): edits typed in the preview go into the editor, each pane shows the other's
+            // selection. Weak both ways: the preview model and the editor handle refer to each other through these.
+            preview.onPreviewEdit = { [weak editor] edit, expected in editor?.applyPreviewEdit(edit, expectedText: expected) }
+            preview.onPreviewSelection = { [weak editor] range, text in editor?.showPeerHighlight(range, text: text) }
+            // Selection and text read together from the text view when the preview looks (the model may not have the text yet, after an
+            // undo or a command).
+            editor.onSelectionChange = { [weak preview, weak editor] _ in
+                preview?.showEditorSelection { [weak editor] in editor?.textView.map { ($0.selectedRange(), $0.string) } }
             }
         }
         .onChange(of: syncScrolling, initial: true) { _, on in scrollSync.isEnabled = on }

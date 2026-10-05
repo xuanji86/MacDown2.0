@@ -271,6 +271,9 @@ final class WorkspaceRegistry: DocumentBackend {
         model.editedSink = nil
         models[model.controller.id] = nil
         persist()
+        #if DEBUG
+        debugLifetime.info("window closed")
+        #endif
     }
 
     /// Front to back; windows that are not on screen yet come last.

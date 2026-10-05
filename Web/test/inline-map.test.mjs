@@ -18,8 +18,8 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { inlineMap, renderResult } from '../src/render/index.ts';
 import { alignKept } from '../src/render/align.ts';
-import { readProbes, settle, sourceEdit, insertionAt } from '../src/preview/source-map.ts';
-import { blockHTML, linesRange, textNodesOf, textOf } from './helpers/text-dom.mjs';
+import { insertionAt, literalEdit, readProbes, rebase, rebaseOffset, settle, sourceEdit } from '../src/preview/source-map.ts';
+import { blockHTML, linesRange, nodesOf, textNodesOf, textOf } from './helpers/text-dom.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const DOCS = Number(process.env.MD2_MAP_DOCS ?? 160);
@@ -54,14 +54,16 @@ function mapBlock(doc, options, result, html, j) {
   const first = b.lineStart === 0;
   let probes = inlineMap.probe(blockText, options, first, null);
   let rel = probes.length ? readProbes(live, probes, textOf) : null;
+  let context = null;
   if (!rel && probes.length) {
-    probes = inlineMap.probe(blockText, options, first, inlineMap.context(doc, options));
+    context = inlineMap.context(doc, options);
+    probes = inlineMap.probe(blockText, options, first, context);
     rel = readProbes(live, probes, textOf);
   }
   if (rel && !settle(rel, live, blockText)) rel = null;
   const offsets = new Int32Array(live.length).fill(-1);
   if (rel) for (let k = 0; k < rel.length; k++) if (rel[k] >= 0) offsets[k] = rel[k] + start;
-  return { live, offsets, mapped: rel !== null, start, end };
+  return { live, offsets, mapped: rel !== null, start, end, first, context };
 }
 
 // A different character of the same kind, so the change is as unlikely as possible to make or break syntax. One half of a
@@ -182,15 +184,74 @@ test('alignKept keeps what a rewrite kept and gives up characters a removed run 
 });
 
 test('typing goes next to the character the caret is attached to; deletions must not cross formatting', () => {
-  const offsets = Int32Array.from([0, 1, 2, 5, 6, -1]);
-  assert.equal(insertionAt(offsets, 3, true, false), 3); // end of "abc" in **...**: inside it
-  assert.equal(insertionAt(offsets, 3, false, true), 5); // start of the next node: after the markup
-  assert.equal(insertionAt(offsets, 5, true, false), 7); // after "e"
-  assert.equal(insertionAt(offsets, 6, false, true), -1);
-  assert.deepEqual(sourceEdit(offsets, 'abcde\n', 'abc**de\n', 1, 3, '', true, true), { from: 1, to: 3 });
-  assert.deepEqual(sourceEdit(offsets, 'abcde\n', 'abc**de\n', 2, 4, '', true, true), { refused: 'formatting' });
-  assert.deepEqual(sourceEdit(offsets, 'abcde\n', 'abc**de\n', 4, 6, '', true, true), { refused: 'newline' });
-  assert.deepEqual(sourceEdit(offsets, 'abcde\n', 'abc**de\n', 1, 1, 'x\ny', true, true), { refused: 'newline' });
+  // "abc**de": shown "abcde\n"
+  const m = { offsets: Int32Array.from([0, 1, 2, 5, 6, -1]), widths: null, text: 'abcde\n' };
+  assert.equal(insertionAt(m, 3, true, false), 3); // end of "abc" in **...**: inside it
+  assert.equal(insertionAt(m, 3, false, true), 5); // start of the next node: after the markup
+  assert.equal(insertionAt(m, 5, true, false), 7); // after "e"
+  assert.equal(insertionAt(m, 6, false, true), -1);
+  assert.deepEqual(sourceEdit(m, 'abc**de\n', 1, 3, '', true, true), { from: 1, to: 3 });
+  assert.deepEqual(sourceEdit(m, 'abc**de\n', 2, 4, '', true, true), { refused: 'formatting' });
+  assert.deepEqual(sourceEdit(m, 'abc**de\n', 4, 6, '', true, true), { refused: 'newline' });
+  for (const nl of ['x\ny', '\r', '\v', '\f', '\u0085', ' ', ' ']) assert.deepEqual(sourceEdit(m, 'abc**de\n', 1, 1, nl, true, true), { refused: 'newline' });
+  // the source the edit is applied to must have the shown characters where the map says (a stale or shifted map is refused)
+  assert.deepEqual(sourceEdit(m, 'Xbc**de\n', 0, 1, '', true, true), { refused: 'unmapped' });
+  assert.deepEqual(sourceEdit(m, 'aXc**de\n', 2, 2, 'q', true, false), { refused: 'unmapped' });
+  // a unit two source characters wide (an escape typed here): deleted whole, typed after whole
+  const esc = { offsets: Int32Array.from([0, 1, 3]), widths: Uint8Array.from([1, 2, 1]), text: 'a*b' };
+  assert.deepEqual(sourceEdit(esc, 'a\\*b', 1, 2, '', true, true), { from: 1, to: 3 });
+  assert.equal(insertionAt(esc, 2, true, false), 3);
+});
+
+test('a map moves through the edits made elsewhere in a burst, and an edit inside the block invalidates it', () => {
+  const m = { offsets: Int32Array.from([10, 11, -1, 12]), start: 10, end: 13, placed: 3 };
+  const moved = rebase(m, [{ from: 2, to: 2, len: 3 }, { from: 0, to: 1, len: 0 }]); // 3 inserted before, 1 deleted before
+  assert.deepEqual([...moved.offsets], [12, 13, -1, 14]);
+  assert.deepEqual([moved.start, moved.end], [12, 15]);
+  assert.equal(rebase(m, [{ from: 11, to: 12, len: 1 }]), null);
+  assert.equal(rebaseOffset(20, [{ from: 25, to: 25, len: 4 }]), 20); // after it: unchanged
+});
+
+// What a block's source shows on its own (text and elements), the way the page renders a block to check an edit.
+const tagsOf = (html) => {
+  const nodes = nodesOf(html);
+  const tags = [];
+  const walk = (n) => {
+    if (n.nodeType !== 1) return;
+    tags.push(n.localName);
+    for (const c of n.childNodes) walk(c);
+  };
+  nodes.forEach(walk);
+  return tags.join(' ');
+};
+const shownOf = (options, first = true, context = null) => (block) => {
+  const html = inlineMap.render(block, options, first, context);
+  return { text: textOf(html), tags: tagsOf(html) };
+};
+
+test('typed Markdown syntax is escaped so it shows as typed, and an edit that would still change the markup is refused', () => {
+  const o = OPTION_SETS.app;
+  const check = (src, at, data, want) => {
+    const r = shownOf(o);
+    const before = r(src);
+    const live = before.text;
+    const k = at; // the shown index is the source index in these cases (no markup before `at`)
+    const expected = live.slice(0, k) + data + live.slice(k);
+    const got = literalEdit(src, 0, src.length, at, at, data, expected, before, r);
+    assert.deepEqual(got && got.insert, want, `${JSON.stringify(src)} + ${JSON.stringify(data)} at ${at}`);
+  };
+  check('a b', 1, 'x', 'x'); // nothing to escape
+  check('a b', 1, '*', '*'); // a lone * shows as itself
+  check('a b*', 0, '*', '\\*'); // it would make emphasis with the * at the end
+  check('a `b', 1, '`', '\\`');
+  check('a b', 1, '<b>', '\\<b\\>');
+  check('a b', 0, '# ', '\\# '); // at the line start it would make a heading
+  check('a b', 0, '- ', '\\- ');
+  check('hi :smile', 9, ':', ':'); // emoji off in this option set
+  // deleting the only character of an emphasis would leave literal ** behind: refused
+  const src = 'x *a* y';
+  const before = shownOf(o)(src);
+  assert.equal(literalEdit(src, 0, src.length, 3, 4, '', 'x  y', before, shownOf(o)), null);
 });
 
 // --- corpus and generated documents ----------------------------------------------------------------------------------------
@@ -268,7 +329,7 @@ test('generated documents: every unit the map places is confirmed by the oracle'
 // --- edits through the map ---------------------------------------------------------------------------------------------------
 
 const INERT = ['q', 'Z', '7', '字', 'é'];
-const ANY = [...INERT, '*', '_', '`', '[', ']', '#', '\\', '&', ' ', '~', '<', '中文', 'xy', '😀'];
+const ANY = [...INERT, '*', '_', '`', '[', ']', '#', '\\', '&', ' ', '~', '<', '中文', 'xy', '😀', '|', '# ', '- ', '1. ', '> ', '**', '<b>', '`x`', '$', '=', '^', ':', '!', '(', ')', '&amp;', '--', '"', '[^1]', '\\*', '  '];
 const inert = (s) => /^[\p{L}\p{N}]*$/u.test(s);
 
 /** Random edits of the shown text of every mapped block of `doc`, made through the map; see the file header. */
@@ -276,6 +337,7 @@ function editDocument(doc, options, r, stats) {
   const result = renderResult(doc, options);
   const html = blockHTML(result);
   if (!html) return;
+  const context = inlineMap.context(doc, options); // the page checks every edit with the document's definitions
   for (let j = 0; j < result.blocks.length; j++) {
     const m = mapBlock(doc, options, result, html, j);
     if (!m.mapped) continue;
@@ -293,7 +355,7 @@ function editDocument(doc, options, r, stats) {
         else prev = false;
       }
       const data = kind === 1 ? '' : r.pick(r.int(2) ? INERT : ANY);
-      const v = sourceEdit(m.offsets, m.live, doc, k0, k1, data, prev, next);
+      const v = sourceEdit({ offsets: m.offsets, widths: null, text: m.live }, doc, k0, k1, data, prev, next);
       stats.edits++;
       if ('refused' in v) {
         stats.refused[v.refused] = (stats.refused[v.refused] ?? 0) + 1;
@@ -311,44 +373,43 @@ function editDocument(doc, options, r, stats) {
         const verdict = confirm(doc, options, j, m.live, k, m.offsets[k]);
         if (verdict !== 'pass' && verdict !== 'moved') failWith(doc, options, `block ${j}: ${verdict}`);
       }
-      // Inside plain text (both neighbours placed and next to the edit in the source, one text node, letters typed or deleted):
-      // rendering the edited source shows exactly what was typed.
-      const a = k0 - 1;
-      const b = k1;
-      const interior = a >= 0 && b < len && m.offsets[a] >= 0 && m.offsets[b] >= 0 && sameNode(a, b) && inert(data) && inert(m.live.slice(k0, k1)) &&
-        inert(m.live[a]) && inert(m.live[b]) && v.from === m.offsets[a] + 1 && v.to === m.offsets[b];
-      if (!interior) continue;
-      stats.interior++;
-      const edited = doc.slice(0, v.from) + data + doc.slice(v.to);
+      // What the page writes: the typed characters as they are, or escaped, so that the block shows exactly what was typed in the
+      // markup it had (checked on the block alone, as the page does) ...
+      const want = m.live.slice(0, k0) + data + m.live.slice(k1);
+      const render = shownOf(options, m.first, context);
+      const literal = literalEdit(doc, m.start, m.end, v.from, v.to, data, want, render(doc.slice(m.start, m.end)), render);
+      if (!literal) {
+        stats.refused.markup = (stats.refused.markup ?? 0) + 1;
+        continue;
+      }
+      if (literal.insert !== data) stats.escaped++;
+      // ... and the whole document, rendered again from scratch, shows it too (spaces and tabs aside: Markdown hides them at line ends).
+      const edited = doc.slice(0, v.from) + literal.insert + doc.slice(v.to);
       const again = renderResult(edited, options);
       const h2 = blockHTML(again);
-      const now = h2 && again.blocks.length === result.blocks.length ? textOf(h2[j]) : null;
-      const want = m.live.slice(0, k0) + data + m.live.slice(k1);
-      if (now === want) stats.shown++;
-      else {
-        stats.syntax++;
-        if (stats.examples.length < 5) stats.examples.push({ block: doc.slice(m.start, m.end), want, now });
+      const squeeze = (s) => s.replace(/[ \t]/g, '');
+      if (!h2 || again.blocks.length !== result.blocks.length || squeeze(textOf(h2[j])) !== squeeze(want) || tagsOf(h2[j]) !== tagsOf(html[j])) {
+        failWith(edited, options, `block ${j}: ${JSON.stringify(data)} written as ${JSON.stringify(literal.insert)} does not show as typed: ${JSON.stringify(h2 ? textOf(h2[j]) : null)} / ${JSON.stringify(want)}`);
       }
+      stats.shown++;
+      if (inert(data) && inert(m.live.slice(k0, k1)) && sameNode(Math.max(0, k0 - 1), Math.min(len - 1, k1))) stats.interior++;
     }
   }
 }
 
-test('edits through the map: the same source characters, and plain-text edits render as typed', () => {
+test('edits through the map, Markdown syntax typed too: the same source characters, and every edit made shows exactly as typed', () => {
   const seeds = SEED === null ? Array.from({ length: DOCS }, (_, i) => i + 1) : [SEED];
   let total = 0;
   for (const [name, options] of Object.entries(OPTION_SETS)) {
-    const stats = { edits: 0, applied: 0, refused: {}, interior: 0, shown: 0, syntax: 0, examples: [] };
+    const stats = { edits: 0, applied: 0, refused: {}, shown: 0, escaped: 0, interior: 0 };
     for (const seed of seeds) {
       const r = rng(seed * 104729 + name.length);
       editDocument(generate(r), options, r, stats);
     }
     for (const [, text] of corpus.slice(0, 12)) editDocument(text.replace(/\r\n?/g, '\n'), options, rng(5), stats);
     total += stats.edits;
-    // A letter typed or deleted inside a word can still change the syntax around it (a shortcut reference's label, a scheme that
-    // linkify no longer knows): rare, and it is what the same edit in the source does too.
-    assert.ok(stats.syntax <= stats.interior / 50, `${name}: ${JSON.stringify(stats)}`);
-    console.log(`edits ${name}: ${JSON.stringify({ ...stats, examples: stats.examples.length })}`);
-    if (stats.examples.length) console.log(JSON.stringify(stats.examples, null, 1));
+    assert.ok(stats.shown > stats.edits / 3 && stats.escaped > 50, `${name}: ${JSON.stringify(stats)}`);
+    console.log(`edits ${name}: ${JSON.stringify(stats)}`);
   }
   assert.ok(total > 1000);
 });

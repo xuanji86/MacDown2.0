@@ -102,6 +102,16 @@ struct PreviewEditingTests {
         #expect(v.enclosingScrollView!.contentView.bounds.origin == origin)
     }
 
+    /// A highlight over a whole long document looks at what is on screen only: a rectangle per visible line, not per line of the text.
+    @Test func thePeerHighlightOfALongRangeCostsTheScreenOnly() {
+        let text = (0..<3000).map { "line number \($0) of a long document" }.joined(separator: "\n")
+        let (v, _) = view(text)
+        v.showPeerHighlight([NSRange(location: 0, length: (text as NSString).length)])
+        let rects = v.peerHighlightRects
+        #expect(!rects.isEmpty && rects.count < 200)
+        #expect(rects.allSatisfy { $0.intersects(v.visibleRect) })
+    }
+
     @Test func thePeerHighlightTouchesNeitherTheTextNorTheUndoHistoryNorAComposition() async {
         let (v, d) = view("first line\nsecond line\n")
         _ = await eventually { v.textStorage?.attribute(.foregroundColor, at: 0, effectiveRange: nil) != nil }
