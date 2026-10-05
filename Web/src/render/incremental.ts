@@ -148,6 +148,7 @@ interface Entry {
   newlines: number;
   clean: boolean;
   leaks: boolean; // the parse left state behind that reaches every later line: the rest of the document is one section
+  unsupported: string | null; // seen already in the block phase: render whole
   refs: Array<[string, Reference]>;
   labels: string[];
   ctx: string | null;
@@ -163,7 +164,7 @@ interface Tail {
   balanced?: boolean; // whether its HTML cuts into blocks at all (split-html.ts splitBlocks)
   // filled with the current line numbers; `hash`: the footnote section's segment hash (split-html.ts alignSegments), null when
   // the section's HTML does not cut cleanly (the page then cuts the whole HTML itself)
-  fill: { key: string; html: string; lead: number; hash: number | null } | null;
+  fill: { key: string; html: string; hash: number | null } | null;
 }
 interface Mode {
   md: MarkdownIt;
@@ -181,7 +182,7 @@ interface Mode {
   skip: number; // whole renders still to do before trying sections again
   backoff: number;
 }
-interface Placed { entry: Entry; start: number; line: number; state: StateCore | null }
+interface Placed { entry: Entry; line: number; state: StateCore | null }
 
 // The first section (the only one whose first line can open front matter) is cached apart: NUL never occurs in a text that
 // gets here, so no other section's text can look like its key.
@@ -200,6 +201,13 @@ function weightOf(e: Entry): number {
 
 let groupIds = 0;
 
+// A hole: NUL, a random word drawn when the bundle loads, the kind, a number, NUL. The renderer can emit NUL itself (KaTeX's
+// `\char0`, front matter values with `\0` escapes), so a NUL alone proves nothing; the document cannot know the word, so it
+// cannot forge a hole, and cutHoles refuses HTML with any NUL that is not one of ours.
+const NONCE = Array.from({ length: 12 }, () => String.fromCharCode(97 + Math.floor(Math.random() * 26))).join('');
+const hole = (kind: string, n: number | string): string => `\0${NONCE}${kind}${n}\0`;
+const KINDS = 'LHKFTD';
+
 const L = 76; // 'L' data-line value
 const H = 72; // 'H' heading id attribute
 const K = 75; // 'K' task checkbox id
@@ -207,6 +215,13 @@ const F = 70; // 'F' footnote reference
 const T = 84; // 'T' [TOC] list
 const D = 68; // 'D' data-line value in the footnote section
 const TOO_MUCH = 'more re-parsing than the text is long';
+// Decided before any work, so no reason to back off.
+const CHEAP_SINGLE = 'a single section';
+const CHEAP_HUGE = 'an edit inside a section that is most of the text';
+// lazy: back off for 8, 16, ... 64 renders after sectioned work that ended in a whole render (the same text shape fails
+// again on the next keystroke); upgrade = remember which shape failed and retry when it changes.
+const BACKOFF_FIRST = 8;
+const BACKOFF_MAX = 64;
 
 // lazy: two option sets (the settings in use and the previous ones); upgrade = more if switching between several shows up.
 const MODES = 2;
@@ -214,7 +229,10 @@ const modes = new Map<string, Mode>();
 let crossCheckEvery = 0;
 let crossCheckCount = 0;
 let onMismatch: ((message: string) => void) | undefined;
-let last = { mode: 'none' as 'none' | 'full' | 'sections', reason: '', sections: 0, parsed: 0, rendered: 0, merges: 0 };
+// What the current call did: characters parsed in sections, sections (re-)rendered, merges; reported by lastRun() also when
+// the call ended in a whole render (that work was then wasted).
+let work = { sections: 0, parsed: 0, rendered: 0, merges: 0 };
+let last = { mode: 'none' as 'none' | 'full' | 'sections', reason: '', ...work };
 
 onFlavorRegistered((id) => {
   for (const key of modes.keys()) if (key.startsWith(`${id}|`)) modes.delete(key);
@@ -232,7 +250,7 @@ function sectionAnnotation(state: StateCore): AnnotateHooks {
       return false;
     },
     lines(t, start, end) {
-      if (!group) return [`\0L${start}\0`, `\0L${end}\0`];
+      if (!group) return [hole('L', start), hole('L', end)];
       group.lines.push(t);
       return null;
     },
@@ -242,7 +260,7 @@ function sectionAnnotation(state: StateCore): AnnotateHooks {
         return null;
       }
       sec.headings.push({ level: Number(t.tag.slice(1)), text, base: explicit === null ? slugBase(text) : null, explicit, line: t.map ? t.map[0] : -1 });
-      return explicit === null ? `\0H${sec.headings.length - 1}\0` : null;
+      return explicit === null ? hole('H', sec.headings.length - 1) : null;
     },
   };
 }
@@ -336,11 +354,11 @@ function makeMode(o: RenderOptions): Mode {
   const footnoteRef = md.renderer.rules.footnote_ref;
   if (footnoteRef) {
     md.renderer.rules.footnote_ref = (tokens, idx, opts, env, slf) => {
-      const hole = (tokens[idx].meta as { md2Hole?: number } | null)?.md2Hole;
-      return hole === undefined ? footnoteRef(tokens, idx, opts, env, slf) : `\0F${hole}\0`;
+      const n = (tokens[idx].meta as { md2Hole?: number } | null)?.md2Hole;
+      return n === undefined ? footnoteRef(tokens, idx, opts, env, slf) : hole('F', n);
     };
   }
-  if (md.renderer.rules.toc) md.renderer.rules.toc = (tokens, idx, _o, _env, slf) => `<nav class="toc"${slf.renderAttrs(tokens[idx])}>\0T0\0</nav>\n`;
+  if (md.renderer.rules.toc) md.renderer.rules.toc = (tokens, idx, _o, _env, slf) => `<nav class="toc"${slf.renderAttrs(tokens[idx])}>${hole('T', 0)}</nav>\n`;
   const enabled = md.core.ruler.__rules__.filter((r) => r.enabled).map((r) => r.name);
   const fns = md.core.ruler.getRules('');
   const split = Math.max(enabled.indexOf('block'), enabled.indexOf('strip_references')) + 1;
@@ -366,16 +384,18 @@ function makeMode(o: RenderOptions): Mode {
 function modeFor(o: RenderOptions): Mode {
   const key = optionsKey(o);
   let mode = modes.get(key);
-  if (!mode) {
+  if (mode) modes.delete(key); // re-inserted below: the Map's order is least recently used first
+  else {
     mode = makeMode(o);
     if (modes.size >= MODES) modes.delete(modes.keys().next().value!);
-    modes.set(key, mode);
   }
+  modes.set(key, mode);
   return mode;
 }
 
-// HTML with NUL-delimited holes -> the text around them and the holes ([kind, number] pairs). A heading id hole stands for
-// the whole ` id="…"` attribute. null: a marker is not where it should be.
+// HTML with holes -> the text around them and the holes ([kind, number] pairs). A heading id hole stands for the whole
+// ` id="…"` attribute. null: a NUL that is not one of our holes (the document's own, e.g. KaTeX's `\char0`), or a hole
+// that is not where it should be: that render is a whole one.
 function cutHoles(html: string): { parts: string[]; holes: number[] } | null {
   const parts: string[] = [];
   const holes: number[] = [];
@@ -385,9 +405,12 @@ function cutHoles(html: string): { parts: string[]; holes: number[] } | null {
       parts.push(html.slice(i));
       return { parts, holes };
     }
-    const b = html.indexOf('\0', a + 1);
-    if (b < 0) return null;
-    const kind = html.charCodeAt(a + 1);
+    const k = a + 1 + NONCE.length;
+    if (!html.startsWith(NONCE, a + 1) || !KINDS.includes(html[k] ?? '\0')) return null;
+    let b = k + 1;
+    while (b < html.length && html.charCodeAt(b) >= 48 && html.charCodeAt(b) <= 57) b++;
+    if (b === k + 1 || html.charCodeAt(b) !== 0) return null;
+    const kind = html.charCodeAt(k);
     let before = html.slice(i, a);
     let next = b + 1;
     if (kind === H) {
@@ -396,9 +419,22 @@ function cutHoles(html: string): { parts: string[]; holes: number[] } | null {
       next++;
     }
     parts.push(before);
-    holes.push(kind, Number(html.slice(a + 2, b)));
+    holes.push(kind, Number(html.slice(k + 1, b)));
     i = next;
   }
+}
+
+// parts[0] hole parts[1] hole ... with each hole's text from `value(kind, number)`.
+function fillHoles(parts: string[], holes: number[], value: (kind: number, n: number) => string): string {
+  let html = parts[0];
+  for (let k = 0; k < holes.length; k += 2) html += value(holes[k], holes[k + 1]) + parts[k / 2 + 1];
+  return html;
+}
+
+function addStats(to: TextStats, from: TextStats): void {
+  to.words += from.words;
+  to.characters += from.characters;
+  to.charactersNoSpaces += from.charactersNoSpaces;
 }
 
 // --- block phase ----------------------------------------------------------------------------------------------------
@@ -430,6 +466,7 @@ function parseA(mode: Mode, text: string, first: boolean): { entry: Entry; state
     newlines,
     clean: !sec.touchedEnd && !hidden && !sec.leaks,
     leaks: sec.leaks,
+    unsupported: unsupportedFootnote(state.tokens),
     refs: env.references ? Object.entries(env.references) : [],
     labels: env.footnotes?.refs ? Object.keys(env.footnotes.refs) : [],
     ctx: null,
@@ -438,10 +475,28 @@ function parseA(mode: Mode, text: string, first: boolean): { entry: Entry; state
   return { entry, state };
 }
 
-function entryFor(mode: Mode, text: string, first: boolean, fresh: { chars: number }): { entry: Entry; state: StateCore | null } {
-  const hit = mode.cache.get(keyOf(text, first));
+// What the footnote section cannot hold here (sectionFootnoteTail / assemble), as far as the block phase shows it: a
+// definition inside a definition, or a heading, a task-like item or a [TOC] in one. The inline phase checks the rest.
+function unsupportedFootnote(tokens: Token[]): string | null {
+  let depth = 0;
+  for (let i = 0; i < tokens.length; i++) {
+    const t = tokens[i];
+    if (t.type === 'footnote_reference_open') {
+      if (depth++) return 'footnote definition inside a footnote definition';
+    } else if (t.type === 'footnote_reference_close') depth--;
+    else if (depth) {
+      if (t.type === 'heading_open') return 'heading in a footnote';
+      if (t.type === 'inline' && /^\[[ xX]\][ \u00a0]/.test(t.content) && tokens[i - 2]?.type === 'list_item_open') return 'task in a footnote';
+      if (t.type === 'inline' && /^\[toc\]$/i.test(t.content.trim())) return '[TOC] in a footnote';
+    }
+  }
+  return null;
+}
+
+// The entry for a section's text: `hit` from the cache lookup already made for it, else parsed now (and cached).
+function entryFor(mode: Mode, text: string, first: boolean, hit: Entry | undefined): { entry: Entry; state: StateCore | null } {
   if (hit) return { entry: hit, state: null };
-  fresh.chars += text.length;
+  work.parsed += text.length;
   // A slice of the document keeps the whole document alive in both engines: the cache gets its own copy.
   const { entry, state } = parseA(mode, ownCopy(text), first);
   mode.cache.set(keyOf(entry.text, first), entry, weightOf(entry));
@@ -499,7 +554,7 @@ function renderSection(mode: Mode, placed: Placed, ctx: Context): Rendered {
         const name = c.type === 'checkbox_input' ? 'id' : 'for';
         const n = /^task-item-(\d+)$/.exec(String(c.attrGet(name) ?? ''));
         if (!n) continue;
-        c.attrSet(name, `\0K${n[1]}\0`);
+        c.attrSet(name, hole('K', n[1]));
         if (c.type === 'checkbox_input') taskCount++;
       }
     }
@@ -519,7 +574,7 @@ function renderSection(mode: Mode, placed: Placed, ctx: Context): Rendered {
     footnotes: sec.footnotes,
     groups: sec.groups,
     stats: textStats(collectText(body)),
-    unsupported: cut ? sec.unsupported : 'a hole marker is not where it should be',
+    unsupported: cut ? sec.unsupported : 'a NUL in the HTML that is not one of the holes',
     tocHole: cut ? cut.holes.some((h, k) => k % 2 === 0 && h === T) : false,
   };
   if (fm) r.frontMatter = fm.meta as unknown as string;
@@ -560,71 +615,62 @@ function renderSections(mode: Mode, source: string): IncrementalResult | string 
   const starts = [0, ...cuts];
   const end = (i: number): number => (i < starts.length ? starts[i] : source.length);
   const texts = starts.map((a, i) => source.slice(a, end(i + 1)));
+  // One cache lookup per section, made here (the merges below look up their own, longer texts).
+  const hits = texts.map((text, i) => mode.cache.get(keyOf(text, i === 0)));
   if (SECTION.adaptive) {
     // Nothing to gain over one whole render: a single section (no blank line before a column-0 line: a long list, a table),
     // or an edit inside a section that is most of the text. A cold cache (nothing hits) is filled once regardless (the next
     // edit may well be elsewhere), and so are many new sections at once (a paste): only the next render pays for them.
-    if (starts.length === 1) return 'a single section';
+    // lazy: 0.75 of the text is a guess at where re-parsing one section stops paying off against the assembly's overhead;
+    // upgrade = measure the overhead per document and decide on that.
+    if (starts.length === 1) return CHEAP_SINGLE;
     let largestMiss = 0;
-    let hit = false;
-    texts.forEach((text, i) => {
-      if (mode.cache.has(keyOf(text, i === 0))) hit = true;
-      else largestMiss = Math.max(largestMiss, text.length);
-    });
-    if (hit && largestMiss > 0.75 * source.length) return 'an edit inside a section that is most of the text';
+    for (let i = 0; i < texts.length; i++) if (!hits[i]) largestMiss = Math.max(largestMiss, texts[i].length);
+    if (hits.some(Boolean) && largestMiss > 0.75 * source.length) return CHEAP_HUGE;
   }
-  const fresh = { chars: 0 };
   // lazy: re-parsing more than the text is long (merges re-parse from the same start) costs more than one whole render;
   // upgrade = merge without re-parsing what was parsed already (keep the longer parse's tokens and verify cuts inside it).
   const budget = SECTION.adaptive ? source.length + 2048 : Infinity;
   const placed: Placed[] = [];
-  let merges = 0;
   let line = 0;
   for (let i = 0; i < starts.length; ) {
     let j = i + 1;
     let span = 1;
-    const from = starts[i];
-    let got = entryFor(mode, texts[i], i === 0, fresh);
+    let got = entryFor(mode, texts[i], i === 0, hits[i]);
     while (!got.entry.clean && j < starts.length) {
       j = got.entry.leaks ? starts.length : Math.min(starts.length, j + span);
       span *= 2;
-      merges++;
-      if (fresh.chars > budget) return TOO_MUCH;
-      got = entryFor(mode, source.slice(from, end(j)), i === 0, fresh);
+      work.merges++;
+      if (work.parsed > budget) return TOO_MUCH;
+      const text = source.slice(starts[i], end(j));
+      got = entryFor(mode, text, i === 0, mode.cache.get(keyOf(text, i === 0)));
     }
-    if (fresh.chars > budget) return TOO_MUCH;
-    placed.push({ entry: got.entry, start: from, line, state: got.state });
+    if (work.parsed > budget) return TOO_MUCH;
+    if (got.entry.unsupported) return got.entry.unsupported; // before rendering anything
+    placed.push({ entry: got.entry, line, state: got.state });
     line += got.entry.newlines;
     i = j;
   }
+  work.sections = placed.length;
 
   const ctx = contextOf(mode, placed);
-  let rendered = 0;
   for (const p of placed) {
     const e = p.entry;
     if (!e.r || e.ctx !== ctx.key) {
       e.r = renderSection(mode, p, ctx);
       e.ctx = ctx.key;
-      rendered++;
+      work.rendered++;
       mode.cache.set(keyOf(e.text, e.first), e, weightOf(e));
     }
     if (e.r.unsupported) return e.r.unsupported;
   }
-  const result = assemble(mode, placed);
-  last = { mode: 'sections', reason: '', sections: placed.length, parsed: fresh.chars, rendered, merges };
-  return result;
+  return assemble(mode, placed);
 }
 
-function fillTail(tail: Tail, offsets: number[]): string {
-  let html = tail.parts[0];
-  for (let k = 0; k < tail.holes.length; k += 2) {
-    const n = tail.holes[k + 1];
-    html += String(tail.lines[2 * n] + offsets[tail.lines[2 * n + 1]]) + tail.parts[k / 2 + 1];
-  }
-  return html;
-}
+const fillTail = (tail: Tail, offsets: number[]): string =>
+  fillHoles(tail.parts, tail.holes, (_kind, n) => String(tail.lines[2 * n] + offsets[tail.lines[2 * n + 1]]));
 
-function assemble(mode: Mode, placed: Placed[]): IncrementalResult {
+function assemble(mode: Mode, placed: Placed[]): IncrementalResult | string {
   const o = mode.options;
   const esc = mode.md.utils.escapeHtml;
   // Headings: ids deduplicated in document order, as annotate does.
@@ -708,18 +754,15 @@ function assemble(mode: Mode, placed: Placed[]): IncrementalResult {
     }
     if (r.tocHole) rest += `|${mode.tocVersion}`;
     if (r.fill?.line !== line || r.fill.rest !== rest) {
-      let html = r.parts[0];
-      for (let k = 0; k < r.holes.length; k += 2) {
-        const n = r.holes[k + 1];
-        switch (r.holes[k]) {
-          case L: html += String(n + line); break;
-          case H: html += ids && slugs[s][n] ? ` id="${esc(slugs[s][n])}"` : ''; break;
-          case K: html += `task-item-${taskBase + n}`; break;
-          case F: html += refHTML(s, r.refs[2 * n], r.refs[2 * n + 1]); break;
-          case T: html += toc; break;
+      const html = fillHoles(r.parts, r.holes, (kind, n) => {
+        switch (kind) {
+          case L: return String(n + line);
+          case H: return ids && slugs[s][n] ? ` id="${esc(slugs[s][n])}"` : '';
+          case K: return `task-item-${taskBase + n}`;
+          case F: return refHTML(s, r.refs[2 * n], r.refs[2 * n + 1]);
+          default: return toc; // T
         }
-        html += r.parts[k / 2 + 1];
-      }
+      });
       let segs: Segment[] | null = null;
       if (r.fill?.rest === rest && r.fill.html.length === html.length) {
         // Only the line numbers moved, and kept their width: the blocks sit where they did and hash alike (the hash
@@ -750,9 +793,7 @@ function assemble(mode: Mode, placed: Placed[]): IncrementalResult {
     }
     for (const b of r.placedAt.blocks) blocks.push(b);
     for (const t of r.placedAt.tasks) tasks.push(t);
-    stats.words += r.stats.words;
-    stats.characters += r.stats.characters;
-    stats.charactersNoSpaces += r.stats.charactersNoSpaces;
+    addStats(stats, r.stats);
     taskBase += r.taskCount;
   }
 
@@ -792,17 +833,15 @@ function assemble(mode: Mode, placed: Placed[]): IncrementalResult {
         if (g) {
           if (def) {
             for (const t of g.lines) {
-              t.attrSet('data-line', `\0D${lines.length / 2}\0`);
+              t.attrSet('data-line', hole('D', lines.length / 2));
               lines.push(t.map![0], n);
-              t.attrSet('data-line-end', `\0D${lines.length / 2}\0`);
+              t.attrSet('data-line-end', hole('D', lines.length / 2));
               lines.push(t.map![1], n);
             }
             for (const ref of g.refs) ref.token.meta = metaOf(def.s, ref.id, ref.subId);
           }
           out.push(...g.tokens);
-          tailStats.words += g.stats.words;
-          tailStats.characters += g.stats.characters;
-          tailStats.charactersNoSpaces += g.stats.charactersNoSpaces;
+          addStats(tailStats, g.stats);
         }
         const close = out[out.length - 1].type === 'paragraph_close' ? out.pop()! : null;
         for (let t = 0; t < (f.count > 0 ? f.count : 1); t++) {
@@ -815,34 +854,28 @@ function assemble(mode: Mode, placed: Placed[]): IncrementalResult {
       });
       out.push(new Tok('footnote_block_close', '', -1));
       const cut = cutHoles(mode.md.renderer.render(out, mode.md.options, { outline }));
-      if (!cut) throw new Error('a hole marker in the footnote section is not where it should be');
+      if (!cut) return 'a NUL in the footnote section';
       mode.tail = { sig: key, parts: cut.parts, holes: cut.holes, lines, stats: tailStats, fill: null };
     }
     const t = mode.tail!;
     const fillKey = offsets.join(',');
     if (t.fill?.key !== fillKey) {
       const html = fillTail(t, offsets);
-      t.balanced ??= splitBlocks(html) !== null; // the markup's structure; line numbers do not change it
-      const lead = html.indexOf('<'); // text before the first tag goes with the block before (none with this plugin version)
-      t.fill = { key: fillKey, html, lead, hash: t.balanced && lead >= 0 ? hashRange(html, lead, html.length, [], 0, 0) : null };
+      // the markup's structure (line numbers do not change it), and alignSegments' test for the footnote section
+      t.balanced ??= splitBlocks(html) !== null && html.startsWith('<hr class="footnotes-sep">');
+      t.fill = { key: fillKey, html, hash: t.balanced ? hashRange(html, 0, html.length, [], 0, 0) : null };
     }
     tail = t.fill.html;
-    stats.words += t.stats.words;
-    stats.characters += t.stats.characters;
-    stats.charactersNoSpaces += t.stats.charactersNoSpaces;
+    addStats(stats, t.stats);
   }
   let html = htmls.join('') + tail;
   if (segments && tail) {
-    // As alignSegments cuts it: the footnote section (from its <hr>) is one segment of its own, hashed with its line
-    // numbers; text before its first tag would belong to the last block's segment.
-    const { lead, hash: tailHash } = mode.tail!.fill!;
+    // As alignSegments cuts it: the footnote section (it starts with its <hr>, footnote plugin version pinned by the tests)
+    // is one segment of its own, after the last block's, hashed with its line numbers.
+    const tailHash = mode.tail!.fill!.hash;
     const lastSeg = segments[segments.length - 1];
-    const again = lastSeg && lastSeg.end === html.length - tail.length && lead > 0 ? splitBlocks(html.slice(lastSeg.start, lastSeg.end + lead)) : null;
-    if (tailHash === null || !lastSeg || lastSeg.end !== html.length - tail.length || (lead > 0 && (!again || again.length !== 1))) segments = null;
-    else {
-      if (again) segments[segments.length - 1] = { start: lastSeg.start, end: lastSeg.end + lead, hash: again[0].hash };
-      segments.push({ start: lastSeg.end + lead, end: html.length, hash: tailHash, tail: true });
-    }
+    if (tailHash === null || !lastSeg || lastSeg.end !== html.length - tail.length) segments = null;
+    else segments.push({ start: lastSeg.end, end: html.length, hash: tailHash, tail: true });
   }
   if (segments === null) segments = alignSegments(html, splitBlocks(html), blocks.length); // what the page would compute
   const result: IncrementalResult = { html, blocks, tasks, outline, stats };
@@ -856,8 +889,9 @@ function assemble(mode: Mode, placed: Placed[]): IncrementalResult {
 /** The live preview's renderer: `renderResult`'s result, byte for byte, computed section by section, plus `segments` (the
  *  HTML cut into its top-level blocks, what the page's DOM patch needs). */
 export function renderIncremental(source: string, options: RenderOptions): IncrementalResult {
+  work = { sections: 0, parsed: 0, rendered: 0, merges: 0 };
   const whole = (reason: string): IncrementalResult => {
-    last = { mode: 'full', reason, sections: 0, parsed: source.length, rendered: 0, merges: 0 };
+    last = { mode: 'full', reason, ...work };
     return renderResult(source, options);
   };
   if (!FLAVORS.has(options.flavor)) return whole('flavor');
@@ -874,20 +908,22 @@ export function renderIncremental(source: string, options: RenderOptions): Incre
   try {
     result = renderSections(mode, source);
   } catch {
-    mode.cache.clear(); // whatever went wrong, start over; the whole render below reports a real error itself
+    // whatever went wrong, start over: the first time with an empty cache, while backing off with what is there
+    if (!mode.backoff) mode.cache.clear();
     mode.tail = null;
     mode.context = null;
     result = 'exception';
   }
   if (typeof result === 'string') {
-    if (result === TOO_MUCH && SECTION.adaptive) {
-      // the same text shape will re-parse as much on the next keystrokes: render whole for 8, 16, ... 64 of them first
-      mode.backoff = Math.min(64, mode.backoff ? mode.backoff * 2 : 8);
+    if (SECTION.adaptive && result !== CHEAP_SINGLE && result !== CHEAP_HUGE) {
+      // sectioned work that ended in a whole render: the next keystrokes would most likely do the same
+      mode.backoff = Math.min(BACKOFF_MAX, mode.backoff ? mode.backoff * 2 : BACKOFF_FIRST);
       mode.skip = mode.backoff;
     }
     return whole(result);
   }
   mode.backoff = 0;
+  last = { mode: 'sections', reason: '', ...work };
   if (crossCheckEvery > 0 && ++crossCheckCount % crossCheckEvery === 0) {
     const expected = renderResult(source, options);
     const { segments: _segments, ...got } = result;

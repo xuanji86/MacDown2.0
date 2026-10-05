@@ -397,17 +397,16 @@ test('LRU evicts the least recently used entries past its weight budget', () => 
   assert.equal(computed, 1);
 });
 
-// --- speed: never (much) slower than one whole render ------------------------------------------------------------------
+// --- work: never (much) more than one whole render -----------------------------------------------------------------------
 
-// Shapes where sections cannot help, or the scanner is fooled, or the footnote section is big: the incremental renderer must
-// fall back to (or stay within noise of) one whole render. Ratios, not milliseconds: the machine may be busy. [text, where
-// the typing happens (fraction of the text)]
+// Shapes where sections cannot help, or the scanner is fooled, or the footnote section is big, or the document holds what the
+// sections cannot. `make test` checks the work done, deterministically: which path each render took and how many characters
+// the sectioned path parsed (also when it then gave up). MD2_PERF=1 also times both renderers (ratios, not milliseconds).
 const paragraphs = (n, f) => Array.from({ length: n }, (_, i) => f(i)).join('\n');
 const fences = (n) => paragraphs(n, (i) => `\`\`\`\ncode ${i}\n\`\`\`\n\n# H ${i}\n\nPara ${i} *x*.\n`);
 const headed = (n) => paragraphs(n, (i) => `# H ${i}\n\nPara ${i} with *x*.\n`);
 const noMath = OPTION_SETS.app.extensions.filter((e) => e !== 'math');
-// name: [text, where the typing happens (fraction of the text), options over the app's]
-// name: [text, where the typing happens (fraction of the text), options over the app's, what the last render must have been:
+// name: [text, where the typing happens (fraction of the text), options over the app's, the path the renders must take:
 // 'full' where sections cannot help, 'sections' where they must, null where either may happen (backing off)]
 const SHAPES = {
   'no blank line anywhere': [paragraphs(6000, (i) => `line ${i} with *emphasis* and \`code\` and [a link](http://x/${i})`), 0.5, {}, 'full'],
@@ -422,13 +421,19 @@ const SHAPES = {
   'leading $$ with math off': [`$$\n\n${headed(3000)}`, 0.1, { extensions: noMath }, 'sections'],
   'unclosed <!-- with raw HTML off': [`<!--\n\n${headed(3000)}`, 0.1, { allowRawHTML: false }, 'sections'],
   '3000 footnotes, typing at the top': [`${paragraphs(3000, (i) => `# H ${i}\n\nClaim ${i}[^n${i}] and again[^n${(i * 7) % 3000}].\n`)}\n${paragraphs(3000, (i) => `[^n${i}]: Note ${i} with *x*.\n`)}`, 0.02, {}, 'sections'],
+  // a task in a footnote: the sections cannot place it, and find that out in the block phase (nothing rendered)
+  'a task in a footnote, reference links': [`[r]: http://a\n\n${paragraphs(3000, (i) => `# H ${i}\n\nPara ${i} with *x* and [link][r].\n`)}\n\nNote[^1]\n\n[^1]: - [ ] a task in a footnote\n`, 0.5, {}, 'full'],
+  // a NUL the renderer makes (KaTeX `\char0`) in a section: that render is whole, and the next ones back off
+  'KaTeX \\char0 in the middle': [`${headed(1500)}\n\n$$\\char0 x$$\n\n${headed(1500)}`, 0.25, {}, null],
 };
 
-test('speed: on hostile shapes the incremental renderer stays within noise of a whole render', () => {
+test('work: on hostile shapes the sectioned path does little, or nothing, beyond one whole render', () => {
+  const timing = process.env.MD2_PERF === '1';
   const results = [];
   try {
     incremental.configure({ sections: DEFAULTS });
-    for (const [name, [doc, at, over, mode]] of Object.entries(SHAPES)) {
+    incremental.reset();
+    for (const [name, [doc, at, over, path]] of Object.entries(SHAPES)) {
       const options = { ...OPTION_SETS.app, ...over };
       const pos = Math.floor(doc.length * at);
       const time = (fn) => {
@@ -438,25 +443,102 @@ test('speed: on hostile shapes the incremental renderer stays within noise of a 
       };
       const whole = [];
       const sections = [];
+      let parsed = 0; // characters the sectioned path parsed after the warm-up, whether it then rendered or gave up
+      let rendered = 0;
+      const paths = new Set();
       let src = doc;
       for (let i = 0; i < 24; i++) {
         src = src.slice(0, pos) + (i % 4 === 3 ? '\n' : 'x') + src.slice(pos); // typing, now and then a new line
         // alternate which goes first, so neither always pays for the other's garbage
-        if (i % 2) whole.push(time(() => renderResult(src, options)));
+        if (timing && i % 2) whole.push(time(() => renderResult(src, options)));
         sections.push(time(() => renderIncremental(src, options)));
-        if (i % 2 === 0) whole.push(time(() => renderResult(src, options)));
+        const run = incremental.lastRun();
+        if (timing && i % 2 === 0) whole.push(time(() => renderResult(src, options)));
+        if (i < 4) continue; // warm-up: the first render parses everything once
+        parsed += run.parsed;
+        rendered += run.rendered;
+        paths.add(run.mode);
       }
       check(src, options, name);
-      if (mode) assert.equal(incremental.lastRun().mode, mode, `${name}: ${JSON.stringify(incremental.lastRun())}`);
-      // lower quartile after a warm-up: what the work costs, without the collector's pauses landing on one side
-      const typical = (xs) => xs.slice(4).sort((a, b) => a - b)[(xs.length - 4) >> 2];
-      results.push({ name, whole: typical(whole), incremental: typical(sections) });
+      const renders = 20;
+      if (path) assert.deepEqual([...paths], [path], `${name}: took ${[...paths]}`);
+      // Sections: an edit re-parses and re-renders about one section (two or three when it moves a cut). Whole: no sectioned work at all, or
+      // (backing off) a couple of failed attempts over the 20 renders, each bounded by the text's length.
+      const limit = path === 'sections' ? renders * 2 * 16 * 1024 : 2.2 * doc.length;
+      assert.ok(parsed <= limit, `${name}: the sections parsed ${parsed} characters over ${renders} renders of a ${doc.length}-character text`);
+      if (path === 'sections') assert.ok(rendered <= 3 * renders, `${name}: ${rendered} sections rendered over ${renders} renders`);
+      if (path === 'full') assert.ok(rendered === 0, `${name}: ${rendered} sections rendered for nothing`);
+      const typical = (xs) => xs.slice(4).sort((a, b) => a - b)[(xs.length - 4) >> 2]; // lower quartile: GC pauses stay out
+      if (timing) results.push({ name, whole: typical(whole), incremental: typical(sections), parsed });
     }
   } finally {
     incremental.configure({ sections: DEFAULTS });
   }
+  if (!timing) return;
   console.log(results.map((r) => `  ${r.name}: whole ${r.whole.toFixed(1)} ms, incremental ${r.incremental.toFixed(1)} ms (${(r.incremental / r.whole).toFixed(2)}x)`).join('\n'));
   for (const r of results) assert.ok(r.incremental <= r.whole * 1.3 + 0.5, `${r.name}: incremental ${r.incremental.toFixed(1)} ms vs whole ${r.whole.toFixed(1)} ms`);
+});
+
+test('option sets are kept least recently used first: A, B, A, C keeps A', () => {
+  try {
+    incremental.configure({ sections: SECTIONS.every });
+    incremental.reset();
+    const doc = headed(40);
+    const [A, B, C] = [OPTION_SETS.app, OPTION_SETS.all, OPTION_SETS.odd];
+    for (const o of [A, B, A, C]) check(doc, o, 'mode switch');
+    renderIncremental(doc, A);
+    assert.equal(incremental.lastRun().parsed, 0, 'A was evicted');
+  } finally {
+    incremental.configure({ sections: DEFAULTS });
+  }
+});
+
+// NULs the renderer makes itself: KaTeX's `\char0`, `\0` / `\u0000` escapes in front matter values shown as a table. They
+// must never be taken for holes (a pair could look like one): such a render is whole, with the same result.
+const NUL_SNIPPETS = [
+  'a $\\char0$ b\n', 'x \\(\\char0\\) y \\(\\char0\\) z\n', '$$\\char0 x$$\n', '$$\\text{\\char0L5\\char0}$$\n', '\\(\\char0 H0\\char0\\)\n',
+  '[^1]: note \\(\\char0\\) end\n', 'x[^1] y\n', '# Title\n', '- [ ] task\n', '[TOC]\n', 'Plain.\n',
+];
+const NUL_FRONT = ['---\ntitle: "a\\0b"\nx: "c\\0d"\n---\n', '+++\ntitle = "a\\u0000b"\n+++\n', '---\ntitle: "\\0L5\\0"\n---\n', ''];
+
+test('NULs the renderer makes (KaTeX \\char0, front matter escapes) are never taken for holes', () => {
+  const cases = [
+    'a\n\n$$\\char0 x$$\n\n# H\n\nb $\\char0$ c\n\n# H2\n\n- [ ] t\n',
+    'a\n\nx \\(\\char0\\) y \\(\\char0\\) z\n\n# H\n\nend\n',
+    '---\ntitle: "a\\0b"\nx: "c\\0d"\n---\n\n# H\n\nbody\n',
+    '+++\ntitle = "a\\u0000b"\n+++\n\n# H\n\nbody\n',
+    'x[^1] y\n\n# H\n\n[^1]: note \\(\\char0\\) end\n\nlast\n',
+    // what a hole looked like before it carried a secret word: a document could write it
+    '---\ntitle: "\\0L5\\0"\nx: "\\0H0\\0"\n---\n\n# H\n\nbody\n',
+    'a\n\n$$\\text{\\char0L5\\char0}$$\n\n# H\n',
+  ];
+  try {
+    for (const sections of [SECTIONS.every, DEFAULTS]) {
+      incremental.configure({ sections });
+      for (const src of cases) for (const [oname, options] of Object.entries(OPTION_SETS)) {
+        incremental.reset();
+        check(src, options, `NUL case (${oname}): ${JSON.stringify(src.slice(0, 30))}`);
+        total.checks++;
+      }
+    }
+    // and in random documents with random edits
+    incremental.configure({ sections: SECTIONS.every });
+    for (let seed = 1; seed <= (SEED === null ? 6 : 1); seed++) {
+      const r = rng(SEED ?? seed * 31);
+      let src = r.pick(NUL_FRONT) + Array.from({ length: 24 }, () => r.pick(r.int(3) ? SNIPPETS : NUL_SNIPPETS)).join('\n');
+      for (const [oname, options] of Object.entries(OPTION_SETS)) {
+        for (let i = 0; i < Math.ceil(EDITS / 3); i++) {
+          const at = r.int(src.length + 1);
+          src = r.int(4) ? edit(r, src) : src.slice(0, at) + r.pick(['$\\char0$', '\\(\\char0\\)', '\\char0', '$$\\char0$$\n']) + src.slice(at);
+          if (src.length > 12000) src = src.slice(0, 8000);
+          check(src, options, `NUL fuzz seed ${seed} ${oname} edit ${i + 1}`);
+          total.checks++;
+        }
+      }
+    }
+  } finally {
+    incremental.configure({ sections: DEFAULTS });
+  }
 });
 
 test(`totals (${EDITS} edits per sequence)`, () => {
