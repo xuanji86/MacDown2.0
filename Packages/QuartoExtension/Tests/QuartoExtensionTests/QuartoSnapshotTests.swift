@@ -12,8 +12,11 @@ private let web = URL(fileURLWithPath: #filePath)
     .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
     .appending(path: "Web/test")
 
-private let examples: [String] = ((try? FileManager.default.contentsOfDirectory(atPath: web.appending(path: "fixtures/quarto").path)) ?? [])
-    .filter { $0.hasSuffix(".qmd") }.map { String($0.dropLast(4)) }.sorted()
+/// "<folder>/<name>": the official examples (`quarto`) and our own dialect documents (`quarto-dialect`, the Pandoc blank-line rules).
+private let examples: [String] = ["quarto", "quarto-dialect"].flatMap { folder in
+    ((try? FileManager.default.contentsOfDirectory(atPath: web.appending(path: "fixtures/\(folder)").path)) ?? [])
+        .filter { $0.hasSuffix(".qmd") }.map { "\(folder)/\($0.dropLast(4))" }.sorted()
+}
 
 /// Same switches as `quartoOptions({ codeLineNumbers: true, frontMatterDisplay: 'table' })` in Web/test/helpers/quarto.mjs.
 private func options(for source: String) -> RenderOptions {
@@ -25,14 +28,14 @@ private func options(for source: String) -> RenderOptions {
 }
 
 @Test func examplesArePresent() {
-    #expect(examples.count >= 5)
+    #expect(examples.filter { $0.hasPrefix("quarto/") }.count >= 5 && examples.contains("quarto-dialect/pandoc-blank-line"))
 }
 
 @Test("Quarto official examples: approximate preview", arguments: examples)
 func exampleRendersAndMatchesTheNodeSnapshot(name: String) async throws {
-    let source = try String(contentsOf: web.appending(path: "fixtures/quarto/\(name).qmd"), encoding: .utf8)
+    let source = try String(contentsOf: web.appending(path: "fixtures/\(name).qmd"), encoding: .utf8)
     let result = try await JSCRenderer().render(source, options: options(for: source))
-    let golden = try String(contentsOf: web.appending(path: "snapshots/quarto/\(name).html"), encoding: .utf8)
+    let golden = try String(contentsOf: web.appending(path: "snapshots/\(name).html"), encoding: .utf8)
     #expect(result.html == golden, "\(name): JavaScriptCore output differs from the Node snapshot")
     #expect(!result.html.isEmpty)
 }

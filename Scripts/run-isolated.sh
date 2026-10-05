@@ -17,6 +17,9 @@
 #   MACDOWN2_ALLOWED_ROOT     the temp dir; the app refuses (and logs) any file outside it
 # Only copies of your files are opened, so the originals are never edited. (A folder is copied whole: keep it small.)
 #
+# Deep link: MACDOWN2_DEEPLINK='macdown2://open?path={ROOT}/notes.md&line=3' also hands that URL to the new instance (LaunchServices, as a
+# browser would); {ROOT} is replaced by the temp dir. `open -n -a "$APP"` names this one bundle, so no other MacDown2 gets the link.
+#
 # Language: MACDOWN2_LANGUAGE=en or zh-Hans launches the instance in that language whatever the system's is.
 #
 # Screenshot just that window (never the whole screen):  screencapture -x -l <window id> shot.png
@@ -118,7 +121,9 @@ done
 # only, and writes nothing to any preferences domain).
 lang=()
 [ -z "${MACDOWN2_LANGUAGE:-}" ] || lang=(--args -AppleLanguages "($MACDOWN2_LANGUAGE)")
-open -n -a "$APP" --env "MACDOWN2_DEFAULTS_SUITE=$suite" --env "MACDOWN2_ALLOWED_ROOT=$root" ${extra[@]+"${extra[@]}"} ${copies[@]+"${copies[@]}"} ${lang[@]+"${lang[@]}"}
+link=()
+[ -z "${MACDOWN2_DEEPLINK:-}" ] || link=("${MACDOWN2_DEEPLINK//\{ROOT\}/$root}")
+open -n -a "$APP" --env "MACDOWN2_DEFAULTS_SUITE=$suite" --env "MACDOWN2_ALLOWED_ROOT=$root" ${extra[@]+"${extra[@]}"} ${copies[@]+"${copies[@]}"} ${link[@]+"${link[@]}"} ${lang[@]+"${lang[@]}"}
 
 pid=""
 for _ in $(seq 1 100); do

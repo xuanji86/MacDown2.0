@@ -1,0 +1,61 @@
+<div class="quarto-title-block" data-line="0" data-line-end="3"><h1>Pandoc blank-line rules</h1></div>
+<p data-line="4" data-line-end="6">A heading needs a blank line before it in Pandoc:
+# Not a heading, text of the paragraph above</p>
+<p data-line="7" data-line-end="9">Same for a block quote:
+&gt; Not a quote.</p>
+<p data-line="10" data-line-end="13">and for a list:
+- not a list item
+- still the same paragraph</p>
+<p data-line="14" data-line-end="16">and for an ordered list:
+1. neither is this</p>
+<p data-line="17" data-line-end="18">With the blank line they are what they look like:</p>
+<h1 data-line="19" data-line-end="20" id="a-heading">A heading</h1>
+<blockquote data-line="21" data-line-end="22">
+<p data-line="21" data-line-end="22">A quote.</p>
+</blockquote>
+<ul data-line="23" data-line-end="26">
+<li data-line="23" data-line-end="24">an item</li>
+<li data-line="24" data-line-end="26">another item</li>
+</ul>
+<ol data-line="26" data-line-end="29">
+<li data-line="26" data-line-end="27">one</li>
+<li data-line="27" data-line-end="29">two</li>
+</ol>
+<p data-line="29" data-line-end="30">Inside a list item the next marker still starts an item, and nesting works:</p>
+<ul data-line="31" data-line-end="37">
+<li data-line="31" data-line-end="33">outer
+<ul data-line="32" data-line-end="33">
+<li data-line="32" data-line-end="33">nested</li>
+</ul>
+</li>
+<li data-line="33" data-line-end="37">next
+<ol data-line="34" data-line-end="37">
+<li data-line="34" data-line-end="35">nested ordered</li>
+<li data-line="35" data-line-end="37">second</li>
+</ol>
+</li>
+</ul>
+<p data-line="37" data-line-end="38">A line after a list item that is not a marker is part of the item:</p>
+<ul data-line="39" data-line-end="43">
+<li data-line="39" data-line-end="43">item text
+# not a heading either
+&gt; nor a quote</li>
+</ul>
+<p data-line="43" data-line-end="44">Quote lines continue lazily, headings and lists included:</p>
+<blockquote data-line="45" data-line-end="48">
+<p data-line="45" data-line-end="48">a quote
+# lazy line, not a heading
+- lazy line, not an item</p>
+</blockquote>
+<blockquote data-line="49" data-line-end="52">
+<p data-line="49" data-line-end="50">A nested quote needs its blank <code>&gt;</code> line</p>
+<blockquote data-line="51" data-line-end="52">
+<p data-line="51" data-line-end="52">like this</p>
+</blockquote>
+</blockquote>
+<p data-line="53" data-line-end="54">Things that still end a paragraph:</p>
+<p data-line="55" data-line-end="56">text before a fence</p>
+<pre data-line="56" data-line-end="59" data-lang="python" class="line-numbers"><code class="hljs language-python"><span class="line"><span class="hljs-built_in">print</span>(<span class="hljs-string">&quot;fenced&quot;</span>)</span>
+</code></pre>
+<h1 data-line="60" data-line-end="62" id="an-underlined-line-is-a-setext-heading">An underlined line is a setext heading</h1>
+<p data-line="63" data-line-end="64">#5 is not a heading in Pandoc either, nor is #hashtag.</p>

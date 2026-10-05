@@ -35,8 +35,20 @@ public final class MarkdownHighlightEngine {
     /// small: that class walks every integer of the expanded visible range per scheduling step.
     static let synchronousLimit = 1024
 
+    /// A fenced block or front matter longer than this keeps the plain code colour instead of its language's.
+    // lazy: 64K UTF-16 units per region, parsed whole; split the region at blank lines if long scripts matter
+    static let maxInjectionLength = 65_536
+
     private let client: TreeSitterClient
     private let inlineParser = Parser()
+    private var injectionParsers: [InjectedLanguage: Parser] = [:]
+    /// The last few regions' tokens (relative to the region), by language and text: every chunk of a long block asks again.
+    private var injectionCache: [(key: InjectionKey, tokens: [HighlightToken])] = []
+    private struct InjectionKey: Hashable {
+        var language: InjectedLanguage
+        var text: String
+    }
+    private static let injectionCacheSize = 8
 
     /// - Parameter pointForOffset: UTF-16 offset -> (row, column in bytes). tree-sitter-markdown's scanner depends on
     ///   columns, so incremental edits must carry real points rather than zeros.
@@ -90,17 +102,75 @@ public final class MarkdownHighlightEngine {
     private func collect(from cursor: ResolvingQueryCursor, in range: NSRange) -> [HighlightToken] {
         var block: [HighlightToken] = []
         var inlineNodes: [NSRange] = []
+        var regions: [InjectionRegion] = []
         for match in cursor {
+            var info: NSRange?, content: NSRange?
             for capture in match.captures {
                 guard let name = capture.name else { continue }
                 if name == Grammar.inlineCapture {
                     inlineNodes.append(capture.range)
+                } else if name == Grammar.injectYAMLCapture {
+                    if capture.range.length <= Self.maxInjectionLength, let text = textProvider(capture.range),
+                       let yaml = InjectedLanguage.yamlRange(ofFrontMatter: text as NSString) {
+                        regions.append(InjectionRegion(language: .yaml, range: NSRange(location: capture.range.location + yaml.location, length: yaml.length)))
+                    }
+                } else if name == Grammar.injectInfoCapture {
+                    info = capture.range
+                } else if name == Grammar.injectContentCapture {
+                    content = capture.range
                 } else if let kind = TokenKind(rawValue: name), let clipped = Self.clip(capture.range, to: range) {
                     block.append(HighlightToken(kind: kind, range: clipped))
                 }
             }
+            if let info, let content, content.length <= Self.maxInjectionLength, let text = textProvider(info),
+               let language = InjectedLanguage.named(infoString: text) {
+                regions.append(InjectionRegion(language: language, range: content))
+            }
         }
-        return Self.outerFirst(block) + inlineTokens(for: inlineNodes, clippedTo: range)
+        return Self.outerFirst(block) + inlineTokens(for: inlineNodes, clippedTo: range) + injectionTokens(for: regions, clippedTo: range)
+    }
+
+    /// The tokens of the code inside fences and front matter, after everything else so the language's colours win over `codeBlock`.
+    private func injectionTokens(for regions: [InjectionRegion], clippedTo range: NSRange) -> [HighlightToken] {
+        var tokens: [HighlightToken] = []
+        var seen = Set<Int>()
+        for region in regions where NSIntersectionRange(region.range, range).length > 0 && seen.insert(region.range.location).inserted {
+            guard let text = textProvider(region.range) else { continue }
+            for token in injectedTokens(region.language, text) {
+                let shifted = NSRange(location: token.range.location + region.range.location, length: token.range.length)
+                if let clipped = Self.clip(shifted, to: range) { tokens.append(HighlightToken(kind: token.kind, range: clipped)) }
+            }
+        }
+        return tokens
+    }
+
+    /// Tokens of `text` parsed as `language`, relative to its start, outer ones first.
+    private func injectedTokens(_ language: InjectedLanguage, _ text: String) -> [HighlightToken] {
+        let key = InjectionKey(language: language, text: text)
+        if let hit = injectionCache.firstIndex(where: { $0.key == key }) {
+            let entry = injectionCache.remove(at: hit)
+            injectionCache.insert(entry, at: 0)
+            return entry.tokens
+        }
+        let parser: Parser
+        if let known = injectionParsers[language] {
+            parser = known
+        } else {
+            parser = Parser()
+            do { try parser.setLanguage(language.grammar) } catch { return [] }
+            injectionParsers[language] = parser
+        }
+        guard let tree = parser.parse(text) else { return [] }
+        var found: [HighlightToken] = []
+        for match in language.query.execute(in: tree) {
+            for capture in match.captures {
+                if let name = capture.name, let kind = TokenKind(rawValue: name), capture.range.length > 0 { found.append(HighlightToken(kind: kind, range: capture.range)) }
+            }
+        }
+        let tokens = Self.outerFirst(found)
+        injectionCache.insert((key, tokens), at: 0)
+        if injectionCache.count > Self.injectionCacheSize { injectionCache.removeLast() }
+        return tokens
     }
 
     private func inlineTokens(for nodes: [NSRange], clippedTo range: NSRange) -> [HighlightToken] {

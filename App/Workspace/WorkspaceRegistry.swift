@@ -23,6 +23,11 @@ final class WorkspaceRegistry: DocumentBackend {
     private var pendingURLs: [URL] = []
     /// `macdown2 --preview-only` & co. for the pending opens. lazy: one layout for all of them (the last flag wins), not one per file.
     private var pendingLayout: SplitMode?
+    /// `macdown2://open?…&line=N` for the files being opened: `fileKey` → 1-based line, taken when the file is in a window (`perform`).
+    private var pendingLines: [String: Int] = [:]
+    /// Refused `macdown2://` links still to be told to the user (`presentRefusals`).
+    private var refusals: [DeepLink.Failure] = []
+    private var presentingRefusal = false
     private var launchGraceOver = false
     private(set) var isTerminating = false
     /// Filled by the first window (`OpenWindowAction` only exists inside the view tree).
@@ -229,6 +234,7 @@ final class WorkspaceRegistry: DocumentBackend {
         DispatchQueue.main.async { [self] in
             if !restoreQueue.isEmpty { requestWindow() } else { drainPending(into: model) }
             blankWindowGetsUntitled(model, restored: restored != nil)
+            presentRefusals()
         }
     }
 
@@ -262,6 +268,7 @@ final class WorkspaceRegistry: DocumentBackend {
             MainActor.assumeIsolated { if let model { WorkspaceRegistry.shared.windowClosed(model) } }
         }
         sync(model)
+        DispatchQueue.main.async { [self] in presentRefusals() }
     }
 
     private func windowClosed(_ model: WindowModel) {
@@ -299,11 +306,13 @@ final class WorkspaceRegistry: DocumentBackend {
 
     /// Finder double click, Dock drop, Cmd-O, Open Recent: tabs in the frontmost window, a new window when there is none.
     /// A folder (Finder, `macdown2 .`) enters workspace mode (`OpenRouter`).
-    func open(_ urls: [URL]) {
+    func open(_ urls: [URL], layout explicitLayout: SplitMode? = nil) {
         let urls = urls.filter(AppDefaults.permitsOpening)
         if urls.isEmpty { return }
-        // The command line's layout flag, left as a hint file by `macdown2` just before it asked LaunchServices to open these.
-        let layout = LayoutHints.take(for: urls.map(\.fileKey), in: Self.layoutHintDirectory)
+        // The command line's layout flag, left as a hint file by `macdown2` just before it asked LaunchServices to open these
+        // (a deep link's own `layout` parameter wins).
+        let hinted = LayoutHints.take(for: urls.map(\.fileKey), in: Self.layoutHintDirectory)
+        let layout = explicitLayout ?? hinted
         if models.isEmpty || !restoreQueue.isEmpty {  // launching: the windows are still coming
             pendingURLs += urls
             pendingLayout = layout ?? pendingLayout
@@ -311,6 +320,47 @@ final class WorkspaceRegistry: DocumentBackend {
             return
         }
         route(urls, layout: layout)
+    }
+
+    /// A `macdown2://` link (`DeepLink` says what is accepted). It goes the same way as a Finder open: a file is a tab in the
+    /// frontmost window, a folder enters workspace mode; `line` selects that line once the editor shows the file. A refused link is
+    /// said so, never silently dropped.
+    func open(deepLink url: URL) {
+        switch DeepLink.parse(url) {
+        case .success(let link):
+            guard AppDefaults.permitsOpening(link.url) else { return }
+            if let line = link.line { pendingLines[link.url.fileKey] = line }
+            open([link.url], layout: link.layout)
+        case .failure(let failure):
+            log.error("refused link: \(String(describing: failure), privacy: .public)")
+            refusals.append(failure)
+            if orderedModels().contains(where: { $0.window != nil }) { presentRefusals() } else if launchGraceOver, models.isEmpty { requestWindow() }
+        }
+    }
+
+    /// One sheet per refused link on the frontmost window, one after the other. Before the first window exists (a link that launched
+    /// the app) they wait for it: a modal alert at launch would keep SwiftUI from ever creating that window.
+    private func presentRefusals() {
+        guard !refusals.isEmpty, !presentingRefusal, let window = orderedModels().first(where: { $0.window != nil })?.window else { return }
+        presentingRefusal = true
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = String(localized: "Could not open the link")
+        alert.informativeText = Self.message(for: refusals.removeFirst())
+        alert.beginSheetModal(for: window) { [self] _ in
+            presentingRefusal = false
+            presentRefusals()
+        }
+    }
+
+    private static func message(for failure: DeepLink.Failure) -> String {
+        switch failure {
+        case .unsupportedLink: String(localized: "Only macdown2://open and macdown2://workspace links are supported.")
+        case .badParameter(let name): String(localized: "The link’s “\(name)” parameter is missing, repeated or not valid.")
+        case .unsafePath: String(localized: "The path in the link must be absolute, without “..” or control characters.")
+        case .notFound: String(localized: "The file or folder in the link does not exist.")
+        case .unsupportedFileType: String(localized: "Links open only folders and Markdown, Quarto or text files.")
+        }
     }
 
     private static var layoutHintDirectory: URL {
@@ -348,6 +398,9 @@ final class WorkspaceRegistry: DocumentBackend {
         }
         model.startLayout(cli: layout, workspace: blank ? plan.folders : [])
         perform(plan.urls, in: model)
+        for url in plan.urls {
+            if let line = pendingLines.removeValue(forKey: url.fileKey), model.controller.holds(url) { model.lineRequest = LineRequest(key: url.fileKey, line: line) }
+        }
     }
 
     private func perform(_ urls: [URL], in model: WindowModel) {

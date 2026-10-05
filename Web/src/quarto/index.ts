@@ -8,6 +8,7 @@ import type { RenderOptions } from '../render/index.ts';
 import { escapeHtml } from './escape.ts';
 import { codeCells } from './rules/code-cell.ts';
 import { include } from './rules/include.ts';
+import { pandocBlankLine } from './rules/pandoc-blank-line.ts';
 import { calloutPlugin } from './vendored/callouts';
 import { citationPlugin } from './vendored/cites';
 import { divPlugin } from './vendored/divs';
@@ -93,6 +94,7 @@ function setup(md: MarkdownIt, o: RenderOptions): void {
   md.use(shortcodePlugin);
   md.use(codeCells);
   md.use(include);
+  md.use(pandocBlankLine); // last: it edits the paragraph-terminator chain the plugins above have added to
 
   // `@fig-x` and friends link to their anchor; the label number needs the whole project, so it stays "?".
   const cite = md.renderer.rules.quarto_cite!;

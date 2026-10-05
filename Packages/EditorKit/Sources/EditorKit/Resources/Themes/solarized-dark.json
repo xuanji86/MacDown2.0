@@ -109,6 +109,26 @@
     },
     "quartoRef": {
       "fg": "#4FA1DB"
+    },
+    "codeKeyword": {
+      "fg": "#9C9FDA",
+      "bold": true
+    },
+    "codeString": {
+      "fg": "#9BB020"
+    },
+    "codeComment": {
+      "fg": "#7F9496",
+      "italic": true
+    },
+    "codeConstant": {
+      "fg": "#F0807C"
+    },
+    "codeFunction": {
+      "fg": "#4FA1DB"
+    },
+    "codeKey": {
+      "fg": "#4FA1DB"
     }
   }
 }

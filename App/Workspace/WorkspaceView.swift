@@ -76,6 +76,12 @@ struct WorkspaceView: View {
             IsolatedTestHooks.showSearch(in: model) { open(hit: $0, pinned: true) }
         }
         .onChange(of: model.state) { WorkspaceRegistry.shared.persist() }
+        .onChange(of: model.lineRequest) { _, request in
+            guard let request else { return }
+            model.lineRequest = nil
+            editor.reveal(key: request.key, line: request.line - 1, columns: nil, focus: model.layout.showsEditor)
+            preview.scroll(toLine: Double(request.line - 1))
+        }
         .onChange(of: model.controller.activeURL) { _, url in
             model.sidebar.follow(url)
             if url == nil { preview.clear() }  // no document: no outline or counts of the one that was closed

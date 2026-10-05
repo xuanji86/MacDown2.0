@@ -86,6 +86,18 @@ macdown2 --help
 
 退出码：0 成功，64 参数错误，66 文件问题，69 应用无法启动（或当前构建不能输出 PDF），70 渲染失败。
 
+## 链接
+
+`macdown2://` 链接可以从浏览器、脚本或其他工具里在应用中打开内容：
+
+```
+macdown2://open?path=/Users/me/notes/todo.md&line=12&layout=preview-only
+macdown2://open?path=/Users/me/notes            # 文件夹作为工作区打开
+macdown2://workspace?path=/Users/me/notes       # 同上，并且只接受文件夹
+```
+
+`path` 必须是已存在的文件夹或 Markdown、Quarto、文本文件（`.md`、`.markdown`、`.qmd`、`.txt` 等 Markdown 扩展名）的绝对路径（在 URL 里要做百分号编码）。`line`（从 1 起）选中该行；`layout` 为 `both`、`editor-only` 或 `preview-only`，与命令行相同。链接可能来自你不认识的网页，所以其他情况一律弹出提示并拒绝：相对路径、`~`、含 `..` 或控制字符的路径、其他文件类型、`file:` URL、其他动作。链接只会打开一份文档供你阅读，不会执行其中的任何内容（Quarto 真渲染是另一个需要明确触发的步骤）。
+
 ## 从源码构建
 
 需要 macOS 26（Apple Silicon 或 Intel）和 Xcode 27。只有在修改 `Web/` 下的 JavaScript 渲染器时才需要 Node.js 23.6+。

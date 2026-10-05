@@ -19,6 +19,8 @@ public enum TokenKind: String, CaseIterable, Sendable {
     /// Only a document flavor's overlay produces these (PLAN 4.3.3, Quarto): executable cells, `#|` options, `:::` div
     /// fences, `{{< shortcodes >}}`, `@fig-x` / `[@cite]`.
     case quartoCell, quartoOption, quartoDiv, quartoShortcode, quartoRef
+    /// Inside fenced code / front matter in a language the editor knows (`InjectedLanguage`): the few roles every theme styles.
+    case codeKeyword, codeString, codeComment, codeConstant, codeFunction, codeKey
 }
 
 /// Compiled once. Our own capture names (instead of the grammar's nvim-style highlights.scm) because the shipped
@@ -29,6 +31,13 @@ enum Grammar {
 
     /// Capture "inline" is not a style: it marks the ranges the inline grammar must be run over.
     static let inlineCapture = "inline"
+
+    /// Captures that name a region to run another grammar over (`InjectedLanguage`), not styles: the front matter block, and a
+    /// fenced block's info string with its content. lazy: only fences directly in a section; one inside a list item or a block
+    /// quote has line prefixes in its content that the other grammar would choke on.
+    static let injectYAMLCapture = "injectYAML"
+    static let injectInfoCapture = "injectInfo"
+    static let injectContentCapture = "injectContent"
 
     static let blockQuery: Query = {
         let source = """
@@ -59,6 +68,8 @@ enum Grammar {
         (link_reference_definition (link_destination) @linkURL)
         (backslash_escape) @escape
         (inline) @inline
+        (minus_metadata) @\(Grammar.injectYAMLCapture)
+        (section (fenced_code_block (info_string) @\(Grammar.injectInfoCapture) (code_fence_content) @\(Grammar.injectContentCapture)))
         """
         return try! Query(language: block, data: Data(source.utf8))
     }()

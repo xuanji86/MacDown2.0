@@ -86,6 +86,18 @@ macdown2 --help
 
 Exit status: 0 ok, 64 bad arguments, 66 file problem, 69 the app could not be launched (or this build cannot write PDF), 70 rendering failed.
 
+## Links
+
+`macdown2://` links open things in the app from a browser, a script or another tool:
+
+```
+macdown2://open?path=/Users/me/notes/todo.md&line=12&layout=preview-only
+macdown2://open?path=/Users/me/notes            # a folder opens as a workspace
+macdown2://workspace?path=/Users/me/notes       # the same, and only a folder is accepted
+```
+
+`path` must be an absolute path (percent-encoded in the URL) to a folder or a Markdown, Quarto or text file (`.md`, `.markdown`, `.qmd`, `.txt` and the other Markdown extensions) that exists. `line` (1-based) selects that line; `layout` is `both`, `editor-only` or `preview-only`, as for the command line. Because a link can come from a web page you did not write, anything else is refused with a message and never acted on: a relative path, `~`, a path with `..` or control characters, any other file type, a `file:` URL or another action. A link only ever opens a document for you to read; nothing in it is executed (Quarto's real render is a separate, explicit step).
+
 ## Build from source
 
 Requires Xcode 27 on macOS 26 (Apple Silicon or Intel). Node.js 23.6+ is needed only if you change the JavaScript renderer under `Web/`.

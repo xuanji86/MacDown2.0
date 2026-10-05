@@ -42,6 +42,21 @@
 			</array>
 		</dict>
 	</array>
+	<!-- macdown2://open?path=<absolute path>[&line=N][&layout=...] and macdown2://workspace?path=<folder>: WorkspaceKit/DeepLink.swift
+	     says what a link may open (absolute paths to folders and Markdown / Quarto / text files, nothing executed). -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>MacDown2 link</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>macdown2</string>
+			</array>
+		</dict>
+	</array>
 	<key>UTExportedTypeDeclarations</key>
 	<array>
 		<dict>
