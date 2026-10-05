@@ -323,6 +323,7 @@ private struct RenderingPage: View {
     @AppStorage(AppearanceKey.previewStyle) private var style = AppearanceDefault.previewStyle
     @AppStorage(AppearanceKey.previewStyleFollowsSystem) private var styleFollows = false
     @AppStorage(RemoteContent.blockImagesKey) private var blockRemoteImages = false
+    @AppStorage(PreviewEditingKey.enabled) private var previewEditing = true
     @Bindable private var render = RenderSettings.shared
 
     var body: some View {
@@ -332,6 +333,11 @@ private struct RenderingPage: View {
                     ForEach(PreviewStyles.all) { Text($0.name).tag($0.id) }
                 }
                 Toggle("Follow System", isOn: $styleFollows)
+            }
+            Section {
+                Toggle("Edit in preview", isOn: $previewEditing)
+            } footer: {
+                Text("Click into a paragraph, heading, list or table in the preview to type, delete or use an input method there; the change goes into the source and undoes like typing in the editor. Line breaks, formatting and anything the preview cannot map to the source stay in the editor. A selection in either pane is highlighted in the other.")
             }
             Section {
                 Toggle("Block remote images", isOn: $blockRemoteImages)

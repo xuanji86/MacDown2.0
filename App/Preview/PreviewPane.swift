@@ -16,6 +16,12 @@ enum PreviewMessage: Equatable {
     /// A task-list checkbox was clicked (`Web/src/preview/tasks.ts`): the page's per-load token, the 0-based source line of
     /// its item, the state the user asked for, and the render version the page shows.
     case toggleTask(token: String, line: Int, checked: Bool, version: Int)
+    /// The page's selection as a source range of the text of render `version`, nil when there is none (`Web/src/preview/peer.ts`).
+    case selection(token: String, version: Int, range: NSRange?)
+    /// A text edit made in the preview (`Web/src/preview/editing.ts`).
+    case edit(token: String, edit: PreviewEdit)
+    /// The page held a render back while an edit or an input method was in flight and wants the current text again.
+    case resync(token: String)
 
     init?(body: Any) {
         guard let dict = body as? [String: Any], let type = dict["type"] as? String else { return nil }
@@ -32,10 +38,31 @@ enum PreviewMessage: Equatable {
                   let version = (dict["version"] as? NSNumber)?.intValue
             else { return nil }
             self = .toggleTask(token: token, line: line, checked: checked, version: version)
+        case "selection":
+            guard let token = dict["token"] as? String,
+                  let version = (dict["version"] as? NSNumber)?.intValue,
+                  let from = (dict["from"] as? NSNumber)?.intValue, let to = (dict["to"] as? NSNumber)?.intValue
+            else { return nil }
+            self = .selection(token: token, version: version, range: from >= 0 && to > from ? NSRange(location: from, length: to - from) : nil)
+        case "previewEdit":
+            guard let token = dict["token"] as? String,
+                  let base = (dict["base"] as? NSNumber)?.intValue, let seq = (dict["seq"] as? NSNumber)?.intValue, seq >= 1,
+                  let from = (dict["from"] as? NSNumber)?.intValue, let to = (dict["to"] as? NSNumber)?.intValue, from >= 0, to >= from,
+                  let text = dict["text"] as? String
+            else { return nil }
+            self = .edit(token: token, edit: PreviewEdit(base: base, seq: seq, range: NSRange(location: from, length: to - from), replacement: text))
+        case "resync":
+            guard let token = dict["token"] as? String else { return nil }
+            self = .resync(token: token)
         default:
             return nil
         }
     }
+}
+
+/// Settings ▸ Rendering ▸ "Edit in preview" (default on): text-level editing inside the preview.
+enum PreviewEditingKey {
+    static let enabled = "previewEditing"
 }
 
 /// `userContentController.add` retains its handler, so this object only holds a closure that points back weakly.
@@ -75,6 +102,11 @@ final class PreviewModel {
     /// (`task` as the renderer saw it in `text`, the Markdown the page shows; `checked` the wanted state). Returns the document's new text
     /// when it made the edit, nil when it refused; the page is then told to take the checkbox back.
     var onToggleTask: ((_ task: TaskItem, _ checked: Bool, _ text: String) -> String?)?
+    /// A text edit made in the preview that fits the burst it belongs to (`PreviewEditChain`): apply it to the editor, which must
+    /// hold exactly `expectedText`. Returns the document's new text, or nil when it refused (the page then shows the app's text).
+    var onPreviewEdit: ((_ edit: PreviewEdit, _ expectedText: String) -> String?)?
+    /// The page's selection as a range of `text` (the Markdown the page shows), nil when it has none: the editor shows it.
+    var onPreviewSelection: ((_ range: NSRange?, _ text: String) -> Void)?
 
     /// Directory that relative image paths resolve against; nil for a document that was never saved.
     var documentDirectory: URL? {
@@ -110,6 +142,8 @@ final class PreviewModel {
         pending = nil
         lastMarkdown = nil
         displayed = nil
+        editChain.reset()
+        editorSelection = nil
     }
 
     /// Folders of the open workspace; a relative link to a `.md`/`.qmd` anywhere under them (or under the document's folder)
@@ -156,6 +190,11 @@ final class PreviewModel {
     private var loadedBlockingImages: Bool?
     /// Bumped by `clear()`: a render that started before it must not publish its metadata.
     private var clearEpoch = 0
+    /// The preview edits applied so far in the page's current burst (`PreviewEditChain`), and whether editing is on at all.
+    private var editChain = PreviewEditChain()
+    private var editingEnabled = true
+    /// The editor's selection to show on the page, with the text it is a range of; shown only while that is the text the page shows.
+    private var editorSelection: (range: NSRange, text: String)?
 
     init(options: RenderOptions = RenderSettings.current) {
         self.options = options
@@ -312,7 +351,86 @@ final class PreviewModel {
             onRenderError?(text)
         case .toggleTask(let token, let line, let checked, let version):
             toggleTask(token: token, line: line, checked: checked, version: version)
+        case .selection(let token, let version, let range):
+            guard token == bridgeToken else { return }
+            if let range, let displayed, displayed.version == version {
+                onPreviewSelection?(range, displayed.text)
+            } else if range == nil {
+                onPreviewSelection?(nil, displayed?.text ?? "")
+            }
+        case .edit(let token, let edit):
+            previewEdit(token: token, edit: edit)
+        case .resync(let token):
+            guard token == bridgeToken, let lastMarkdown else { return }
+            debounce?.cancel()
+            Task { [weak self] in await self?.push(lastMarkdown) }
         }
+    }
+
+    /// An edit made in the preview: applied only on exactly the text it was made on (the burst's chain, then the editor's own check),
+    /// rendered at once (the page holds back renders that do not contain all its edits yet). Anything else is refused: the page is
+    /// told and shown the app's text.
+    private func previewEdit(token: String, edit: PreviewEdit) {
+        guard token == bridgeToken else {
+            log.error("preview edit dropped: wrong token")
+            return
+        }
+        if editingEnabled, let expected = editChain.expectedText(for: edit, displayed: displayed.map { ($0.version, $0.text) }),
+           PreviewEditChain.isApplicable(edit, to: expected), let new = onPreviewEdit?(edit, expected) {
+            editChain.accept(edit, result: new)
+            lastMarkdown = new
+            debounce?.cancel()  // a render of older text still waiting would otherwise land after this one
+            Task { [weak self] in await self?.push(new) }
+        } else {
+            log.info("preview edit refused (burst \(edit.base), edit \(edit.seq))")
+            editChain.reset()
+            Task { [page] in _ = try? await page.callJavaScript("MacDown2Preview.editRefused('stale')") }
+            if let text = lastMarkdown ?? displayed?.text { Task { [weak self] in await self?.push(text) } }
+        }
+    }
+
+    /// Settings ▸ Rendering ▸ Edit in preview. The page gets it with every load too (`giveToken`).
+    func setEditing(enabled: Bool) {
+        guard enabled != editingEnabled else { return }
+        editingEnabled = enabled
+        if pageLoaded { Task { await applyEditing() } }
+    }
+
+    private func applyEditing() async {
+        let hints: [String: String] = [
+            "newline": String(localized: "Line breaks and new paragraphs are made in the editor."),
+            "paste": String(localized: "Formatted text can only be pasted in the editor."),
+            "formatting": String(localized: "This edit crosses formatting: make it in the editor."),
+            "unmapped": String(localized: "This text cannot be edited in the preview: edit it in the editor."),
+            "structure": String(localized: "That change belongs in the editor."),
+            "stale": String(localized: "The text changed meanwhile: the preview shows it again."),
+        ]
+        do {
+            _ = try await page.callJavaScript("MacDown2Preview.setEditing({ enabled, hints })", arguments: ["enabled": editingEnabled, "hints": hints])
+        } catch {
+            log.error("preview editing setup failed: \(String(describing: error), privacy: .public)")
+        }
+    }
+
+    /// The editor's selection (nil or empty: none), as a range of `text`, the document's text now. Shown on the page as a highlight
+    /// while the page shows that same text; kept, and shown again after each render.
+    func showEditorSelection(_ range: NSRange?, in text: String) {
+        if let range, range.length > 0 {
+            editorSelection = (range, text)
+        } else {
+            editorSelection = nil
+        }
+        Task { await applyEditorSelection() }
+    }
+
+    private func applyEditorSelection() async {
+        guard pageLoaded, let displayed else { return }
+        var arguments: [String: Any] = ["from": -1, "to": -1, "version": displayed.version]
+        if let selection = editorSelection, selection.text == displayed.text {
+            arguments["from"] = selection.range.location
+            arguments["to"] = NSMaxRange(selection.range)
+        }
+        _ = try? await page.callJavaScript("MacDown2Preview.highlightSource(from, to, version)", arguments: arguments)
     }
 
     /// Anything but a click on the page we last loaded, showing the text we last rendered, is ignored: a stale click can only
@@ -365,16 +483,18 @@ final class PreviewModel {
         await applyStyle()
     }
 
-    /// A fresh token per load; the page keeps task checkboxes disabled until it has one.
+    /// A fresh token per load; the page keeps task checkboxes disabled (and editing off) until it has one.
     private func giveToken() async {
         let token = UUID().uuidString
         bridgeToken = token
         displayed = nil
+        editChain.reset()
         do {
             _ = try await page.callJavaScript("MacDown2Preview.setTaskToken(token)", arguments: ["token": token])
         } catch {
             log.error("preview token failed: \(String(describing: error), privacy: .public)")
         }
+        await applyEditing()
     }
 
     private func push(_ markdown: String) async {
@@ -394,20 +514,27 @@ final class PreviewModel {
             renderCount += 1
             let version = renderCount
             let epoch = clearEpoch
+            // The page's preview edits this text contains (the page holds back a render that does not contain all of them yet).
+            let mark: Any = editChain.mark(for: next).map { ["base": $0.base, "seq": $0.seq] as [String: Int] } ?? NSNull()
             do {
                 // A chunk that fails to load is reported by `update` itself (the flavor is then unknown).
                 let result = try await page.callJavaScript(
-                    "await MacDown2Preview.useFlavor(flavor).catch(() => {}); MacDown2Preview.setBase(base); if (rebuild) MacDown2Preview.invalidate(); return MacDown2Preview.update(md, options, version)",
-                    arguments: ["md": next, "options": optionsJSON, "rebuild": rebuild, "flavor": flavorFiles, "base": base.map { $0 as Any } ?? NSNull(), "version": version]
+                    "await MacDown2Preview.useFlavor(flavor).catch(() => {}); MacDown2Preview.setBase(base); if (rebuild) MacDown2Preview.invalidate(); return MacDown2Preview.update(md, options, version, edit)",
+                    arguments: ["md": next, "options": optionsJSON, "rebuild": rebuild, "flavor": flavorFiles, "base": base.map { $0 as Any } ?? NSNull(), "version": version, "edit": mark]
                 )
                 let elapsed = ContinuousClock.now - started
                 // Render failures are reported over the bridge (`handle`); success carries blocks/outline/stats/perf.
                 let meta = (result as? String).flatMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any] }
-                if meta?["error"] == nil {
+                if meta?["deferred"] as? Bool == true {
+                    // Held back by the page: it still shows the previous render (and more); `displayed` stays as it is.
+                    if rebuild { needsRebuild = true }
+                    log.info("preview update held back by the page (edit in flight)")
+                } else if meta?["error"] == nil {
                     // A render that started before `clear()` / a document switch must not publish: its text is not the pane's any more.
                     if epoch == clearEpoch, let decoded = try? JSONDecoder().decode(PreviewMetadata.self, from: Data((result as? String ?? "").utf8)) {
                         if decoded != metadata { metadata = decoded }
                         displayed = (version, next, decoded.tasks)
+                        if editorSelection != nil { await applyEditorSelection() }  // the render dropped the page's highlight
                     }
                     let perf = meta?["perf"] as? [String: Any]
                     let ms = Double(elapsed.components.attoseconds) / 1e15 + Double(elapsed.components.seconds) * 1000
@@ -437,6 +564,7 @@ struct PreviewPane: View {
     @AppStorage(AppearanceKey.previewStyle) private var style = AppearanceDefault.previewStyle
     @AppStorage(AppearanceKey.previewStyleFollowsSystem) private var followsSystem = false
     @AppStorage(RemoteContent.blockImagesKey) private var blockRemoteImages = false
+    @AppStorage(PreviewEditingKey.enabled) private var previewEditing = true
     private let renderSettings = RenderSettings.shared
 
     var body: some View {
@@ -448,6 +576,7 @@ struct PreviewPane: View {
             .onChange(of: "\(style)|\(followsSystem)", initial: true) { model.setStyle(id: style, followSystem: followsSystem) }
             .onChange(of: flavor?.id, initial: true) { model.setFlavor(flavor) }
             .onChange(of: blockRemoteImages, initial: true) { model.reloadForPolicyChange() }
+            .onChange(of: previewEditing, initial: true) { _, on in model.setEditing(enabled: on) }
             // Restarts with the document: the page stays, the text it renders is the active tab's.
             .task(id: ObjectIdentifier(document)) {
                 model.show(document: ObjectIdentifier(document), directory: documentURL?.deletingLastPathComponent(), flavor: flavor)

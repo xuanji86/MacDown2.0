@@ -104,6 +104,7 @@ struct EditorPane: NSViewRepresentable {
             guard let session, session.document !== document else { return }
             session.show(document)
             if let textView {
+                textView.clearPeerHighlight()  // it was a range of the other document's text
                 textView.scroll(toLine: 0)
                 textView.scrollRangeToVisible(textView.selectedRange())
                 status?.selectionChanged(in: textView)
@@ -118,9 +119,18 @@ struct EditorPane: NSViewRepresentable {
             guard let textView = notification.object as? MarkdownTextView else { return }
             scrollSync.caretMoved(in: textView)
             status?.selectionChanged(in: textView)
+            // Two-way selection: only a selection the user makes here goes to the preview (an edit typed in the preview moves this
+            // view's selection too, while the preview has the focus), and working here ends the preview's highlight.
+            if textView.window?.firstResponder === textView, !textView.hasMarkedText() {
+                textView.clearPeerHighlight()
+                editor?.onSelectionChange?(textView.selectedRange())
+            }
         }
 
-        func textDidChange(_ notification: Notification) { session?.textDidChange() }
+        func textDidChange(_ notification: Notification) {
+            (notification.object as? MarkdownTextView)?.clearPeerHighlight()  // its ranges were of the old text
+            session?.textDidChange()
+        }
     }
 }
 

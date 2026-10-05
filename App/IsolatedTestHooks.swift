@@ -47,6 +47,18 @@ import WorkspaceKit
 ///   MACDOWN2_TEST_DUMP_MENUS=<secs>       after this many seconds, the app's language and every title in the main menu bar go to the
 ///                                         log (menus cannot be photographed window-only): category "menu-dump"
 ///                                         (the language itself is chosen with MACDOWN2_LANGUAGE in `Scripts/run-isolated.sh`)
+///   MACDOWN2_TEST_PREVIEW_EDIT=<line>     preview editing (PLAN M2), without input events: the page puts the block on source line <line>
+///                                         in edit mode with the caret at the end of that line's text, the preview's web view becomes
+///                                         first responder, and the steps below go through its own text input methods (what a keyboard
+///                                         and an input method reach), `MACDOWN2_TEST_PREVIEW_DELAY` (default 3) seconds apart:
+///   MACDOWN2_TEST_PREVIEW_TYPE=<text>     ... typed one character at a time (`insertText:replacementRange:`)
+///   MACDOWN2_TEST_PREVIEW_IME=<a,ab,abc>|<commit>  ... an input method composing a, ab, abc and committing <commit> (`setMarkedText:...`)
+///   MACDOWN2_TEST_PREVIEW_BACKSPACE=<n>   ... n backspaces (`doCommandBySelector: deleteBackward:`)
+///   MACDOWN2_TEST_PREVIEW_UNDO=1          ... then undo and redo through the responder chain, as Cmd-Z / Cmd-Shift-Z reach them
+///   MACDOWN2_TEST_PEER_SELECT=<from>,<to> two-way selection: the editor (made first responder) selects source [from, to) and the
+///                                         page's highlight is logged; `MACDOWN2_TEST_PAGE_SELECT=<line>:<a>:<b>` then selects characters
+///                                         a ..< b of the first text node of the block on <line> in the page and logs what the editor shows.
+///                                         Everything is logged: `log show --predicate 'category == "preview-edit-hook"'`
 enum IsolatedTestHooks {
     #if DEBUG
     private static func value(_ name: String) -> String? {
@@ -58,7 +70,9 @@ enum IsolatedTestHooks {
     private nonisolated(unsafe) static var framed = Set<Int>()
     private nonisolated(unsafe) static var toggled = false
     private nonisolated(unsafe) static var tabUndoRan = false
+    private nonisolated(unsafe) static var previewEditRan = false
     private static let tabLog = Logger(subsystem: "io.github.xuanji86.MacDown2", category: "tab-undo-hook")
+    private static let editLog = Logger(subsystem: "io.github.xuanji86.MacDown2", category: "preview-edit-hook")
     private static let hookLog = Logger(subsystem: "io.github.xuanji86.MacDown2", category: "task-toggle-hook")
     private static let toolbarLog = Logger(subsystem: "io.github.xuanji86.MacDown2", category: "toolbar-dump")
     private static let menuLog = Logger(subsystem: "io.github.xuanji86.MacDown2", category: "menu-dump")
@@ -330,6 +344,114 @@ enum IsolatedTestHooks {
         model.controller.activate(urls[0])
         await pause()
         snapshot("7 undo again, window 1 back on A")
+        #endif
+    }
+
+    /// Drives preview editing and two-way selection without input events (see the list at the top): the page's own edit mode, then the
+    /// preview's web view's text input methods called directly, in this process, as AppKit calls them for a key press or an input
+    /// method; nothing reaches the desktop.
+    @MainActor static func previewEditing(model: WindowModel, preview: PreviewModel, editor: EditorHandle, document: MarkdownDocument) async {
+        #if DEBUG
+        guard !previewEditRan, value("MACDOWN2_TEST_PREVIEW_EDIT") != nil || value("MACDOWN2_TEST_PEER_SELECT") != nil else { return }
+        previewEditRan = true
+        for _ in 0..<100 where preview.metadata == nil { try? await Task.sleep(for: .milliseconds(100)) }
+        let step = Double(value("MACDOWN2_TEST_PREVIEW_DELAY") ?? "") ?? 3
+        func pause(_ seconds: Double = step) async { try? await Task.sleep(for: .seconds(seconds)) }
+        func state(_ label: String) {
+            editLog.info("\(label, privacy: .public): text=\(document.text.debugDescription, privacy: .public) editor=\((editor.textView?.string ?? "-").debugDescription, privacy: .public) canUndo=\(document.undoManager?.canUndo ?? false, privacy: .public) undo=\(document.undoManager?.undoActionName ?? "-", privacy: .public) canRedo=\(document.undoManager?.canRedo ?? false, privacy: .public)")
+        }
+        await pause()
+        guard let window = editor.textView?.window, let web = webView(in: window) else { return editLog.error("no web view") }
+        state("start")
+
+        if let raw = value("MACDOWN2_TEST_PEER_SELECT") {
+            let n = raw.split(separator: ",").compactMap { Int($0) }
+            if n.count == 2, let textView = editor.textView {
+                window.makeFirstResponder(textView)
+                textView.setSelectedRange(NSRange(location: n[0], length: n[1] - n[0]))
+                await pause(1)
+                let shown = try? await preview.page.callJavaScript("return [...(CSS.highlights.get('md2-peer') ?? [])].map((r) => JSON.stringify(r.toString())).join(' + ')")
+                editLog.info("editor selected \(n[0], privacy: .public)..<\(n[1], privacy: .public): page highlights \(String(describing: shown), privacy: .public)")
+                await pause()
+            }
+            if let page = value("MACDOWN2_TEST_PAGE_SELECT")?.split(separator: ":").compactMap({ Int($0) }), page.count == 3 {
+                window.makeFirstResponder(web)
+                let ok = try? await preview.page.callJavaScript(
+                    "const e = [...document.querySelectorAll('#doc [data-line]')].find((x) => x.dataset.line === String(line)); const w = e && document.createTreeWalker(e, NodeFilter.SHOW_TEXT); const t = w && w.nextNode(); if (!t) return false; getSelection().setBaseAndExtent(t, a, t, b); return true",
+                    arguments: ["line": page[0], "a": page[1], "b": page[2]])
+                await pause(1)
+                editLog.info("page selected (\(String(describing: ok), privacy: .public)): editor shows \(editor.textView?.peerHighlightRanges.description ?? "-", privacy: .public)")
+                await pause()
+            }
+        }
+
+        guard let line = value("MACDOWN2_TEST_PREVIEW_EDIT").flatMap(Int.init) else { return }
+        // the end of the line's text: the caret goes after its last character
+        let lines = document.text.split(separator: "\n", omittingEmptySubsequences: false)
+        let end = lines.prefix(line + 1).reduce(0) { $0 + $1.utf16.count + 1 } - 1
+        let entered = try? await preview.page.callJavaScript("return MacDown2Preview.editingForTests.enterAt(line, at)", arguments: ["line": line, "at": end])
+        editLog.info("edit mode on line \(line, privacy: .public) at \(end, privacy: .public): \(String(describing: entered), privacy: .public); web view first responder: \(window.makeFirstResponder(web), privacy: .public)")
+        await pause(1)
+
+        let insertText = NSSelectorFromString("insertText:replacementRange:")
+        let setMarked = NSSelectorFromString("setMarkedText:selectedRange:replacementRange:")
+        let command = NSSelectorFromString("doCommandBySelector:")
+        let none = NSRange(location: NSNotFound, length: 0)
+        func typeText(_ s: String) {
+            guard web.responds(to: insertText) else { return editLog.error("web view has no insertText:replacementRange:") }
+            typealias Fn = @convention(c) (AnyObject, Selector, AnyObject, NSRange) -> Void
+            unsafeBitCast(web.method(for: insertText), to: Fn.self)(web, insertText, s as NSString, none)
+        }
+        func mark(_ s: String) {
+            guard web.responds(to: setMarked) else { return editLog.error("web view has no setMarkedText:selectedRange:replacementRange:") }
+            typealias Fn = @convention(c) (AnyObject, Selector, AnyObject, NSRange, NSRange) -> Void
+            unsafeBitCast(web.method(for: setMarked), to: Fn.self)(web, setMarked, s as NSString, NSRange(location: (s as NSString).length, length: 0), none)
+        }
+        if let text = value("MACDOWN2_TEST_PREVIEW_TYPE") {
+            for c in text { typeText(String(c)); try? await Task.sleep(for: .milliseconds(80)) }
+            await pause(1)
+            state("typed \(text)")
+            await pause()
+        }
+        if let raw = value("MACDOWN2_TEST_PREVIEW_IME") {
+            let parts = raw.split(separator: "|", maxSplits: 1).map(String.init)
+            for s in parts.first?.split(separator: ",") ?? [] { mark(String(s)); try? await Task.sleep(for: .milliseconds(150)) }
+            await pause(1)  // the composition on screen (underlined), for a photo
+            if parts.count == 2 { typeText(parts[1]) }
+            await pause(1)
+            state("composed \(raw)")
+            await pause()
+        }
+        if let n = value("MACDOWN2_TEST_PREVIEW_BACKSPACE").flatMap(Int.init), web.responds(to: command) {
+            typealias Fn = @convention(c) (AnyObject, Selector, Selector) -> Void
+            for _ in 0..<n { unsafeBitCast(web.method(for: command), to: Fn.self)(web, command, #selector(NSResponder.deleteBackward(_:))); try? await Task.sleep(for: .milliseconds(80)) }
+            await pause(1)
+            state("\(n) backspace(s)")
+            await pause()
+        }
+        guard value("MACDOWN2_TEST_PREVIEW_UNDO") == "1" else { return }
+        // What Cmd-Z reaches with the preview focused: the first responder in the chain that answers undo:.
+        func send(_ action: String) {
+            var chain: [String] = []
+            var responder: NSResponder? = window.firstResponder
+            var handler: NSResponder?
+            while let current = responder {
+                let answers = current.responds(to: Selector((action)))
+                chain.append("\(type(of: current))\(answers ? "(\(action))" : "")")
+                if answers, handler == nil { handler = current }
+                responder = current.nextResponder
+            }
+            editLog.info("\(action, privacy: .public) responder chain: \(chain.joined(separator: " > "), privacy: .public)")
+            handler?.perform(Selector((action)), with: nil)
+        }
+        window.makeFirstResponder(web)
+        send("undo:")
+        await pause(1)
+        state("after undo")
+        await pause()
+        send("redo:")
+        await pause(1)
+        state("after redo")
         #endif
     }
 

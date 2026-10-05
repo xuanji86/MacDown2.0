@@ -7,6 +7,9 @@ import MarkdownCore
 final class EditorHandle {
     weak var textView: MarkdownTextView?
 
+    /// The user moved the selection in the editor (it has the focus): the preview shows the same range (two-way selection).
+    var onSelectionChange: ((NSRange) -> Void)?
+
     func perform(_ command: MarkdownCommand) {
         guard let textView else { return }
         textView.perform(command)
@@ -54,6 +57,27 @@ final class EditorHandle {
         else { return nil }
         return textView.string
     }
+
+    /// Text edited in the preview (PLAN M2): `edit` made on `expectedText`, which the editor must hold exactly (the page's text and the
+    /// editor's agree, so the edit means what the user saw). Typed into the text view as typing there is, so undo and redo work as for
+    /// keystrokes in the editor, and the model, the autosave and the next render follow as usual. Returns the editor's new text, or
+    /// nil when nothing was changed.
+    func applyPreviewEdit(_ edit: PreviewEdit, expectedText: String) -> String? {
+        guard let textView, textView.string == expectedText, PreviewEditChain.isApplicable(edit, to: expectedText),
+              textView.typeExternally(edit.replacement, replacing: edit.range, startsNewStep: edit.seq == 1)
+        else { return nil }
+        return textView.string
+    }
+
+    /// The preview's selection (a range of `text`, what the preview shows): drawn over the editor's text, not selected. Only while the
+    /// editor holds that same text and no input method is composing; nil clears it.
+    func showPeerHighlight(_ range: NSRange?, text: String) {
+        guard let textView else { return }
+        guard let range, range.length > 0, !textView.hasMarkedText(), textView.string == text else { return textView.clearPeerHighlight() }
+        textView.showPeerHighlight([range])
+    }
+
+    func clearPeerHighlight() { textView?.clearPeerHighlight() }
 
     func resignFocus() {
         if let textView, textView.window?.firstResponder === textView { textView.window?.makeFirstResponder(nil) }

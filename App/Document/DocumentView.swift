@@ -85,9 +85,17 @@ struct DocumentView: View {
         .focusedSceneValue(\.windowActions, actions)
         .task { await IsolatedTestHooks.toggleTaskThroughPage(model: model, preview: preview, editor: editor, document: document) }
         .task { await IsolatedTestHooks.tabSwitchUndo(model: model, editor: editor) }
+        .task { await IsolatedTestHooks.previewEditing(model: model, preview: preview, editor: editor, document: document) }
         .onAppear {
             scrollSync.attach(preview: preview)
             preview.onToggleTask = { [editor] task, checked, text in editor.toggleTask(task, checked: checked, renderedText: text) }
+            // Preview editing and two-way selection (PLAN M2): edits typed in the preview go into the editor, each pane shows the other's selection.
+            preview.onPreviewEdit = { [editor] edit, expected in editor.applyPreviewEdit(edit, expectedText: expected) }
+            preview.onPreviewSelection = { [editor] range, text in editor.showPeerHighlight(range, text: text) }
+            editor.onSelectionChange = { [preview, model] range in
+                guard let text = model.activeDocument?.text else { return }
+                preview.showEditorSelection(range, in: text)
+            }
         }
         .onChange(of: syncScrolling, initial: true) { _, on in scrollSync.isEnabled = on }
         .onChange(of: previewFollowsCaret, initial: true) { _, on in scrollSync.followsCaret = on }
