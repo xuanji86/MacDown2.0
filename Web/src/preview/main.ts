@@ -15,9 +15,17 @@ import { pageYToLine, recordAnchor, scrollToLine as scrollBlocksToLine, startAnc
 import { alignSegments, splitBlocks, type Segment } from './split-html.ts';
 import { DEFAULT_STYLE, styleLinks } from './styles.ts';
 import { enableTaskCheckboxes, focusedTaskLine, restoreTaskFocus, setRenderVersion, startTaskToggling } from './tasks.ts';
+import { afterUpdate, beforeUpdate, busy, onForget, startEditing } from './editing.ts';
+import { clearHighlight, muteSelectionWhile, selectionStale, startSelectionReporting } from './peer.ts';
+import { shown } from './shown.ts';
 
 // The app hands over its per-load token and, after refusing a toggle, asks the page to take back what the user flipped.
 export { resyncTasks, setTaskToken } from './tasks.ts';
+// Preview editing and two-way selection (editing.ts, peer.ts): the app switches editing on, shows its editor's selection here,
+// and tells the page when it refused an edit.
+export { editRefused, editingForTests, setEditing } from './editing.ts';
+export { highlightSource, selectedSource } from './peer.ts';
+export { mapBlock } from './source-map.ts';
 
 interface RenderBlock { lineStart: number; lineEnd: number; hash: number }
 type Lines = Pick<RenderBlock, 'lineStart' | 'lineEnd'>
@@ -164,9 +172,12 @@ function patch(html: string, segs: Segment[], lines: Lines[], st: State): number
 
 // Renders `md` into article#doc and returns the metadata JSON ({blocks, outline, stats, perf}) without the html.
 // `version` is the app's counter for this render; checkbox clicks carry it back so the app knows which text the page shows.
+// `edit`: when the text is made of this page's preview edits, the base render and number of the last one it contains (editing.ts);
+// while the page shows more than that, or an input method is composing, the render is held back and `{deferred: true}` returned.
 // On a render failure the previous content stays, the error bar shows the message, the error goes to Swift over
 // the bridge, and `{error}` is returned.
-export function update(md: string, optionsJSON: string, version = 0): string {
+export function update(md: string, optionsJSON: string, version = 0, edit: { base: number; seq: number } | null = null): string {
+  if (beforeUpdate(md, edit) === 'defer') return JSON.stringify({ deferred: true });
   const t0 = performance.now();
   const focusedTask = focusedTaskLine();
   try {
@@ -194,6 +205,15 @@ export function update(md: string, optionsJSON: string, version = 0): string {
     const t3 = performance.now();
     errorBar().hidden = true;
     setRenderVersion(version);
+    shown.source = md;
+    shown.options = options as typeof shown.options;
+    shown.optionsJSON = optionsJSON;
+    shown.version = version;
+    shown.blocks = state?.blocks ?? [];
+    shown.generation++;
+    clearHighlight(); // the app sends its editor's selection again for this render
+    selectionStale();
+    afterUpdate();
     restoreTaskFocus(focusedTask);
     anchorAfterRender();
     renderMermaid(doc()); // async; draws the diagrams that are new in the DOM, the metadata below does not wait for it
@@ -302,6 +322,14 @@ export function setStyle(light: string, dark: string | null): void {
 startScrollReporting(() => state?.blocks ?? []);
 startAnchorScrolling();
 startTaskToggling();
+startEditing();
+startSelectionReporting();
+muteSelectionWhile(busy);
+// A block edited in the preview must be rebuilt by the next render, even when its text comes back the same.
+onForget((h) => {
+  const i = state ? state.blocks.indexOf(h) : -1;
+  if (i >= 0) state!.keys[i] = NaN;
+});
 addEventListener('error', (e) => post({ type: 'error', stage: 'script', message: `${e.message} (${e.filename}:${e.lineno})` }));
 addEventListener('unhandledrejection', (e) => post({ type: 'error', stage: 'script', message: errorText(e.reason) }));
 document.addEventListener('securitypolicyviolation', (e) => post({ type: 'error', stage: 'csp', message: `${e.violatedDirective} blocked ${e.blockedURI}` }));

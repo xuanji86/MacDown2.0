@@ -18,6 +18,11 @@ export function setTaskToken(value: string | null): void {
   token = value;
 }
 
+/** The app's per-load token (every message that asks for something carries it); null before the app handed it over. */
+export function bridgeToken(): string | null {
+  return token;
+}
+
 export function setRenderVersion(value: number): void {
   version = value;
 }
