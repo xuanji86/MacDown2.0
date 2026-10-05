@@ -1,7 +1,7 @@
 # CLT's swift-testing macro plugin isn't on the default path; full Xcode doesn't need this.
 SWIFT_TEST_FLAGS := $(if $(findstring CommandLineTools,$(shell xcode-select -p)),-Xswiftc -plugin-path -Xswiftc /Library/Developer/CommandLineTools/usr/lib/swift/host/plugins/testing)
 
-.PHONY: web test perf app
+.PHONY: web site test perf app
 
 # Full Xcode is required for xcodebuild; use it even when xcode-select still points at the Command Line Tools.
 XCODE_DEV := $(if $(findstring CommandLineTools,$(shell xcode-select -p)),/Applications/Xcode.app/Contents/Developer,$(shell xcode-select -p))
@@ -10,9 +10,14 @@ web:
 	[ -d Web/node_modules ] || (cd Web && npm ci)
 	cd Web && node build.mjs
 
+# Regenerates docs/index.html, docs/zh/index.html and docs/sitemap.xml from Scripts/site/index.src.html.
+site:
+	Scripts/build-site.py
+
 test:
 	cd Web && npm test
 	Scripts/check-web-drift.sh
+	Scripts/build-site.py --check
 	Scripts/check-module-boundaries.sh
 	Scripts/check-localization.py
 	Scripts/test-scroll-sync.sh

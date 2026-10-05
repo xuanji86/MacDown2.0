@@ -1,0 +1,6 @@
+# Crawlers only read robots.txt at the host root, so this copy under /MacDown2.0/ is informational; the sitemap is
+# also submitted in Search Console.
+User-agent: *
+Allow: /
+
+Sitemap: https://xuanji86.github.io/MacDown2.0/sitemap.xml
