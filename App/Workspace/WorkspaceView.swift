@@ -16,7 +16,6 @@ struct WorkspaceView: View {
     @State private var titleGuard = HiddenTitleGuard()
     @State private var chrome = ToolbarStyleGuard()
     @AppStorage(ToolbarStyle.key) private var toolbarStyle = ToolbarStyle.default
-    @Environment(\.openWindow) private var openWindow
 
     private var visibility: Binding<NavigationSplitViewVisibility> {
         Binding(
@@ -69,7 +68,6 @@ struct WorkspaceView: View {
         })
         .focusedSceneValue(\.workspace, model)
         .onAppear {
-            WorkspaceRegistry.shared.openWindow = { openWindow(id: WorkspaceScene.id) }
             WorkspaceRegistry.shared.register(model)
         }
         .task {

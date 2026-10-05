@@ -31,8 +31,6 @@ final class WorkspaceRegistry: DocumentBackend {
     private var refusalHost: NSWindow?
     private var launchGraceOver = false
     private(set) var isTerminating = false
-    /// Filled by the first window (`OpenWindowAction` only exists inside the view tree).
-    var openWindow: (() -> Void)?
     /// A close sheet asked for by a window: that window hosts it, whichever window comes first in the list.
     private var sheetHost: [String: UUID] = [:]
 
@@ -290,10 +288,9 @@ final class WorkspaceRegistry: DocumentBackend {
         AppDefaults.store.set(WindowRestoration.encode(orderedModels().map(\.state)), forKey: Self.defaultsKey)
     }
 
-    /// A new workspace window: through `openWindow` once a window has handed it over; before that (a launch in the
-    /// background gets no window from SwiftUI) by running SwiftUI's own File > New Window item.
-    private func requestWindow() {
-        if let openWindow { openWindow(); return }
+    /// A new workspace window, by running SwiftUI's own File > New Window item. (Not by keeping a window's `OpenWindowAction`: it holds
+    /// that window's whole view graph, models and web view included, for as long as it is kept.)
+    func requestWindow() {
         let fileMenu = NSApp.mainMenu?.items.compactMap(\.submenu).first { $0.items.contains(where: Self.isNewWindowItem) }
         if let fileMenu, let item = fileMenu.items.first(where: Self.isNewWindowItem) { fileMenu.performActionForItem(at: fileMenu.index(of: item)) }
     }
