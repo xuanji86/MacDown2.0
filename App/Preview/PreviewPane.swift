@@ -103,24 +103,18 @@ final class PreviewModel {
     private var options: RenderOptions
     private var flavor: (any DocumentFlavor)?
     private var loading: Task<Bool, Never>?
-    // Updates arriving while a JS call is in flight collapse into `pending`; the latest text always wins, in order.
-    private var pending: String?
-    private var pushing = false
-    /// The document the pane shows (`show`); a different one starts from scratch.
-    private var shownDocument: ObjectIdentifier?
-    /// The options the page was last rendered with: a render with different ones is sent as a rebuild, so whether the page
-    /// patches or rebuilds does not hang on two JSON strings being byte-identical.
-    private var lastSent: RenderOptions?
-    private var lastMarkdown: String?
+    /// The text waiting to be rendered (newest wins), the one the page shows, and the document the pane is on.
+    private var queue = RenderQueue()
+    private var lastMarkdown: String? { queue.latest }
+    private var pushing = false  // `drain` is running: one render at a time
+    /// The pause between two renders of a burst (`drain`); cancelled when another document takes the pane.
+    private var sleeping: Task<Void, Never>?
+    /// The line to scroll to once the render after a page reload has landed; taken by that render when it starts.
+    private var restoreLine: Double?
     private var needsRebuild = false
     /// Secret of the current page load, given to the page once it has loaded; a message that does not carry it is dropped.
     /// Not persisted anywhere: a new load (or a new launch) has a new one.
     private var bridgeToken: String?
-    /// The text the page shows, and the version it was given (every render gets the next one; the page reports the one it
-    /// shows with each checkbox click), and the checkboxes the renderer found in it (nil until that render has answered: a
-    /// click in that instant is refused). Set before the render is sent and put back if it fails. nil until the first render.
-    private var shown: (version: Int, text: String, tasks: [TaskItem]?)?
-    private var renderCount = 0
     // Same latest-wins collapsing for scroll requests.
     private var pendingScrollLine: Double?
     private var lastLine = 0.0  // top source line the preview was last scrolled to, by the user or by `scroll(toLine:)`
@@ -130,8 +124,6 @@ final class PreviewModel {
     private var pageLoaded = false
     /// The Block remote images setting the current page was loaded with (it is part of the page's CSP); nil before the first load.
     private var loadedBlockingImages: Bool?
-    /// Bumped by `clear()`: a render that started before it must not publish its metadata.
-    private var clearEpoch = 0
 
     init(options: RenderOptions = RenderSettings.current) {
         self.options = options
@@ -145,8 +137,8 @@ final class PreviewModel {
         messages.onMessage = { [weak self] message in self?.handle(message) }
     }
 
-    /// New render settings. A render with different options is sent as a rebuild (`lastSent`), so this only has to render the
-    /// current text again.
+    /// New render settings. The page rebuilds the whole document when it sees a different options string, so this only
+    /// has to push the current text again.
     func setOptions(_ new: RenderOptions) {
         guard new != options else { return }
         options = new
@@ -154,7 +146,7 @@ final class PreviewModel {
     }
 
     /// The flavor an enabled extension gives this document (nil = plain Markdown), e.g. Quarto for a .qmd. Changing it
-    /// re-renders; the options then differ (flavor id), so the page rebuilds, and the flavor's chunk and
+    /// re-renders; the options string then differs (flavor id), so the page rebuilds, and the flavor's chunk and
     /// stylesheets are loaded (or its stylesheets dropped) before the render.
     func setFlavor(_ new: (any DocumentFlavor)?) {
         guard new?.id != flavor?.id else { return }
@@ -167,9 +159,8 @@ final class PreviewModel {
     /// `textChanged` and renders then, as a rebuild. The same document with a new folder or flavor (Save As, extension switched
     /// on) keeps its text and renders it again.
     func show(document: ObjectIdentifier, directory: URL?, flavor: (any DocumentFlavor)?) {
-        if document != shownDocument {
-            shownDocument = document
-            forgetText()
+        if queue.show(document) {
+            sleeping?.cancel()  // the new document's first render does not wait for the old one's pause
             needsRebuild = true
         }
         documentDirectory = directory
@@ -193,9 +184,13 @@ final class PreviewModel {
     /// Renders now unless a render is running; then `markdown` waits for it (and replaces whatever was waiting), so the first
     /// change after a pause is not delayed and a typing burst costs at most one render per finished one (`drain`).
     func schedule(_ markdown: String) {
-        lastMarkdown = markdown
-        pending = markdown
-        Task { await drain() }
+        queue.submit(markdown)
+        kick()
+    }
+
+    private func kick() {
+        guard !pushing else { return }  // the running `drain` takes it
+        Task { [weak self] in await self?.drain() }
     }
 
     /// Scrolls the preview so `line` (0-based, fractional ok) is at the top. Instant; the page does not echo it back
@@ -250,18 +245,10 @@ final class PreviewModel {
     /// still on its way (a waiting or running render) brings it back. The page keeps its old content out of sight until the
     /// next document's text replaces it.
     func clear() {
-        shownDocument = nil
-        forgetText()
+        queue.clear()
+        sleeping?.cancel()
         needsRebuild = true
         metadata = nil
-    }
-
-    /// Nothing of the document's text that was shown, waiting or running may reach the page's state or the window any more.
-    private func forgetText() {
-        clearEpoch += 1
-        pending = nil
-        lastMarkdown = nil
-        shown = nil
     }
 
     private func reloadPage() async {
@@ -269,10 +256,14 @@ final class PreviewModel {
         pageLoaded = false
         loading = nil
         needsRebuild = true
-        guard await ensureLoaded(), let markdown = lastMarkdown else { return }  // the text as it is after the load, not before
-        pending = markdown
-        await drain()
-        scroll(toLine: line)
+        restoreLine = line
+        guard await ensureLoaded() else {
+            restoreLine = nil
+            return
+        }
+        // The text as it is after the load, not before; the scroll happens when its render has landed (a running `drain` may
+        // already be on it), because before that the page is empty.
+        if restoreLine != nil, let lastMarkdown { schedule(lastMarkdown) } else { restoreLine = nil }
     }
 
     /// Switches the preview style (and its highlight.js theme) in place; the page is not reloaded. With `followSystem` the
@@ -305,18 +296,19 @@ final class PreviewModel {
         }
     }
 
-    /// Anything but a click on the page we last loaded, showing the text we last rendered, is ignored: a stale click can only
-    /// mean the text moved on (typing, another tab) and the next render is on its way. The editor then re-checks the line
-    /// against the text it holds now (`TaskToggle`) and makes the change as one undo step.
+    /// Anything but a click on the page we last loaded, on the render it still shows (`RenderQueue.toggleTarget`: a newer one
+    /// that is only on its way does not count), is ignored. The editor applies the change only when its text is still exactly
+    /// the one that render was made from (`TaskToggle` re-checks the line), as one undo step; text typed since refuses it.
     private func toggleTask(token: String, line: Int, checked: Bool, version: Int) {
         guard token == bridgeToken else {
             log.error("preview task toggle dropped: wrong token")
             return
         }
-        if let shown, shown.version == version, let task = shown.tasks?.first(where: { $0.line == line }),
+        if let shown = queue.toggleTarget(version: version), let task = shown.tasks?.first(where: { $0.line == line }),
            let new = onToggleTask?(task, checked, shown.text) {
-            // Render the new text now, ahead of any waiting: a second click before it lands would be stale. (`pending` is
-            // latest-wins, so a render of older text still waiting cannot land after this one.)
+            // Render the new text without the pause between renders: a second click before it lands would be stale. (The queue is
+            // newest-wins, so a render of older text still waiting cannot land after this one.)
+            sleeping?.cancel()
             schedule(new)
         } else {
             log.info("preview task toggle refused (line \(line), version \(version))")
@@ -356,7 +348,7 @@ final class PreviewModel {
     private func giveToken() async {
         let token = UUID().uuidString
         bridgeToken = token
-        shown = nil
+        queue.pageReloaded()
         do {
             _ = try await page.callJavaScript("MacDown2Preview.setTaskToken(token)", arguments: ["token": token])
         } catch {
@@ -364,67 +356,69 @@ final class PreviewModel {
         }
     }
 
-    /// Renders `pending`, then whatever arrived while that ran (latest text only), until nothing is waiting: one render at a time,
-    /// the last text always rendered.
+    /// Renders what waits in the queue, then what arrived while that ran (newest text only), until nothing waits: one render at a
+    /// time, the last text always rendered.
     private func drain() async {
         guard !pushing else { return }
         pushing = true
         defer { pushing = false }
-        guard await ensureLoaded() else { return }
-        while let next = pending {
-            pending = nil
+        while true {
+            guard await ensureLoaded(), let ticket = queue.begin() else { return }
             let started = ContinuousClock.now
-            let (resolved, flavorFiles) = resolvedOptions(for: next)
-            let rebuild = needsRebuild || lastSent != resolved
+            let (resolved, flavorFiles) = resolvedOptions(for: ticket.text)
+            let rebuild = needsRebuild
             needsRebuild = false
+            let restore = restoreLine
+            restoreLine = nil
             // Relative links resolve against the document's folder (as a file URL, trailing slash); see Web/src/preview/links.ts.
             let base = documentDirectory.map { URL(filePath: $0.path, directoryHint: .isDirectory).absoluteString }
-            renderCount += 1
-            let version = renderCount
-            let before = shown
-            let epoch = clearEpoch
-            shown = (version, next, nil)
+            var landed = false
             do {
                 // A chunk that fails to load is reported by `update` itself (the flavor is then unknown).
                 let result = try await page.callJavaScript(
                     "await MacDown2Preview.useFlavor(flavor).catch(() => {}); MacDown2Preview.setBase(base); if (rebuild) MacDown2Preview.invalidate(); return MacDown2Preview.update(md, options, version)",
-                    arguments: ["md": next, "options": resolved.json, "rebuild": rebuild, "flavor": flavorFiles, "base": base.map { $0 as Any } ?? NSNull(), "version": version]
+                    arguments: ["md": ticket.text, "options": resolved.json, "rebuild": rebuild, "flavor": flavorFiles, "base": base.map { $0 as Any } ?? NSNull(), "version": ticket.version]
                 )
                 let elapsed = ContinuousClock.now - started
-                // Render failures are reported over the bridge (`handle`); success carries blocks/outline/stats/perf.
-                let meta = (result as? String).flatMap { try? JSONDecoder().decode(PageResult.self, from: Data($0.utf8)) }
-                if meta?.error != nil {
-                    lastSent = nil  // the page kept its old content and state: the next render rebuilds
-                    if epoch == clearEpoch { shown = before }  // the old content stays on the page
-                } else {
-                    lastSent = resolved
-                    if epoch == clearEpoch, let outline = meta?.outline, let stats = meta?.stats, let tasks = meta?.tasks {
-                        let decoded = PreviewMetadata(outline: outline, stats: stats, tasks: tasks)
-                        if decoded != metadata { metadata = decoded }
-                        if shown?.version == version { shown?.tasks = tasks }
+                // Render failures are reported over the bridge (`handle`) and the old content stays on the page; success carries
+                // blocks/outline/stats/perf.
+                let data = Data((result as? String ?? "").utf8)
+                let info = try? JSONDecoder().decode(PageResult.self, from: data)
+                if info?.error == nil {
+                    landed = true
+                    do {
+                        let decoded = try JSONDecoder().decode(PreviewMetadata.self, from: data)
+                        if queue.landed(ticket, tasks: decoded.tasks), decoded != metadata { metadata = decoded }
+                    } catch {
+                        queue.landed(ticket, tasks: nil)  // the page shows it, but nothing on it can be toggled
+                        log.error("preview result unreadable: \(String(describing: error), privacy: .public)")
                     }
                     let ms = Double(elapsed.components.attoseconds) / 1e15 + Double(elapsed.components.seconds) * 1000
-                    let perf = meta?.perf
+                    let perf = info?.perf
                     let mode = perf?.mode ?? "?"
                     let jsRender = perf?.render ?? -1
                     let jsPatch = perf?.patch ?? -1
                     let jsSplit = perf?.split ?? -1
                     let jsApply = perf?.apply ?? -1
-                    let blocks = meta?.blocks?.count ?? -1
-                    log.info("preview updated: mode=\(mode, privacy: .public) swift_to_done_ms=\(ms, format: .fixed(precision: 1)) js_render_ms=\(jsRender, format: .fixed(precision: 1)) js_patch_ms=\(jsPatch, format: .fixed(precision: 1)) (split \(jsSplit, format: .fixed(precision: 1)) apply \(jsApply, format: .fixed(precision: 1))) blocks=\(blocks) bytes=\(next.utf8.count)")
+                    let blocks = info?.blocks?.count ?? -1
+                    log.info("preview updated: mode=\(mode, privacy: .public) swift_to_done_ms=\(ms, format: .fixed(precision: 1)) js_render_ms=\(jsRender, format: .fixed(precision: 1)) js_patch_ms=\(jsPatch, format: .fixed(precision: 1)) (split \(jsSplit, format: .fixed(precision: 1)) apply \(jsApply, format: .fixed(precision: 1))) blocks=\(blocks) bytes=\(ticket.text.utf8.count)")
                 }
             } catch {
-                lastSent = nil
-                if epoch == clearEpoch { shown = before }
                 log.error("preview update failed: \(String(describing: error), privacy: .public)")
             }
-            // lazy: waits at most 100 ms between two renders of a burst (the time the last one took, wall clock), so the page's process stays mostly idle on a heavy document; upgrade: measure the process's CPU time instead.
-            if pending != nil, epoch == clearEpoch { try? await Task.sleep(for: min(ContinuousClock.now - started, .milliseconds(100))) }
+            if let restore { if landed { scroll(toLine: restore) } else { restoreLine = restore } }
+            // lazy: pauses as long as the render took before the next one of a burst, so the page's process is at most about half busy
+            // on a heavy document (typing during a heavy render waits that much longer); upgrade: render cost itself, e.g. section-incremental parsing.
+            if let gap = queue.gap(afterRenderTaking: ContinuousClock.now - started) {
+                let nap = Task<Void, Never> { _ = try? await Task.sleep(for: gap) }
+                sleeping = nap
+                await nap.value
+            }
         }
     }
 }
 
-/// What `MacDown2Preview.update` returns, in one decode: the metadata the window shows, and the page's own timings for the log.
+/// What `MacDown2Preview.update` returns besides the metadata (`PreviewMetadata`): a failure, and the page's own timings for the log.
 private struct PageResult: Decodable {
     struct Perf: Decodable {
         var mode: String?
@@ -434,9 +428,6 @@ private struct PageResult: Decodable {
     var error: String?
     var perf: Perf?
     var blocks: [Block]?
-    var outline: [OutlineItem]?
-    var stats: TextStats?
-    var tasks: [TaskItem]?
 }
 
 /// What the pane's text task depends on: when any of it changes the task starts again and tells the model first.
