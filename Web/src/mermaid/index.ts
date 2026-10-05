@@ -7,13 +7,23 @@
 // the preview's block handles and `data-line` stay valid): the SVG goes in after the <code>, and CSS hides the code
 // while `data-mermaid="ok"`. A diagram that fails keeps its source and gets the message under it.
 import mermaid from 'mermaid';
+import { LRU } from '../render/lru.ts';
 
 const message = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
 let configured = '';
 let seq = 0;
 
+// Diagrams drawn before, by theme and source: a block the page creates again (a rebuild, a style flipped back, a tab switched
+// back to) gets its SVG without another Mermaid run. The ids inside an SVG are its own (`md2-mermaid-N`), so a kept one is only
+// reused while no diagram on the page carries that id; otherwise the diagram is drawn afresh under a new id.
+// lazy: a fixed character budget; upgrade = size it by the documents' diagrams if they ever get evicted mid-document.
+const drawn = new LRU<{ id: string; svg: string }>(8 * 1024 * 1024);
+
 async function svgOf(source: string, theme: string): Promise<string> {
+  const key = `${theme}\n${source}`;
+  const kept = drawn.get(key);
+  if (kept && !document.getElementById(kept.id)) return kept.svg;
   if (configured !== theme) {
     // `strict` sanitizes labels and disables click handlers; `suppressErrorRendering` makes a bad diagram throw
     // instead of inserting mermaid's own "syntax error" graphic into the page. Mermaid 12 defaults to `layout: elk`,
@@ -22,7 +32,10 @@ async function svgOf(source: string, theme: string): Promise<string> {
     mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', layout: 'dagre', theme: theme as 'dark' | 'default', suppressErrorRendering: true });
     configured = theme;
   }
-  return (await mermaid.render(`md2-mermaid-${seq++}`, source)).svg;
+  const id = `md2-mermaid-${seq++}`;
+  const { svg } = await mermaid.render(id, source);
+  drawn.set(key, { id, svg }, key.length + svg.length);
+  return svg;
 }
 
 function show(pre: HTMLElement, theme: string, svg: string | null, error?: string): void {

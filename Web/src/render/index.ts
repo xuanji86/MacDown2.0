@@ -15,6 +15,9 @@ import { frontMatter, type FrontMatterDisplay } from './plugins/front-matter.ts'
 import { pageBreak } from './plugins/page-break.ts';
 import { toc } from './plugins/toc.ts';
 import { underline } from './plugins/underline.ts';
+import { createIncremental } from './incremental.ts';
+import type { Segment } from '../preview/split-html.ts';
+import { LRU, ownCopy } from './lru.ts';
 import { hash53, slugify, textStats, type TextStats } from './text.ts';
 
 export interface RenderOptions {
@@ -77,6 +80,7 @@ export const flavors = {
   register(id: string, setup: FlavorSetup): void {
     registry.set(id, setup);
     for (const key of instances.keys()) if (key.startsWith(`${id}|`)) instances.delete(key);
+    sections.forget(`${id}|`);
   },
   has(id: string): boolean {
     return registry.has(id);
@@ -123,12 +127,10 @@ const alertTitle: RendererRule = (tokens, idx) => {
   return `<p class="markdown-alert-title">${kind[0].toUpperCase()}${kind.slice(1)}</p>\n`;
 };
 
-function instance(o: RenderOptions): MarkdownIt {
-  const setup = registry.get(o.flavor);
-  if (!setup) throw new Error(`Unknown flavor "${o.flavor}"`);
-  const ext = new Set(o.extensions);
-  const key = `${o.flavor}|${JSON.stringify([
-    [...ext].sort(),
+// Everything the options change about a markdown-it instance (`files` and `sanitize` do not).
+function optionsKey(o: RenderOptions): string {
+  return `${o.flavor}|${JSON.stringify([
+    [...new Set(o.extensions)].sort(),
     o.hardBreaks,
     o.allowRawHTML,
     o.headingAnchors,
@@ -138,9 +140,34 @@ function instance(o: RenderOptions): MarkdownIt {
     o.frontMatterDisplay,
     o.sourceLines !== false,
   ])}`;
-  const cached = instances.get(key);
-  if (cached) return cached;
+}
 
+// KaTeX output is a pure function of (formula, display mode) as long as no formula defines a global macro (`\gdef`,
+// `\xdef`, `\global...`): those persist into the formulas after it within one render. A render whose text has one skips the
+// memo (and the incremental renderer renders it whole). lazy: a fixed character budget; upgrade = per-document budgets.
+const GLOBAL_TEX = /\\(?:gdef|xdef|global)/;
+const typeset = new LRU<string>(4 * 1024 * 1024);
+let typesetMemo = true;
+const memoTeX = (kind: string, tex: string, render: () => string): string => {
+  if (!typesetMemo) return render();
+  const key = kind + tex;
+  let html = typeset.get(key);
+  if (html === undefined) {
+    html = ownCopy(render());
+    typeset.set(ownCopy(key), html, key.length + html.length);
+  }
+  return html;
+};
+function definesTeXMacros(source: string, options: RenderOptions): boolean {
+  if (!options.extensions.includes('math')) return false;
+  return GLOBAL_TEX.test(source) || Object.values(options.files ?? {}).some((text) => GLOBAL_TEX.test(text));
+}
+
+// One markdown-it instance with every plugin the options ask for; `annotate` is the last core rule.
+function build(o: RenderOptions, annotateRule: (state: StateCore) => void): MarkdownIt {
+  const setup = registry.get(o.flavor);
+  if (!setup) throw new Error(`Unknown flavor "${o.flavor}"`);
+  const ext = new Set(o.extensions);
   const md = markdownit({
     html: o.allowRawHTML,
     linkify: ext.has('autolink'),
@@ -158,13 +185,33 @@ function instance(o: RenderOptions): MarkdownIt {
     });
     // The plugin has no `$$`-only mode, so drop its inline `$…$` rule ("$5 and $10" is not a formula).
     if (!o.inlineDollarMath) md.inline.ruler.disable('math_inline_dollar');
+    const mathInline = md.renderer.rules.math_inline!;
+    md.renderer.rules.math_inline = (tokens, idx, opts, env, slf) =>
+      memoTeX('i', tokens[idx].content, () => mathInline(tokens, idx, opts, env, slf));
     // The plugin renders `<p class='katex-block'>` without the token's attrs; keep data-line on the block.
     const mathBlock = md.renderer.rules.math_block!;
     md.renderer.rules.math_block = (tokens, idx, opts, env, slf) =>
-      mathBlock(tokens, idx, opts, env, slf).replace(/^<p/, `<p${slf.renderAttrs(tokens[idx])}`);
+      memoTeX('b', tokens[idx].content, () => mathBlock(tokens, idx, opts, env, slf)).replace(/^<p/, `<p${slf.renderAttrs(tokens[idx])}`);
   }
   if (ext.has('emoji')) md.use(emojiPlugin, { shortcuts: {} }); // `:smile:` only; `:)` and friends would rewrite plain text
   md.use(alert, { titleRenderer: alertTitle }); // `> [!NOTE]` … `[!TIP]`, `[!IMPORTANT]`, `[!WARNING]`, `[!CAUTION]`
+  // The plugin's rule, checked as a terminator (silent), can return with `lineMax` cut short and `parentType` left at 'alert':
+  // from then on blank lines are not skipped, which shifts every later block's source lines, and a list item after it can
+  // loop forever (`.\n>[!WARNING]\n-\n$` hung the page). A check must not change the state: put both back.
+  const alertRule = md.block.ruler.__rules__.find((r) => r.name === 'alert')!;
+  const alertCheck = alertRule.fn;
+  md.block.ruler.at(
+    'alert',
+    (state, start, end, silent) => {
+      if (!silent) return alertCheck(state, start, end, silent);
+      const { lineMax, parentType } = state;
+      const found = alertCheck(state, start, end, silent);
+      state.lineMax = lineMax;
+      state.parentType = parentType;
+      return found;
+    },
+    { alt: alertRule.alt },
+  );
   if (ext.has('mark')) md.use(mark);
   if (ext.has('sup')) md.use(sup);
   if (ext.has('sub')) md.use(sub);
@@ -176,7 +223,15 @@ function instance(o: RenderOptions): MarkdownIt {
   if (ext.has('frontMatter')) md.use(frontMatter, o.frontMatterDisplay === 'table' ? 'table' : 'hidden');
   md.use(codeBlocks, { highlight: o.codeHighlighting, lineNumbers: o.codeLineNumbers });
   setup(md, o);
-  md.core.ruler.push('macdown2_annotate', (state) => annotate(state, o.headingAnchors, o.sourceLines !== false));
+  md.core.ruler.push('macdown2_annotate', annotateRule);
+  return md;
+}
+
+function instance(o: RenderOptions): MarkdownIt {
+  const key = optionsKey(o);
+  const cached = instances.get(key);
+  if (cached) return cached;
+  const md = build(o, (state) => annotate(state, o.headingAnchors, o.sourceLines !== false));
   instances.set(key, md);
   return md;
 }
@@ -188,26 +243,17 @@ function collectText(tokens: Token[]): string {
     .join('\n');
 }
 
-export function renderResult(source: string, options: RenderOptions): RenderResult {
-  const md = instance(options);
-  const env: Env = { outline: [], files: options.files };
-  let tokens: Token[];
-  let html: string;
-  try {
-    tokens = md.parse(source, env);
-    html = md.renderer.render(tokens, md.options, env);
-  } finally {
-    // The KaTeX plugin clears macros defined with \gdef when `md.render` finishes, but we call parse and
-    // renderer.render ourselves, so run an empty render to get the same reset.
-    if (options.extensions.includes('math')) md.render('', { outline: [] });
-  }
-  const lines = source.split('\n');
-  const blocks = tokens
+// Top-level blocks with their source line ranges and a hash of those lines.
+function blocksOf(tokens: Token[], lines: string[]): BlockMap[] {
+  return tokens
     .filter((t) => t.level === 0 && t.map && t.nesting >= 0 && t.type !== 'inline')
     .map((t) => {
       const [lineStart, lineEnd] = t.map!;
       return { lineStart, lineEnd, hash: hash53(lines.slice(lineStart, lineEnd).join('\n')) };
     });
+}
+
+function tasksOf(tokens: Token[], lines: string[]): TaskItem[] {
   const tasks: TaskItem[] = [];
   for (let i = 2; i < tokens.length; i++) {
     const t = tokens[i];
@@ -219,11 +265,50 @@ export function renderResult(source: string, options: RenderOptions): RenderResu
     const head = t.content.split('\n', 1)[0];
     tasks.push({ line: owner.map[0], mark: t.map[0], column: (lines[t.map[0]] ?? '').lastIndexOf(head) });
   }
+  return tasks;
+}
+
+export function renderResult(source: string, options: RenderOptions): RenderResult {
+  const md = instance(options);
+  const env: Env = { outline: [], files: options.files };
+  let tokens: Token[];
+  let html: string;
+  typesetMemo = !definesTeXMacros(source, options);
+  try {
+    tokens = md.parse(source, env);
+    html = md.renderer.render(tokens, md.options, env);
+  } finally {
+    // The KaTeX plugin clears macros defined with \gdef when `md.render` finishes, but we call parse and
+    // renderer.render ourselves, so run an empty render to get the same reset.
+    if (options.extensions.includes('math')) md.render('', { outline: [] });
+    typesetMemo = true;
+  }
+  const lines = source.split('\n');
+  const blocks = blocksOf(tokens, lines);
+  const tasks = tasksOf(tokens, lines);
   const fm = tokens.find((t) => t.type === 'front_matter');
   if (options.sanitize && !sanitizeFn) throw new Error('sanitize was requested but sanitize.chunk.js is not loaded; refusing to return unsanitized HTML');
   const result: RenderResult = { html: options.sanitize ? sanitizeFn!(html) : html, blocks, tasks, outline: env.outline, stats: textStats(collectText(tokens)) };
   if (fm) result.frontMatter = fm.meta as unknown as string;
   return result;
+}
+
+// The live preview's entry: the same result as `renderResult` (byte for byte), computed per section of the document so a
+// keystroke re-renders only the section it touched (incremental.ts), plus the HTML cut into its top-level blocks
+// (`segments`, what the page's DOM patch needs). Documents or options it cannot do that for are rendered whole.
+const sections = createIncremental({
+  full: renderResult,
+  build,
+  key: optionsKey,
+  plainText,
+  collectText,
+  blocksOf,
+  tasksOf,
+  canMemoTeX: (source, options) => !definesTeXMacros(source, options),
+});
+export const incremental = sections.api;
+export function renderIncremental(source: string, options: RenderOptions): RenderResult & { segments?: Segment[] | null } {
+  return sections.render(source, options);
 }
 
 // String-in/string-out entry used across the JavaScriptCore and WebView bridges.

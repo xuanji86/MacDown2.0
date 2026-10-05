@@ -94,9 +94,23 @@ struct PreviewAssetHandler: URLSchemeHandler {
     /// so only the tags in this file run (CSP only; the bundles themselves are not user-controlled).
     static func withNonce(_ html: Data, blockRemoteImages: Bool = false) -> Data {
         guard let text = String(data: html, encoding: .utf8) else { return html }
-        let page = RemoteContent.previewPage(text, blockingImages: blockRemoteImages)
+        var page = RemoteContent.previewPage(text, blockingImages: blockRemoteImages)
+        #if DEBUG
+        page = withRenderCrossCheck(page)
+        #endif
         return Data(page.replacingOccurrences(of: nonceToken, with: UUID().uuidString).utf8)
     }
+
+    #if DEBUG
+    /// Debug builds have the page compare every 20th incremental render with a whole render (Web/src/render/incremental.ts);
+    /// a difference is logged as "preview render error: incremental render differs …". `MACDOWN2_RENDER_CROSSCHECK=<n>` sets
+    /// the interval, 0 turns it off. Release builds never check.
+    static func withRenderCrossCheck(_ page: String) -> String {
+        let every = ProcessInfo.processInfo.environment["MACDOWN2_RENDER_CROSSCHECK"].flatMap { Int($0) } ?? 20
+        guard every > 0 else { return page }
+        return page.replacingOccurrences(of: "<head>", with: "<head>\n<meta name=\"md2-render-crosscheck\" content=\"\(every)\">")
+    }
+    #endif
 
     /// Maps `/a/b.css` into the Resources folder; anything that escapes it resolves to nil. `url.path` is already
     /// percent-decoded, so `%2e%2e` arrives here as `..` and is caught by the prefix check after standardizing.
