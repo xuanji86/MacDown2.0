@@ -23,9 +23,6 @@ struct TabBar: View {
     @Environment(\.colorScheme) private var colorScheme
     @State private var dropTarget: String?
 
-    private var activeFill: Color {
-        Color(nsColor: ThemeLibrary.resolve(name: themeName, followSystem: followsSystem, systemIsDark: colorScheme == .dark).background)
-    }
 
     /// A file's name; an untitled document's "Untitled N".
     private static func title(of tab: TabSession.Tab) -> String {
@@ -36,12 +33,15 @@ struct TabBar: View {
         let session = model.controller.session
         let compact = toolbarStyle == .minimal
         let height = toolbarStyle.tabBarHeight
+        // The active tab is painted in the editor's colours (it grows out of the editor), whatever the system appearance is.
+        let theme = ThemeLibrary.resolve(name: themeName, followSystem: followsSystem, systemIsDark: colorScheme == .dark)
+        let activeFill = Color(nsColor: theme.background), activeInk = Color(nsColor: theme.text)
         ScrollViewReader { proxy in
         ScrollView(.horizontal) {
             HStack(spacing: 2) {
                 ForEach(session.tabs) { tab in
                     TabItem(
-                        tab: tab, title: Self.title(of: tab), isActive: tab.id == session.activeID, fill: activeFill, compact: compact,
+                        tab: tab, title: Self.title(of: tab), isActive: tab.id == session.activeID, fill: activeFill, ink: activeInk, compact: compact,
                         edited: WorkspaceRegistry.shared.document(for: tab.url)?.editedFlag,
                         isDropTarget: dropTarget == tab.id,
                         popover: Binding(
@@ -85,6 +85,8 @@ private struct TabItem: View {
     let title: String
     let isActive: Bool
     let fill: Color
+    /// Text colour on `fill` (the editor theme's), for the active tab; the others use the system's label colours.
+    let ink: Color
     let compact: Bool
     let edited: EditedFlag?
     let isDropTarget: Bool
@@ -113,7 +115,7 @@ private struct TabItem: View {
             Text(title)
                 .font(.system(size: compact ? 12 : 12.5))
                 .italic(tab.isPreview)
-                .foregroundStyle(tab.isPreview ? .secondary : .primary)
+                .foregroundStyle(isActive ? AnyShapeStyle(ink.opacity(tab.isPreview ? 0.6 : 1)) : AnyShapeStyle(tab.isPreview ? .secondary : .primary))
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(Self.space)) } action: { titleFrame = $0 }
@@ -124,7 +126,7 @@ private struct TabItem: View {
                 } else if hovering || isActive {
                     Button(action: close) { Image(systemName: "xmark").font(.system(size: 9, weight: .semibold)) }
                         .buttonStyle(.plain)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(isActive ? AnyShapeStyle(ink.opacity(0.6)) : AnyShapeStyle(.secondary))
                         .help(Text("Close Tab") + Text(verbatim: " (⌘W)"))
                 }
             }
