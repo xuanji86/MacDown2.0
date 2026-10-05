@@ -32,6 +32,7 @@ import WorkspaceKit
 ///   MACDOWN2_TEST_CLOSE_ACTIVE_TAB=<secs> the first window closes its active tab after this many seconds, as ⌘W does
 ///   MACDOWN2_TEST_CLOSE_WINDOW=<secs>     the first window closes, as the red button / ⇧⌘W does (`performClose`)
 ///   MACDOWN2_TEST_REOPEN=<secs>           the Dock icon is "clicked" (`applicationShouldHandleReopen`) after this many seconds
+///   MACDOWN2_TEST_NEW_WINDOW=<secs>       a new workspace window opens after this many seconds, as File > New Window (⌥⌘N) does
 ///   MACDOWN2_TEST_ACTIVATE=<secs>         the app activates itself and brings its windows to the front after this many seconds, so a
 ///                                         background launch is photographed with live traffic lights and a painted preview
 ///   MACDOWN2_TEST_TOOLBAR_STYLE=minimal|classic  the launch's own defaults suite starts with this toolbar style (Settings ▸ Editor ▸ Window)
@@ -163,13 +164,16 @@ enum IsolatedTestHooks {
     @MainActor static func scheduleCloses() {
         #if DEBUG
         func after(_ name: String, _ action: @escaping @MainActor () -> Void) {
-            guard let seconds = value(name).flatMap(Double.init) else { return }
-            DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { MainActor.assumeIsolated(action) }
+            // "5" or, to repeat the action, "5,8,11".
+            for seconds in (value(name) ?? "").split(separator: ",").compactMap({ Double($0) }) {
+                DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { MainActor.assumeIsolated(action) }
+            }
         }
         after("MACDOWN2_TEST_SHOW_OUTLINE") { WorkspaceRegistry.shared.orderedModels().first?.showOutline() }
         after("MACDOWN2_TEST_CLOSE_ACTIVE_TAB") { WorkspaceRegistry.shared.orderedModels().first?.closeActiveTab() }
         after("MACDOWN2_TEST_CLOSE_WINDOW") { WorkspaceRegistry.shared.orderedModels().first?.closeWindow() }
         after("MACDOWN2_TEST_REOPEN") { _ = NSApp.delegate?.applicationShouldHandleReopen?(NSApp, hasVisibleWindows: false) }
+        after("MACDOWN2_TEST_NEW_WINDOW") { WorkspaceRegistry.shared.requestWindow() }
         after("MACDOWN2_TEST_ACTIVATE") {
             NSApp.activate(ignoringOtherApps: true)  // deprecated, but the plain activate() is refused while another app is in front
             for window in NSApp.windows where window.isVisible && window.canBecomeKey { window.makeKeyAndOrderFront(nil) }
@@ -314,7 +318,7 @@ enum IsolatedTestHooks {
         model.controller.activate(urls[1])
         await pause()
         snapshot("3 window 1 shows B")
-        WorkspaceRegistry.shared.openWindow?()
+        WorkspaceRegistry.shared.requestWindow()
         for _ in 0..<50 where WorkspaceRegistry.shared.orderedModels().count < 2 { try? await Task.sleep(for: .milliseconds(100)) }
         guard let other = WorkspaceRegistry.shared.orderedModels().first(where: { $0 !== model }) else { return tabLog.error("no second window") }
         try? other.controller.open(urls[0], as: .pinned)
