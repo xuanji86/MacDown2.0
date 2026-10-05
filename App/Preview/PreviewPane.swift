@@ -88,6 +88,30 @@ final class PreviewModel {
         }
     }
 
+    /// The pane now shows `document` (called first in its per-document task, before any of its text arrives). A different document
+    /// drops the previous one's text everywhere (`lastMarkdown`, `pending`, `displayed`, a waiting render; `clearEpoch` keeps one
+    /// in flight from publishing), so the one-frame delay can never render the old text with the new base or flavor: the new
+    /// document's first text renders instead. The same document with another folder or flavor still re-renders (the setters,
+    /// which `PreviewPane`'s onChange handlers also reach, before or after this: whichever comes second is a no-op).
+    func show(document: ObjectIdentifier, directory: URL?, flavor: (any DocumentFlavor)?) {
+        if document != currentDocument {
+            currentDocument = document
+            dropText()
+            needsRebuild = true
+        }
+        documentDirectory = directory
+        setFlavor(flavor)
+    }
+
+    /// Forgets the text of the document that was shown; nothing still on its way (a waiting or running render) publishes or comes back.
+    private func dropText() {
+        clearEpoch += 1
+        debounce?.cancel()
+        pending = nil
+        lastMarkdown = nil
+        displayed = nil
+    }
+
     /// Folders of the open workspace; a relative link to a `.md`/`.qmd` anywhere under them (or under the document's folder)
     /// opens in the app instead of asking the system.
     var workspaceRoots: [URL] {
@@ -112,10 +136,14 @@ final class PreviewModel {
     /// Secret of the current page load, given to the page once it has loaded; a message that does not carry it is dropped.
     /// Not persisted anywhere: a new load (or a new launch) has a new one.
     private var bridgeToken: String?
-    /// The text the page shows, and the version it was given (every render gets the next one; the page reports the one it
-    /// shows with each checkbox click), and the checkboxes the renderer found in it (nil until that render has answered: a
-    /// click in that instant is refused). Set before the render is sent and put back if it fails. nil until the first render.
-    private var shown: (version: Int, text: String, tasks: [TaskItem]?)?
+    /// The render the page displays: its version (every render gets the next one; the page reports the one it shows with each
+    /// checkbox click), the text, and the checkboxes the renderer found in it. Set when a render LANDS (not when it starts), so a
+    /// click on what the page still shows is matched while a newer render is in flight; a click that arrives before the
+    /// landing carries a newer version than this and is refused. A failed render leaves it (and the page) as it was.
+    /// nil until the first render, and after `clear()`, a document switch or a page load.
+    private var displayed: (version: Int, text: String, tasks: [TaskItem])?
+    /// The document `lastMarkdown` belongs to (`show`).
+    private var currentDocument: ObjectIdentifier?
     private var renderCount = 0
     // Same latest-wins collapsing for scroll requests.
     private var pendingScrollLine: Double?
@@ -172,15 +200,23 @@ final class PreviewModel {
         if markdown != lastMarkdown { schedule(markdown) }
     }
 
-    /// Debounced (~30 ms) so typing bursts render once: short, because a render (incremental) costs a few ms even on large files.
+    /// Renders on the next display frame: changes within one frame (a paste, key repeat) collapse into one render, which is cheap
+    /// (incremental, a few ms even on large files). The latest call wins; `push` keeps one render in flight.
     func schedule(_ markdown: String) {
         lastMarkdown = markdown
         debounce?.cancel()
+        let frame = Self.frameInterval
         debounce = Task { [weak self] in
-            try? await Task.sleep(for: .milliseconds(30))
+            try? await Task.sleep(for: frame)
             guard !Task.isCancelled else { return }
             await self?.push(markdown)
         }
+    }
+
+    /// One refresh interval of the main screen (8 ms at 120 Hz); ~16 ms when it is unknown.
+    private static var frameInterval: Duration {
+        let seconds = NSScreen.main?.minimumRefreshInterval ?? 0
+        return .seconds(seconds > 0 ? seconds : 1.0 / 60)
     }
 
     /// Scrolls the preview so `line` (0-based, fractional ok) is at the top. Instant; the page does not echo it back
@@ -235,11 +271,7 @@ final class PreviewModel {
     /// still on its way (a debounced or running render) brings it back. The page keeps its old content out of sight until the
     /// next document's text replaces it.
     func clear() {
-        clearEpoch += 1
-        debounce?.cancel()
-        pending = nil
-        lastMarkdown = nil
-        shown = nil
+        dropText()
         metadata = nil
     }
 
@@ -291,9 +323,11 @@ final class PreviewModel {
             log.error("preview task toggle dropped: wrong token")
             return
         }
-        if let shown, shown.version == version, let task = shown.tasks?.first(where: { $0.line == line }),
-           let new = onToggleTask?(task, checked, shown.text) {
-            // Render the new text now instead of after the typing debounce: a second click inside that window would be stale.
+        // Matched against the render that landed (`displayed`), not the newest one started; `onToggleTask` still refuses unless the
+        // editor holds exactly that text, so a click on a page that is out of date by an edit changes nothing.
+        if let displayed, displayed.version == version, let task = displayed.tasks.first(where: { $0.line == line }),
+           let new = onToggleTask?(task, checked, displayed.text) {
+            // Render the new text now instead of after the next frame: a second click inside that window would be stale.
             lastMarkdown = new
             debounce?.cancel()  // a render of older text still waiting would otherwise land after this one
             Task { [weak self] in await self?.push(new) }
@@ -335,7 +369,7 @@ final class PreviewModel {
     private func giveToken() async {
         let token = UUID().uuidString
         bridgeToken = token
-        shown = nil
+        displayed = nil
         do {
             _ = try await page.callJavaScript("MacDown2Preview.setTaskToken(token)", arguments: ["token": token])
         } catch {
@@ -359,9 +393,7 @@ final class PreviewModel {
             let base = documentDirectory.map { URL(filePath: $0.path, directoryHint: .isDirectory).absoluteString }
             renderCount += 1
             let version = renderCount
-            let before = shown
             let epoch = clearEpoch
-            shown = (version, next, nil)
             do {
                 // A chunk that fails to load is reported by `update` itself (the flavor is then unknown).
                 let result = try await page.callJavaScript(
@@ -371,11 +403,11 @@ final class PreviewModel {
                 let elapsed = ContinuousClock.now - started
                 // Render failures are reported over the bridge (`handle`); success carries blocks/outline/stats/perf.
                 let meta = (result as? String).flatMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any] }
-                if meta?["error"] != nil { shown = before }  // the old content stays on the page
                 if meta?["error"] == nil {
+                    // A render that started before `clear()` / a document switch must not publish: its text is not the pane's any more.
                     if epoch == clearEpoch, let decoded = try? JSONDecoder().decode(PreviewMetadata.self, from: Data((result as? String ?? "").utf8)) {
                         if decoded != metadata { metadata = decoded }
-                        if shown?.version == version { shown?.tasks = decoded.tasks }
+                        displayed = (version, next, decoded.tasks)
                     }
                     let perf = meta?["perf"] as? [String: Any]
                     let ms = Double(elapsed.components.attoseconds) / 1e15 + Double(elapsed.components.seconds) * 1000
@@ -388,7 +420,6 @@ final class PreviewModel {
                     log.info("preview updated: mode=\(mode, privacy: .public) swift_to_done_ms=\(ms, format: .fixed(precision: 1)) js_render_ms=\(jsRender, format: .fixed(precision: 1)) js_patch_ms=\(jsPatch, format: .fixed(precision: 1)) (split \(jsSplit, format: .fixed(precision: 1)) apply \(jsApply, format: .fixed(precision: 1))) blocks=\(blocks) bytes=\(next.utf8.count)")
                 }
             } catch {
-                shown = before
                 log.error("preview update failed: \(String(describing: error), privacy: .public)")
             }
         }
@@ -419,6 +450,7 @@ struct PreviewPane: View {
             .onChange(of: blockRemoteImages, initial: true) { model.reloadForPolicyChange() }
             // Restarts with the document: the page stays, the text it renders is the active tab's.
             .task(id: ObjectIdentifier(document)) {
+                model.show(document: ObjectIdentifier(document), directory: documentURL?.deletingLastPathComponent(), flavor: flavor)
                 for await text in document.$text.values { model.textChanged(text) }
             }
             // Only the document shown here is followed; the monitor of a document in a background tab does not reach a preview.
