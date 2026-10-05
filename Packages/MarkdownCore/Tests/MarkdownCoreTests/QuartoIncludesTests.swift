@@ -149,6 +149,20 @@ private func reader(_ files: [String: String], asked: ((String) -> Void)? = nil)
     #expect(IncludeFileCache(directory: nil).read("child.qmd") == nil)
 }
 
+@Test func theIncludeCacheDoesNotLookAtTheDiskAgainWithinTheRecheckWindowUnlessChangedSaidSo() throws {
+    let dir = FileManager.default.temporaryDirectory.appending(path: "IncludeFileCacheWindow-\(UUID().uuidString)", directoryHint: .isDirectory)
+    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let child = dir.appending(path: "child.qmd")
+    try Data("one".utf8).write(to: child)
+    let cache = IncludeFileCache(directory: dir)
+    #expect(cache.read("child.qmd") == "one")
+    try Data("two, longer".utf8).write(to: child)
+    #expect(cache.read("child.qmd") == "one")  // asked again at once: answered from memory, no stat
+    #expect(cache.changed())  // the folder event: the next read must see it
+    #expect(cache.read("child.qmd") == "two, longer")
+}
+
 @Test func theIncludeCacheSeesASymlinkPointedElsewhereOrRemoved() throws {
     let dir = FileManager.default.temporaryDirectory.appending(path: "IncludeFileCacheLinks-\(UUID().uuidString)", directoryHint: .isDirectory)
     try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)

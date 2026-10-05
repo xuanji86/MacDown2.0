@@ -57,14 +57,17 @@ public struct RenderOptions: Sendable, Codable, Hashable {
 
     public init() {}
 
-    /// The JSON `MacDown2.render` and the preview page take. Deterministic: the page compares this string to tell "same
-    /// options, patch the DOM" from "options changed, rebuild", and a default `JSONEncoder` orders keys differently from one
-    /// call to the next. Sorted keys, and the (unordered) extension set in a fixed order.
-    public var json: String {
+    /// The JSON `MacDown2.render` and the preview page take. Deterministic (sorted keys; the unordered extension set in a fixed
+    /// order, see `encode(to:)`): the page compares this string to tell "same options, patch the DOM" from "options changed,
+    /// rebuild", and a default `JSONEncoder` orders keys differently from one call to the next.
+    public func jsonString() throws -> String {
         let encoder = JSONEncoder()
         encoder.outputFormatting = .sortedKeys
-        return (try? String(data: encoder.encode(self), encoding: .utf8)) ?? "{}"
+        return String(decoding: try encoder.encode(self), as: UTF8.self)
     }
+
+    /// `jsonString()` for a caller with no way to report an error (the preview): the page then fails on the empty options itself.
+    public var json: String { (try? jsonString()) ?? "{}" }
 
     public func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)

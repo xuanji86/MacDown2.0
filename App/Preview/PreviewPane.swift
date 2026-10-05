@@ -84,7 +84,7 @@ final class PreviewModel {
             includes = IncludeFileCache(directory: documentDirectory)
             // Images already rendered point at macdown2-res://doc/... and failed or showed another file: rebuild once.
             needsRebuild = true
-            if let lastMarkdown { schedule(lastMarkdown) }
+            if let lastMarkdown { schedule(lastMarkdown) }  // same document: its text again, with the new base
         }
     }
 
@@ -103,11 +103,14 @@ final class PreviewModel {
     private var options: RenderOptions
     private var flavor: (any DocumentFlavor)?
     private var loading: Task<Bool, Never>?
-    private var debounce: Task<Void, Never>?
-    private var throttle = RenderThrottle()
     // Updates arriving while a JS call is in flight collapse into `pending`; the latest text always wins, in order.
     private var pending: String?
     private var pushing = false
+    /// The document the pane shows (`show`); a different one starts from scratch.
+    private var shownDocument: ObjectIdentifier?
+    /// The options the page was last rendered with: a render with different ones is sent as a rebuild, so whether the page
+    /// patches or rebuilds does not hang on two JSON strings being byte-identical.
+    private var lastSent: RenderOptions?
     private var lastMarkdown: String?
     private var needsRebuild = false
     /// Secret of the current page load, given to the page once it has loaded; a message that does not carry it is dropped.
@@ -142,8 +145,8 @@ final class PreviewModel {
         messages.onMessage = { [weak self] message in self?.handle(message) }
     }
 
-    /// New render settings. The page rebuilds the whole document when it sees a different options string, so this only
-    /// has to push the current text again.
+    /// New render settings. A render with different options is sent as a rebuild (`lastSent`), so this only has to render the
+    /// current text again.
     func setOptions(_ new: RenderOptions) {
         guard new != options else { return }
         options = new
@@ -151,7 +154,7 @@ final class PreviewModel {
     }
 
     /// The flavor an enabled extension gives this document (nil = plain Markdown), e.g. Quarto for a .qmd. Changing it
-    /// re-renders; the options string then differs (flavor id), so the page rebuilds, and the flavor's chunk and
+    /// re-renders; the options then differ (flavor id), so the page rebuilds, and the flavor's chunk and
     /// stylesheets are loaded (or its stylesheets dropped) before the render.
     func setFlavor(_ new: (any DocumentFlavor)?) {
         guard new?.id != flavor?.id else { return }
@@ -159,12 +162,26 @@ final class PreviewModel {
         if let lastMarkdown { schedule(lastMarkdown) }
     }
 
-    /// Options for rendering `markdown` now (settings + flavor + the files the flavor reads), as the page's JSON, and
-    /// the chunks and stylesheets to have loaded first.
-    private func resolvedOptions(for markdown: String) -> (json: String, flavor: [String: [String]]) {
+    /// The pane now shows `document` (a tab switch, or the first one): with its folder and flavor, and none of the previous
+    /// document's text, which must not be rendered with the new document's base and flavor. The new text arrives through
+    /// `textChanged` and renders then, as a rebuild. The same document with a new folder or flavor (Save As, extension switched
+    /// on) keeps its text and renders it again.
+    func show(document: ObjectIdentifier, directory: URL?, flavor: (any DocumentFlavor)?) {
+        if document != shownDocument {
+            shownDocument = document
+            forgetText()
+            needsRebuild = true
+        }
+        documentDirectory = directory
+        setFlavor(flavor)
+    }
+
+    /// Options for rendering `markdown` now (settings + flavor + the files the flavor reads), and the chunks and
+    /// stylesheets to have loaded first.
+    private func resolvedOptions(for markdown: String) -> (options: RenderOptions, flavor: [String: [String]]) {
         let resolved = options.rendering(as: flavor, markdown: markdown, readFile: includes.read)
         includes.endRender()
-        return (resolved.json, ["chunks": resolved.renderChunks, "stylesheets": flavor?.previewStylesheets ?? []])
+        return (resolved, ["chunks": resolved.renderChunks, "stylesheets": flavor?.previewStylesheets ?? []])
     }
 
     /// The document's text as the editor has it now. Text the page already shows or is about to (a task checkbox click renders its
@@ -173,17 +190,12 @@ final class PreviewModel {
         if markdown != lastMarkdown { schedule(markdown) }
     }
 
-    /// Leading + trailing (`RenderThrottle`): the first change after a pause renders at once, a typing burst renders about
-    /// once per interval (scaled to what renders cost) with its latest text; the last text always gets its render.
+    /// Renders now unless a render is running; then `markdown` waits for it (and replaces whatever was waiting), so the first
+    /// change after a pause is not delayed and a typing burst costs at most one render per finished one (`drain`).
     func schedule(_ markdown: String) {
         lastMarkdown = markdown
-        debounce?.cancel()
-        let wait = throttle.delay(at: .now)
-        debounce = Task { [weak self] in
-            if wait > .zero { try? await Task.sleep(for: wait) }
-            guard !Task.isCancelled else { return }
-            await self?.push(markdown)
-        }
+        pending = markdown
+        Task { await drain() }
     }
 
     /// Scrolls the preview so `line` (0-based, fractional ok) is at the top. Instant; the page does not echo it back
@@ -235,15 +247,21 @@ final class PreviewModel {
     }
 
     /// The window shows no document any more: what the page last reported (the sidebar's outline, the counts) goes, and nothing
-    /// still on its way (a debounced or running render) brings it back. The page keeps its old content out of sight until the
+    /// still on its way (a waiting or running render) brings it back. The page keeps its old content out of sight until the
     /// next document's text replaces it.
     func clear() {
+        shownDocument = nil
+        forgetText()
+        needsRebuild = true
+        metadata = nil
+    }
+
+    /// Nothing of the document's text that was shown, waiting or running may reach the page's state or the window any more.
+    private func forgetText() {
         clearEpoch += 1
-        debounce?.cancel()
         pending = nil
         lastMarkdown = nil
         shown = nil
-        metadata = nil
     }
 
     private func reloadPage() async {
@@ -252,7 +270,8 @@ final class PreviewModel {
         loading = nil
         needsRebuild = true
         guard await ensureLoaded(), let markdown = lastMarkdown else { return }  // the text as it is after the load, not before
-        await push(markdown)
+        pending = markdown
+        await drain()
         scroll(toLine: line)
     }
 
@@ -296,10 +315,9 @@ final class PreviewModel {
         }
         if let shown, shown.version == version, let task = shown.tasks?.first(where: { $0.line == line }),
            let new = onToggleTask?(task, checked, shown.text) {
-            // Render the new text now instead of after the typing debounce: a second click inside that window would be stale.
-            lastMarkdown = new
-            debounce?.cancel()  // a render of older text still waiting would otherwise land after this one
-            Task { [weak self] in await self?.push(new) }
+            // Render the new text now, ahead of any waiting: a second click before it lands would be stale. (`pending` is
+            // latest-wins, so a render of older text still waiting cannot land after this one.)
+            schedule(new)
         } else {
             log.info("preview task toggle refused (line \(line), version \(version))")
             Task { [page] in _ = try? await page.callJavaScript("MacDown2Preview.resyncTasks()") }
@@ -346,19 +364,19 @@ final class PreviewModel {
         }
     }
 
-    private func push(_ markdown: String) async {
-        pending = markdown
+    /// Renders `pending`, then whatever arrived while that ran (latest text only), until nothing is waiting: one render at a time,
+    /// the last text always rendered.
+    private func drain() async {
         guard !pushing else { return }
         pushing = true
         defer { pushing = false }
         guard await ensureLoaded() else { return }
         while let next = pending {
             pending = nil
-            let rebuild = needsRebuild
-            needsRebuild = false
             let started = ContinuousClock.now
-            throttle.rendered(at: started)
-            let (optionsJSON, flavorFiles) = resolvedOptions(for: next)
+            let (resolved, flavorFiles) = resolvedOptions(for: next)
+            let rebuild = needsRebuild || lastSent != resolved
+            needsRebuild = false
             // Relative links resolve against the document's folder (as a file URL, trailing slash); see Web/src/preview/links.ts.
             let base = documentDirectory.map { URL(filePath: $0.path, directoryHint: .isDirectory).absoluteString }
             renderCount += 1
@@ -370,34 +388,62 @@ final class PreviewModel {
                 // A chunk that fails to load is reported by `update` itself (the flavor is then unknown).
                 let result = try await page.callJavaScript(
                     "await MacDown2Preview.useFlavor(flavor).catch(() => {}); MacDown2Preview.setBase(base); if (rebuild) MacDown2Preview.invalidate(); return MacDown2Preview.update(md, options, version)",
-                    arguments: ["md": next, "options": optionsJSON, "rebuild": rebuild, "flavor": flavorFiles, "base": base.map { $0 as Any } ?? NSNull(), "version": version]
+                    arguments: ["md": next, "options": resolved.json, "rebuild": rebuild, "flavor": flavorFiles, "base": base.map { $0 as Any } ?? NSNull(), "version": version]
                 )
                 let elapsed = ContinuousClock.now - started
-                throttle.finished(taking: elapsed)
                 // Render failures are reported over the bridge (`handle`); success carries blocks/outline/stats/perf.
-                let meta = (result as? String).flatMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any] }
-                if meta?["error"] != nil { shown = before }  // the old content stays on the page
-                if meta?["error"] == nil {
-                    if epoch == clearEpoch, let decoded = try? JSONDecoder().decode(PreviewMetadata.self, from: Data((result as? String ?? "").utf8)) {
+                let meta = (result as? String).flatMap { try? JSONDecoder().decode(PageResult.self, from: Data($0.utf8)) }
+                if meta?.error != nil {
+                    lastSent = nil  // the page kept its old content and state: the next render rebuilds
+                    if epoch == clearEpoch { shown = before }  // the old content stays on the page
+                } else {
+                    lastSent = resolved
+                    if epoch == clearEpoch, let outline = meta?.outline, let stats = meta?.stats, let tasks = meta?.tasks {
+                        let decoded = PreviewMetadata(outline: outline, stats: stats, tasks: tasks)
                         if decoded != metadata { metadata = decoded }
-                        if shown?.version == version { shown?.tasks = decoded.tasks }
+                        if shown?.version == version { shown?.tasks = tasks }
                     }
-                    let perf = meta?["perf"] as? [String: Any]
                     let ms = Double(elapsed.components.attoseconds) / 1e15 + Double(elapsed.components.seconds) * 1000
-                    let mode = perf?["mode"] as? String ?? "?"
-                    let jsRender = perf?["render"] as? Double ?? -1
-                    let jsPatch = perf?["patch"] as? Double ?? -1
-                    let jsSplit = perf?["split"] as? Double ?? -1
-                    let jsApply = perf?["apply"] as? Double ?? -1
-                    let blocks = (meta?["blocks"] as? [Any])?.count ?? -1
+                    let perf = meta?.perf
+                    let mode = perf?.mode ?? "?"
+                    let jsRender = perf?.render ?? -1
+                    let jsPatch = perf?.patch ?? -1
+                    let jsSplit = perf?.split ?? -1
+                    let jsApply = perf?.apply ?? -1
+                    let blocks = meta?.blocks?.count ?? -1
                     log.info("preview updated: mode=\(mode, privacy: .public) swift_to_done_ms=\(ms, format: .fixed(precision: 1)) js_render_ms=\(jsRender, format: .fixed(precision: 1)) js_patch_ms=\(jsPatch, format: .fixed(precision: 1)) (split \(jsSplit, format: .fixed(precision: 1)) apply \(jsApply, format: .fixed(precision: 1))) blocks=\(blocks) bytes=\(next.utf8.count)")
                 }
             } catch {
-                shown = before
+                lastSent = nil
+                if epoch == clearEpoch { shown = before }
                 log.error("preview update failed: \(String(describing: error), privacy: .public)")
             }
+            // lazy: waits at most 100 ms between two renders of a burst (the time the last one took, wall clock), so the page's process stays mostly idle on a heavy document; upgrade: measure the process's CPU time instead.
+            if pending != nil, epoch == clearEpoch { try? await Task.sleep(for: min(ContinuousClock.now - started, .milliseconds(100))) }
         }
     }
+}
+
+/// What `MacDown2Preview.update` returns, in one decode: the metadata the window shows, and the page's own timings for the log.
+private struct PageResult: Decodable {
+    struct Perf: Decodable {
+        var mode: String?
+        var render, patch, split, apply: Double?
+    }
+    struct Block: Decodable {}  // only counted
+    var error: String?
+    var perf: Perf?
+    var blocks: [Block]?
+    var outline: [OutlineItem]?
+    var stats: TextStats?
+    var tasks: [TaskItem]?
+}
+
+/// What the pane's text task depends on: when any of it changes the task starts again and tells the model first.
+private struct PaneContext: Equatable {
+    var document: ObjectIdentifier
+    var folder: URL?
+    var flavorID: FlavorID?
 }
 
 struct PreviewPane: View {
@@ -420,10 +466,11 @@ struct PreviewPane: View {
             // `initial`: the pane is gone while the window shows no document, and settings changed meanwhile must still arrive.
             .onChange(of: renderSettings.options, initial: true) { _, options in model.setOptions(options) }
             .onChange(of: "\(style)|\(followsSystem)", initial: true) { model.setStyle(id: style, followSystem: followsSystem) }
-            .onChange(of: flavor?.id, initial: true) { model.setFlavor(flavor) }
             .onChange(of: blockRemoteImages, initial: true) { model.reloadForPolicyChange() }
-            // Restarts with the document: the page stays, the text it renders is the active tab's.
-            .task(id: ObjectIdentifier(document)) {
+            // Restarts with the document (or its folder or flavor): the page stays, the text it renders is the active tab's. `show` comes
+            // first, so a tab switch never renders the previous tab's text with the new tab's base and flavor.
+            .task(id: PaneContext(document: ObjectIdentifier(document), folder: documentURL?.deletingLastPathComponent(), flavorID: flavor?.id)) {
+                model.show(document: ObjectIdentifier(document), directory: documentURL?.deletingLastPathComponent(), flavor: flavor)
                 for await text in document.$text.values { model.textChanged(text) }
             }
             // Only the document shown here is followed; the monitor of a document in a background tab does not reach a preview.
@@ -432,6 +479,5 @@ struct PreviewPane: View {
                     model.refreshChangedResources()
                 }
             }
-            .onChange(of: documentURL, initial: true) { _, url in model.documentDirectory = url?.deletingLastPathComponent() }
     }
 }

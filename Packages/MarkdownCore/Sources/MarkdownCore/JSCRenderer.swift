@@ -34,7 +34,7 @@ public actor JSCRenderer: MarkdownRenderer {
             try Self.evaluate(contentsOf: url, in: context)
             loadedChunks.insert(chunk)
         }
-        let optionsJSON = options.json
+        let optionsJSON = try options.jsonString()
         let output = context.objectForKeyedSubscript("MacDown2")
             .objectForKeyedSubscript("render")
             .call(withArguments: [source, optionsJSON])
