@@ -141,10 +141,6 @@ final class PreviewModel {
         messages.onMessage = { [weak self] message in self?.handle(message) }
     }
 
-    private static func json(_ options: RenderOptions) -> String {
-        (try? String(data: JSONEncoder().encode(options), encoding: .utf8)) ?? "{}"
-    }
-
     /// New render settings. The page rebuilds the whole document when it sees a different options string, so this only
     /// has to push the current text again.
     func setOptions(_ new: RenderOptions) {
@@ -167,7 +163,7 @@ final class PreviewModel {
     private func resolvedOptions(for markdown: String) -> (json: String, flavor: [String: [String]]) {
         let resolved = options.rendering(as: flavor, markdown: markdown, readFile: includes.read)
         includes.endRender()
-        return (Self.json(resolved), ["chunks": resolved.renderChunks, "stylesheets": flavor?.previewStylesheets ?? []])
+        return (resolved.json, ["chunks": resolved.renderChunks, "stylesheets": flavor?.previewStylesheets ?? []])
     }
 
     /// The document's text as the editor has it now. Text the page already shows or is about to (a task checkbox click renders its
@@ -176,12 +172,12 @@ final class PreviewModel {
         if markdown != lastMarkdown { schedule(markdown) }
     }
 
-    /// Debounced (~150 ms) so typing bursts render once.
+    /// Debounced (~30 ms) so typing bursts render once: short, because a render (incremental) costs a few ms even on large files.
     func schedule(_ markdown: String) {
         lastMarkdown = markdown
         debounce?.cancel()
         debounce = Task { [weak self] in
-            try? await Task.sleep(for: .milliseconds(150))
+            try? await Task.sleep(for: .milliseconds(30))
             guard !Task.isCancelled else { return }
             await self?.push(markdown)
         }
