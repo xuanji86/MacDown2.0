@@ -21,6 +21,16 @@
         }
       }
     },
+    "%@ is a file, not a folder, so the image cannot be saved there." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 是一个文件而不是文件夹，图片无法存储到那里。"
+          }
+        }
+      }
+    },
     "%@ is %@, not a MacDown2.0 link, so it was left alone. Move or remove it yourself and install again." : {
       "localizations" : {
         "zh-Hans" : {
@@ -47,6 +57,86 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "找不到 %@；这个版本不带命令行工具。"
+          }
+        }
+      }
+    },
+    "OK" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "好"
+          }
+        }
+      }
+    },
+    "Pasted images are saved in an “images” folder next to the document, so the document needs a place on disk first. Nothing was pasted." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "粘贴的图片会存储在文稿旁边的“images”文件夹里，所以文稿需要先有一个存放位置。这次没有粘贴任何内容。"
+          }
+        }
+      }
+    },
+    "Put theme files (.json, the same format as the built-in themes) in this folder and they appear in the list at once. Files that cannot be read are skipped; a theme named like a built-in one is listed with “(User)” after its name." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "把主题文件（.json，格式与内置主题相同）放进这个文件夹，它们会立即出现在列表里。无法读取的文件会被跳过；与内置主题同名的主题会在名称后加上“(User)”。"
+          }
+        }
+      }
+    },
+    "Reveal Themes Folder" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在 Finder 中显示主题文件夹"
+          }
+        }
+      }
+    },
+    "Save…" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "存储…"
+          }
+        }
+      }
+    },
+    "Save the document first" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "请先存储文稿"
+          }
+        }
+      }
+    },
+    "Scroll past the end (the last line can reach the middle of the window)" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "允许滚动越过末尾（最后一行可以滚到窗口中间）"
+          }
+        }
+      }
+    },
+    "Skipped theme files:" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已跳过的主题文件："
           }
         }
       }
@@ -3217,6 +3307,36 @@
         }
       }
     },
+    "The image could not be pasted" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法粘贴这张图片"
+          }
+        }
+      }
+    },
+    "The image is larger than 64 MB." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "图片超过 64 MB。"
+          }
+        }
+      }
+    },
+    "The image on the clipboard could not be read." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法读取剪贴板上的图片。"
+          }
+        }
+      }
+    },
     "These rewrite the characters you type, so they are all off by default when writing Markdown source." : {
       "localizations" : {
         "zh-Hans" : {
@@ -3243,6 +3363,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "这份文档里有未保存的修改。保留我的版本:磁盘上的新内容会在下次保存时被覆盖。从磁盘重新载入:放弃这里未保存的修改。"
+          }
+        }
+      }
+    },
+    "This launch may not use %@." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "这次启动不允许使用 %@。"
           }
         }
       }

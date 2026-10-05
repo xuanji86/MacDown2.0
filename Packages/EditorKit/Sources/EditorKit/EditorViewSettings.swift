@@ -11,6 +11,7 @@ public struct EditorViewSettings: Equatable, Sendable {
         public static let maxWidth = "editor.maxWidth"
         public static let showInvisibles = "editor.showInvisibles"
         public static let smartHome = "editor.smartHome"
+        public static let scrollPastEnd = "editor.scrollPastEnd"
         // The system's text substitutions, one switch each (all off by default: this is source text).
         public static let smartQuotes = "editor.smartQuotes"
         public static let smartDashes = "editor.smartDashes"
@@ -30,6 +31,8 @@ public struct EditorViewSettings: Equatable, Sendable {
     public var maxWidth: CGFloat = 760
     /// Draw a mark for every space, tab and line end.
     public var showsInvisibles = false
+    /// The document scrolls half a window past its last line, so the last line can sit mid-window (off, like the original MacDown).
+    public var scrollsPastEnd = false
     /// ⌘← goes to the first non-blank character before the real start of the line.
     public var smartHome = true
 

@@ -206,9 +206,20 @@ private struct EditorPage: View {
         Form {
             Section("Appearance") {
                 Picker("Editor Theme", selection: $theme) {
-                    ForEach(ThemeLibrary.all, id: \.name) { Text($0.name).tag($0.name) }
+                    ForEach(UserThemeFolder.store.all, id: \.name) { Text($0.name).tag($0.name) }
                 }
                 Toggle("Follow System", isOn: $themeFollows)
+                Button("Reveal Themes Folder") { UserThemeFolder.reveal() }
+                Text("Put theme files (.json, the same format as the built-in themes) in this folder and they appear in the list at once. Files that cannot be read are skipped; a theme named like a built-in one is listed with “(User)” after its name.")
+                    .font(.caption).foregroundStyle(.secondary)
+                let skipped = UserThemeFolder.store.skipped
+                if !skipped.isEmpty {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Skipped theme files:").font(.caption.weight(.semibold))
+                        ForEach(skipped, id: \.file) { Text(verbatim: "\($0.file): \($0.reason)") }
+                    }
+                    .font(.caption).foregroundStyle(.orange).textSelection(.enabled)
+                }
                 Picker("Font", selection: editor.$fontName) {
                     Text("System Monospaced").tag("")
                     ForEach(Self.monospacedFamilies, id: \.self) { Text($0).tag($0) }
@@ -273,6 +284,7 @@ private struct EditorPage: View {
             Section("Scrolling") {
                 Toggle("Scroll the editor and preview together", isOn: $syncScrolling)
                 Toggle("Preview follows the caret", isOn: $previewFollowsCaret)
+                Toggle("Scroll past the end (the last line can reach the middle of the window)", isOn: editor.$scrollPastEnd)
             }
         }
         .formStyle(.grouped)

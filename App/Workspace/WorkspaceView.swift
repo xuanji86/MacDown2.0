@@ -193,7 +193,7 @@ private struct EmptyWorkspaceView: View {
     @AppStorage(AppearanceKey.editorThemeFollowsSystem) private var followsSystem = false
     @Environment(\.colorScheme) private var colorScheme
 
-    private var theme: EditorTheme { ThemeLibrary.resolve(name: themeName, followSystem: followsSystem, systemIsDark: colorScheme == .dark) }
+    private var theme: EditorTheme { UserThemeFolder.resolve(name: themeName, followSystem: followsSystem, systemIsDark: colorScheme == .dark) }
 
     var body: some View {
         let ink = Color(nsColor: theme.text)
