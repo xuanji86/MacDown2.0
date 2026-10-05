@@ -13,14 +13,17 @@ export interface BlockHandle {
   leaves?: HTMLElement[];
 }
 
-const elements = (h: BlockHandle): HTMLElement[] => {
-  const out: HTMLElement[] = [];
+/** A block's nodes, first ..= last (the marker comment). The one walk over a block every module uses. */
+export function blockNodes(h: BlockHandle): Node[] {
+  const out: Node[] = [];
   for (let n: Node | null = h.first; n; n = n.nextSibling) {
-    if (n.nodeType === 1) out.push(n as HTMLElement);
+    out.push(n);
     if (n === h.last) break;
   }
   return out;
-};
+}
+
+export const elements = (h: BlockHandle): HTMLElement[] => blockNodes(h).filter((n): n is HTMLElement => n.nodeType === 1);
 
 // Deepest elements carrying data-line, in document order (cached until the block is replaced).
 function leavesOf(h: BlockHandle): HTMLElement[] {

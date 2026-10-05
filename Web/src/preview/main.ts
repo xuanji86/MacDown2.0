@@ -11,18 +11,25 @@ import { planPatch } from './dom-patch.ts';
 import { rewriteImages } from './images.ts';
 import { rewriteLinks, startAnchorScrolling, stripActiveContent } from './links.ts';
 import { renderMermaid, setMermaidStyle } from './mermaid-loader.ts';
-import { pageYToLine, recordAnchor, scrollToLine as scrollBlocksToLine, startAnchoring, startScrollReporting, type BlockHandle } from './scroll.ts';
+import { blockNodes, elements, pageYToLine, recordAnchor, scrollToLine as scrollBlocksToLine, startAnchoring, startScrollReporting, type BlockHandle } from './scroll.ts';
 import { alignSegments, splitBlocks, type Segment } from './split-html.ts';
 import { DEFAULT_STYLE, styleLinks } from './styles.ts';
 import { enableTaskCheckboxes, focusedTaskLine, restoreTaskFocus, setRenderVersion, startTaskToggling } from './tasks.ts';
+import { afterUpdate, beforeUpdate, busy, onForget, startEditing } from './editing.ts';
+import { clearHighlight, muteSelectionWhile, selectionStale, startSelectionReporting } from './peer.ts';
+import { shown, type TaskItem } from './shown.ts';
 
 // The app hands over its per-load token and, after refusing a toggle, asks the page to take back what the user flipped.
 export { resyncTasks, setTaskToken } from './tasks.ts';
+// Preview editing and two-way selection (editing.ts, peer.ts): the app switches editing on, shows its editor's selection here,
+// and tells the page when it refused an edit.
+export { editRefused, editingForTests, setEditing } from './editing.ts';
+export { highlightSource, selectedSource } from './peer.ts';
 
 interface RenderBlock { lineStart: number; lineEnd: number; hash: number }
 type Lines = Pick<RenderBlock, 'lineStart' | 'lineEnd'>
 // `segments`: the HTML already cut into its blocks (renderIncremental does it per section), what alignSegments would return.
-interface RenderResult { html: string; blocks: RenderBlock[]; outline: unknown[]; stats: unknown; segments?: Segment[] | null }
+interface RenderResult { html: string; blocks: RenderBlock[]; tasks?: TaskItem[]; outline: unknown[]; stats: unknown; segments?: Segment[] | null }
 declare const MacDown2: {
   renderResult(source: string, options: unknown): RenderResult;
   renderIncremental?(source: string, options: unknown): RenderResult;
@@ -75,27 +82,18 @@ function handlesFrom(nodes: Node[]): BlockHandle[] {
 }
 
 function remove(h: BlockHandle): void {
-  for (let n: Node | null = h.first; n; ) {
-    const next: Node | null = n.nextSibling;
-    (n as ChildNode).remove();
-    if (n === h.last) break;
-    n = next;
-  }
+  for (const n of blockNodes(h)) (n as ChildNode).remove();
 }
 
 // Shift data-line / data-line-end of a kept block by `delta` lines (something above it gained or lost lines).
 function shiftLines(h: BlockHandle, delta: number): void {
-  for (let n: Node | null = h.first; n; n = n.nextSibling) {
-    if (n.nodeType === 1) {
-      const el = n as Element;
-      for (const t of [el, ...el.querySelectorAll('[data-line]')]) {
-        for (const attr of ['data-line', 'data-line-end']) {
-          const v = t.getAttribute(attr);
-          if (v !== null) t.setAttribute(attr, String(Number(v) + delta));
-        }
+  for (const el of elements(h)) {
+    for (const t of [el, ...el.querySelectorAll('[data-line]')]) {
+      for (const attr of ['data-line', 'data-line-end']) {
+        const v = t.getAttribute(attr);
+        if (v !== null) t.setAttribute(attr, String(Number(v) + delta));
       }
     }
-    if (n === h.last) break;
   }
 }
 
@@ -164,9 +162,18 @@ function patch(html: string, segs: Segment[], lines: Lines[], st: State): number
 
 // Renders `md` into article#doc and returns the metadata JSON ({blocks, outline, stats, perf}) without the html.
 // `version` is the app's counter for this render; checkbox clicks carry it back so the app knows which text the page shows.
+// `edit`: when the text is made of this page's preview edits, the base render and number of the last one it contains (editing.ts);
+// while the page shows more than that, or an input method is composing, the render is held back and `{deferred: true}` returned.
+// `rebuild`: forget the block table first (the whole page is built again); `base`: the document folder (`setBase`, undefined = as it
+// is). Both only when the render is applied: a render held back changes nothing on the page.
 // On a render failure the previous content stays, the error bar shows the message, the error goes to Swift over
 // the bridge, and `{error}` is returned.
-export function update(md: string, optionsJSON: string, version = 0): string {
+export function update(
+  md: string, optionsJSON: string, version = 0, edit: { burst: number; seq: number } | null = null, rebuild = false, base?: string | null,
+): string {
+  if (beforeUpdate(md, edit) === 'defer') return JSON.stringify({ deferred: true });
+  if (base !== undefined) setBase(base);
+  if (rebuild) invalidate();
   const t0 = performance.now();
   const focusedTask = focusedTaskLine();
   try {
@@ -194,12 +201,22 @@ export function update(md: string, optionsJSON: string, version = 0): string {
     const t3 = performance.now();
     errorBar().hidden = true;
     setRenderVersion(version);
+    shown.source = md;
+    shown.options = options as typeof shown.options;
+    shown.optionsJSON = optionsJSON;
+    shown.version = version;
+    shown.blocks = state?.blocks ?? [];
+    shown.tasks = meta.tasks ?? [];
+    clearHighlight(); // the app sends its editor's selection again for this render
+    selectionStale();
+    afterUpdate(true);
     restoreTaskFocus(focusedTask);
     anchorAfterRender();
     renderMermaid(doc()); // async; draws the diagrams that are new in the DOM, the metadata below does not wait for it
     const ms = (a: number, b: number): number => Math.round((b - a) * 100) / 100;
     return JSON.stringify({ ...meta, perf: { mode, created, render: ms(t0, t1), split: ms(t1, t2), apply: ms(t2, t3), patch: ms(t1, t3), total: ms(t0, t3) } });
   } catch (e) {
+    afterUpdate(false); // the old content stays
     const message = errorText(e);
     errorBar().textContent = `Render error: ${message}`;
     errorBar().hidden = false;
@@ -302,6 +319,14 @@ export function setStyle(light: string, dark: string | null): void {
 startScrollReporting(() => state?.blocks ?? []);
 startAnchorScrolling();
 startTaskToggling();
+startEditing();
+startSelectionReporting();
+muteSelectionWhile(busy);
+// A block edited in the preview must be rebuilt by the next render, even when its text comes back the same.
+onForget((h) => {
+  const i = state ? state.blocks.indexOf(h) : -1;
+  if (i >= 0) state!.keys[i] = NaN;
+});
 addEventListener('error', (e) => post({ type: 'error', stage: 'script', message: `${e.message} (${e.filename}:${e.lineno})` }));
 addEventListener('unhandledrejection', (e) => post({ type: 'error', stage: 'script', message: errorText(e.reason) }));
 document.addEventListener('securitypolicyviolation', (e) => post({ type: 'error', stage: 'csp', message: `${e.violatedDirective} blocked ${e.blockedURI}` }));

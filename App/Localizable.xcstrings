@@ -61,6 +61,46 @@
         }
       }
     },
+    "Click into a paragraph, heading, list or table in the preview to type, delete or use an input method there; the change goes into the source and undoes like typing in the editor. Line breaks, formatting and anything the preview cannot map to the source stay in the editor. A selection in either pane is highlighted in the other." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在预览里点进段落、标题、列表或表格即可直接输入、删除或用输入法打字，改动写回源码，撤销和在编辑区打字一样。换行、格式以及预览对应不到源码的内容仍在编辑区里改。任一侧的选区会在另一侧高亮显示。"
+          }
+        }
+      }
+    },
+    "Edit in preview" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在预览中编辑"
+          }
+        }
+      }
+    },
+    "Formatted text can only be pasted in the editor." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "带格式的文本只能粘贴到编辑区。"
+          }
+        }
+      }
+    },
+    "Line breaks and new paragraphs are made in the editor." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "换行和分段请在编辑区里操作。"
+          }
+        }
+      }
+    },
     "OK" : {
       "localizations" : {
         "zh-Hans" : {
@@ -1161,6 +1201,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "无法打开此链接"
+          }
+        }
+      }
+    },
+    "That change belongs in the editor." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "这类修改请在编辑区里进行。"
+          }
+        }
+      }
+    },
+    "The text changed meanwhile: the preview shows it again." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "文本刚刚有变化，预览已重新显示。"
           }
         }
       }
@@ -3437,12 +3497,32 @@
         }
       }
     },
+    "This edit crosses formatting: make it in the editor." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "这处修改跨越了格式标记，请在编辑区里改。"
+          }
+        }
+      }
+    },
     "This launch may not use %@." : {
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "这次启动不允许使用 %@。"
+          }
+        }
+      }
+    },
+    "This text cannot be edited in the preview: edit it in the editor." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "这段文字不能在预览里编辑，请在编辑区里改。"
           }
         }
       }
