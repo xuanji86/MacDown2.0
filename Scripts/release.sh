@@ -1,6 +1,6 @@
 #!/bin/bash
 # Build, ad-hoc sign and package a release (PLAN §6.3). No Developer ID, no notarization: distribution is
-# GitHub Releases (zip for Sparkle, dmg for humans/Homebrew) + the xuanji86/homebrew-tap cask.
+# GitHub Releases (zip for Sparkle, dmg for humans/Homebrew; the dmg is also uploaded as MacDown2.dmg for a stable latest/download URL) + the xuanji86/homebrew-tap cask.
 #
 #   Scripts/release.sh <version>             dry run (default): everything is produced under build/release/<version>/,
 #                                            nothing is uploaded or pushed
@@ -45,6 +45,7 @@ OUT=build/release/$VERSION
 STAGE=$OUT/stage
 ZIP=$OUT/$APP-$VERSION.zip
 DMG=$OUT/$APP-$VERSION.dmg
+DMG_LATEST=$OUT/$APP.dmg   # byte-identical copy under a version-less name: the landing page links releases/latest/download/MacDown2.dmg
 APPCAST=$OUT/appcast.xml
 NOTES=$OUT/RELEASE_NOTES.md
 CASK=$OUT/macdown2.rb
@@ -130,7 +131,8 @@ DMG_SRC=$OUT/dmg-src; mkdir -p "$DMG_SRC"
 ditto "$APP_PATH" "$DMG_SRC/$APP.app"; ln -s /Applications "$DMG_SRC/Applications"
 hdiutil create -quiet -volname "$APP $VERSION" -srcfolder "$DMG_SRC" -fs HFS+ -format UDZO -ov "$DMG"
 rm -rf "$DMG_SRC"
-( cd "$OUT" && shasum -a 256 "$(basename "$ZIP")" "$(basename "$DMG")" > SHA256SUMS )
+cp "$DMG" "$DMG_LATEST"
+( cd "$OUT" && shasum -a 256 "$(basename "$ZIP")" "$(basename "$DMG")" "$(basename "$DMG_LATEST")" > SHA256SUMS )
 DMG_SHA=$(shasum -a 256 "$DMG" | cut -d' ' -f1)
 
 # ---- 5. Release notes draft ----
@@ -201,7 +203,7 @@ fi
 step "Creating draft release $TAG"
 # Never --prerelease: releases/latest/download/appcast.xml skips prereleases, so the feed would stop moving.
 gh release create "$TAG" --repo "$REPO" --draft --target "$(git rev-parse HEAD)" --title "$APP $VERSION" \
-  --notes-file "$NOTES" "$DMG" "$ZIP" "$APPCAST" "$OUT/SHA256SUMS"
+  --notes-file "$NOTES" "$DMG" "$DMG_LATEST" "$ZIP" "$APPCAST" "$OUT/SHA256SUMS"
 echo "Draft created. Review it, then publish it on GitHub: publishing makes it 'latest', which is what hands the update to existing installs."
 
 if [ -n "${TAP_DIR:-}" ]; then

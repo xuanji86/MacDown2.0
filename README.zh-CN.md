@@ -1,4 +1,4 @@
-<p align="right"><a href="README.md">English</a> · <b>简体中文</b></p>
+<p align="right"><a href="README.md">English</a> · <b>简体中文</b> · <a href="https://xuanji86.github.io/MacDown2.0/">官网</a></p>
 
 <p align="center">
   <img src="docs/images/icon.png" width="128" height="128" alt="MacDown2.0 应用图标">
