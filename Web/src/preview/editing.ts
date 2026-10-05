@@ -533,5 +533,13 @@ export const editingForTests = {
     return host === el;
   },
   state: () => ({ editing: host !== null, burst: burst ? { base: burst.base, seq: burst.seq } : null, composing: composing !== null }),
+  /** The map of the block on `line`, timed (benchmarks). */
+  mapLine(line: number): { ms: number; placed: number; units: number } | null {
+    const h = shown.blocks.find((b) => b.line0 <= line && line < b.line1);
+    if (!h) return null;
+    const t0 = performance.now();
+    const m = mapBlock(h);
+    return { ms: performance.now() - t0, placed: m?.placed ?? 0, units: m?.text.length ?? 0 };
+  },
   linesRange,
 };

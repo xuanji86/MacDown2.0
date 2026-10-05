@@ -8,7 +8,7 @@ import type { BlockHandle } from './scroll.ts';
 import { linesRange, shown, type RenderOptionsLike } from './shown.ts';
 import { domainTexts, readProbe } from './text-domain.ts';
 
-interface Probe { html: string; sentinels: string; originals: string; offsets: number[] }
+interface Probe { html: string; sentinels: number[]; originals: string; offsets: number[] }
 interface Context { references?: Record<string, unknown>; labels?: Record<string, number> }
 declare const MacDown2: {
   inlineMap?: {
@@ -126,6 +126,9 @@ function documentContext(options: RenderOptionsLike): Context {
 }
 
 interface Cached { text: string; blockText: string; options: string; first: boolean; rel: Int32Array | null }
+// lazy: a block is probed whole (measured: a 2 KB paragraph 2-4 ms, an 80 KB list of 1800 items about 40-70 ms, again after every
+// edit in it); past this it is unmappable; upgrade = probe the list item or table row that holds the caret instead of the block.
+const MAX_BLOCK = 64 * 1024;
 const cache = new WeakMap<BlockHandle, Cached>();
 
 function probeRel(live: string, blockText: string, first: boolean, options: RenderOptionsLike): Int32Array | null {
@@ -164,6 +167,7 @@ export function mapBlock(h: BlockHandle): BlockMapping | null {
   const c = cache.get(h);
   let rel: Int32Array | null;
   if (c && c.text === text && c.blockText === source && c.options === shown.optionsJSON && c.first === first) rel = c.rel;
+  else if (source.length > MAX_BLOCK) rel = null;
   else {
     try {
       rel = probeRel(text, source, first, options);

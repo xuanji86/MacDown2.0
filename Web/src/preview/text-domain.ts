@@ -49,19 +49,23 @@ export function domainTexts<T extends DomainNode>(roots: ArrayLike<T>): T[] {
 /** Puts the sentinels of `probe` back and checks the result is exactly `live` (the text the page shows): then each sentinel's
  *  position is its character's place in `live`. Returns, per unit of `live`, the block offset of the character there (-1: none),
  *  or null when the probe's text is not the page's text (the block parses differently on its own: unmappable). */
-export function readProbe(live: string, probeText: string, probe: { sentinels: string; originals: string; offsets: number[] }): Int32Array | null {
-  if (probeText.length !== live.length) return null;
+export function readProbe(live: string, probeText: string, probe: { sentinels: number[]; originals: string; offsets: number[] }): Int32Array | null {
   const index = new Map<number, number>();
-  for (let i = 0; i < probe.sentinels.length; i++) index.set(probe.sentinels.charCodeAt(i), i);
+  for (let i = 0; i < probe.sentinels.length; i++) index.set(probe.sentinels[i], i);
   const out = new Int32Array(live.length).fill(-1);
   const seen = new Int32Array(probe.sentinels.length).fill(-1);
-  for (let k = 0; k < live.length; k++) {
-    const c = probeText.charCodeAt(k);
+  // A sentinel is one code point (one or two units) standing for one unit of `live`; everything else is compared unit by unit.
+  let j = 0;
+  let k = 0;
+  for (; j < probeText.length && k < live.length; k++) {
+    const c = probeText.codePointAt(j)!;
     const i = index.get(c);
     if (i === undefined) {
-      if (c !== live.charCodeAt(k)) return null;
+      if (probeText.charCodeAt(j) !== live.charCodeAt(k)) return null;
+      j++;
       continue;
     }
+    j += c > 0xffff ? 2 : 1;
     if (probe.originals.charCodeAt(i) !== live.charCodeAt(k)) return null;
     if (seen[i] >= 0) {
       out[seen[i]] = -1; // shown twice: neither copy is the one
@@ -72,5 +76,5 @@ export function readProbe(live: string, probeText: string, probe: { sentinels: s
     seen[i] = k;
     out[k] = probe.offsets[i];
   }
-  return out;
+  return j === probeText.length && k === live.length ? out : null;
 }

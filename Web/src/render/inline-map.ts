@@ -30,10 +30,10 @@ export interface BlockContext {
   labels?: Record<string, number>;
 }
 
-/** The block rendered with `sentinels[i]` in place of the character `originals[i]` found at block offset `offsets[i]`. */
+/** The block rendered with code point `sentinels[i]` in place of the UTF-16 unit `originals[i]` found at block offset `offsets[i]`. */
 export interface InlineProbe {
   html: string;
-  sentinels: string;
+  sentinels: number[];
   originals: string;
   offsets: number[];
 }
@@ -46,7 +46,7 @@ const CLAIMABLE = new Set(['text', 'code_inline']);
 // upgrade = record appends without comparing the whole string.
 const MAX_INLINE = 64 * 1024;
 const PUA_FIRST = 0xe000;
-const PUA_LAST = 0xf8ff;
+const SENTINEL_RANGES: Array<[number, number]> = [[0xe000, 0xf8ff], [0xf0000, 0xffffd], [0x100000, 0x10fffd]];
 
 interface Track {
   prov: WeakMap<Token, Int32Array>; // stream token -> per content unit, offset in the inline token's content (-1: none)
@@ -245,15 +245,39 @@ function instrument(md: MarkdownIt, track: Track): void {
   }
 
   // The token stream's text before and after a rewrite: the second gets the positions of the characters it kept.
-  function stream(tokens: Token[]): Stream {
-    let text = '';
-    const parts: Array<Int32Array | number> = [];
+  // What a rewrite may change, taken before it: the text-ish tokens and their contents (the text itself only when it did change).
+  type Snapshot = { tokens: Token[]; contents: string[]; types: string[] };
+  function snapshot(tokens: Token[]): Snapshot {
+    const s: Snapshot = { tokens: [], contents: [], types: [] };
     for (const t of tokens) {
       if (!STREAM.has(t.type)) continue;
-      text += t.content;
-      const p = track.prov.get(t);
-      parts.push(t.type !== 'text_special' && p && p.length === t.content.length ? p : t.content.length);
+      s.tokens.push(t);
+      s.contents.push(t.content);
+      s.types.push(t.type);
     }
+    return s;
+  }
+  function unchanged(s: Snapshot, tokens: Token[]): boolean {
+    let i = 0;
+    for (const t of tokens) {
+      if (!STREAM.has(t.type)) continue;
+      if (s.tokens[i] !== t || s.contents[i] !== t.content || s.types[i] !== t.type) return false;
+      i++;
+    }
+    return i === s.tokens.length;
+  }
+
+  function stream(tokens: Token[], contents?: string[], types?: string[]): Stream {
+    let text = '';
+    const parts: Array<Int32Array | number> = [];
+    tokens.forEach((t, i) => {
+      const type = types ? types[i] : t.type;
+      const content = contents ? contents[i] : t.content;
+      if (!STREAM.has(type)) return;
+      text += content;
+      const p = track.prov.get(t);
+      parts.push(type !== 'text_special' && p && p.length === content.length ? p : content.length);
+    });
     const prov = new Int32Array(text.length).fill(-1);
     let at = 0;
     for (const part of parts) {
@@ -318,10 +342,12 @@ function instrument(md: MarkdownIt, track: Track): void {
     md.core.ruler.at(
       rule.name,
       (state) => {
-        const before: Array<[Token, Stream]> = [];
-        for (const t of state.tokens) if (t.type === 'inline' && t.children) before.push([t, stream(t.children)]);
+        const before: Array<[Token, Snapshot]> = [];
+        for (const t of state.tokens) if (t.type === 'inline' && t.children) before.push([t, snapshot(t.children)]);
         fn(state);
-        for (const [t, s] of before) if (t.children) realign(s, t.children);
+        for (const [t, s] of before) {
+          if (t.children && !unchanged(s, t.children)) realign(stream(s.tokens, s.contents, s.types), t.children);
+        }
       },
       { alt: rule.alt },
     );
@@ -382,8 +408,8 @@ function closingSequenceEnd(line: string): number {
 
 /** The block `text` (its source lines joined, block-relative offsets) parsed and rendered on its own with `options`, `context`
  *  standing in for the rest of the document; `first`: the block is the document's first (only it may open front matter). Returns
- *  one probe per batch of placed characters (a block placing more characters than there are free private-use characters needs
- *  several), or an empty list when nothing could be placed. */
+ *  one probe per batch of placed characters (one, unless a block places more characters than there are free private-use code
+ *  points, about 137 000), or an empty list when nothing could be placed. */
 export function probeBlock(text: string, options: RenderOptions, first: boolean, context?: BlockContext | null): InlineProbe[] {
   const o = first || !options.extensions.includes('frontMatter') ? options : { ...options, extensions: options.extensions.filter((e) => e !== 'frontMatter') };
   const { md, track } = instrumented(o);
@@ -427,13 +453,17 @@ export function probeBlock(text: string, options: RenderOptions, first: boolean,
   // The footnote section comes after the block, never inside it.
   const tail = tokens.findIndex((t) => t.type === 'footnote_block_open');
   const body = tail < 0 ? tokens : tokens.slice(0, tail);
+  // Sentinels: private-use code points the block does not contain, the BMP's first (one unit each), then planes 15 and 16 (a
+  // surrogate pair each: the probe's text is then longer than the page's, readProbe walks both).
   const used = new Set<number>();
-  for (let i = 0; i < text.length; i++) {
-    const c = text.charCodeAt(i);
-    if (c >= PUA_FIRST && c <= PUA_LAST) used.add(c);
+  for (const ch of text) {
+    const c = ch.codePointAt(0)!;
+    if (c >= PUA_FIRST) used.add(c);
   }
   const free: number[] = [];
-  for (let c = PUA_FIRST; c <= PUA_LAST; c++) if (!used.has(c)) free.push(c);
+  for (const [lo, hi] of SENTINEL_RANGES) {
+    for (let c = lo; c <= hi && free.length < claimed.length; c++) if (!used.has(c)) free.push(c);
+  }
   if (!free.length) return [];
   const probes: InlineProbe[] = [];
   const contents = new Map<Token, string>();
@@ -442,16 +472,15 @@ export function probeBlock(text: string, options: RenderOptions, first: boolean,
     for (let from = 0; from < claimed.length; from += free.length) {
       const batch = claimed.slice(from, from + free.length);
       const units = new Map<Token, string[]>();
-      for (const [t, c] of contents) units.set(t, Array.from(c.split('')));
-      let sentinels = '';
+      for (const { t } of batch) if (!units.has(t)) units.set(t, contents.get(t)!.split(''));
+      const sentinels: number[] = [];
       let originals = '';
       const offsets: number[] = [];
       batch.forEach(({ t, k, at }, i) => {
-        const s = String.fromCharCode(free[i]);
         const u = units.get(t)!;
         originals += u[k];
-        u[k] = s;
-        sentinels += s;
+        u[k] = String.fromCodePoint(free[i]);
+        sentinels.push(free[i]);
         offsets.push(at);
       });
       for (const [t, u] of units) t.content = u.join('');
