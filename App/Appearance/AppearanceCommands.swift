@@ -23,12 +23,14 @@ struct AppearanceCommands: Commands {
     @AppStorage(AppearanceKey.previewStyle, store: AppDefaults.store) private var previewStyle = AppearanceDefault.previewStyle
     @AppStorage(AppearanceKey.previewStyleFollowsSystem, store: AppDefaults.store) private var previewFollows = false
 
+    @ObservedObject private var themes = ThemeMenuList.shared
+
     var body: some Commands {
         CommandGroup(after: .toolbar) {
             Divider()
             Menu("Editor Theme") {
                 Picker("Editor Theme", selection: $editorTheme) {
-                    ForEach(ThemeLibrary.all, id: \.name) { Text($0.name).tag($0.name) }
+                    ForEach(themes.themes, id: \.name) { Text($0.name).tag($0.name) }
                 }
                 .pickerStyle(.inline)
                 Divider()

@@ -12,6 +12,28 @@ final class OverlayScrollView: NSScrollView {
     }
 }
 
+/// Clip view that can let the document scroll up by half a window more than its height ("scroll past the end"): the last
+/// line can then sit about mid-window. Only the scrollable range changes; the text view, its container and its layout are
+/// untouched (no fake content height, no TextKit work). The extra space shows the scroll view's background.
+final class EditorClipView: NSClipView {
+    var scrollsPastEnd = false {
+        didSet {
+            guard scrollsPastEnd != oldValue else { return }
+            scroll(to: constrainBoundsRect(bounds).origin)  // switched off while scrolled into the extra space: come back
+            enclosingScrollView?.reflectScrolledClipView(self)
+        }
+    }
+
+    /// How far beyond the document the view may scroll.
+    var extraScrollHeight: CGFloat { scrollsPastEnd ? (bounds.height / 2).rounded(.down) : 0 }
+
+    override var documentRect: NSRect {
+        var rect = super.documentRect
+        rect.size.height += extraScrollHeight
+        return rect
+    }
+}
+
 /// `visibleLines` are whole consecutive lines, `firstLine` the 0-based index of the first (`DocumentFlavor.editorDecorations`).
 public typealias DecorationProvider = @MainActor (_ visibleLines: [Substring], _ firstLine: Int) -> [DecorationSpan]
 
@@ -53,6 +75,7 @@ public final class MarkdownTextView: NSTextView {
         scrollView.hasVerticalScroller = true
         scrollView.drawsBackground = true
         scrollView.borderType = .noBorder
+        scrollView.contentView = EditorClipView()  // before the document view: setting a content view drops the old one's
 
         textView.minSize = NSSize(width: 0, height: 0)
         textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
@@ -134,6 +157,7 @@ public final class MarkdownTextView: NSTextView {
             updateInsets()
         }
         if new.showsInvisibles != old.showsInvisibles { needsDisplay = true }
+        if new.scrollsPastEnd != old.scrollsPastEnd { (enclosingScrollView?.contentView as? EditorClipView)?.scrollsPastEnd = new.scrollsPastEnd }
         applySubstitutions(new, replacing: old)
     }
 
@@ -346,6 +370,72 @@ public final class MarkdownTextView: NSTextView {
         if viewSettings.showsLineNumbers { gutter?.needsDisplay = true }  // the current line's number is emphasised
     }
 
+    // MARK: Paste (PLAN parity: paste image, smart URL)
+
+    /// The file of the document this view shows, asked at paste time (the view is reused across tabs). nil closure = image
+    /// paste is off and an image on the pasteboard does what NSTextView always did (nothing); a closure returning nil = the
+    /// document has never been saved, so there is no folder to put the image in (`onPasteImageProblem(.needsSavedDocument)`).
+    public var documentURL: (@MainActor () -> URL?)?
+    /// Asked before an image file is read and before `images/` is created; false = refuse (isolated launches stay in their root).
+    public var pastePermits: (@MainActor (URL) -> Bool)?
+    /// An image paste that could not happen. Nothing was written for the part that failed; the app tells the user.
+    public var onPasteImageProblem: (@MainActor (PasteImageProblem) -> Void)?
+
+    public enum PasteImageProblem {
+        case needsSavedDocument
+        case failed(PasteImageError)
+    }
+
+    public override func paste(_ sender: Any?) {
+        if isEditable, !hasMarkedText(), pasteIfSmart(from: .general) { return }
+        super.paste(sender)
+    }
+
+    /// An image on the pasteboard becomes files next to the document plus `![](images/…)`; a URL over a selection becomes a
+    /// link. True when handled here. The text insertion is one undo step of its own (`breakUndoCoalescing`), and undoing it
+    /// leaves the image files in place: they may be referenced by now, and deleting user files on ⌘Z is the worse surprise.
+    public func pasteIfSmart(from pasteboard: NSPasteboard) -> Bool {
+        guard let storage = textStorage else { return false }
+        let permits = pastePermits ?? { _ in true }
+        if documentURL != nil {
+            let images: [PastedImage]
+            do {
+                guard let found = try PasteImage.images(on: pasteboard, permits: permits) else { return linkPaste(pasteboard, storage) }
+                images = found
+            } catch {
+                onPasteImageProblem?(.failed(error as? PasteImageError ?? .io(error)))
+                return true
+            }
+            guard let folder = documentURL?()?.deletingLastPathComponent() else {
+                onPasteImageProblem?(.needsSavedDocument)
+                return true
+            }
+            var paths: [String] = []
+            var problem: PasteImageError?
+            for image in images {
+                do { paths.append(try PasteImage.write(image, besideDocumentIn: folder, permits: permits)) } catch {
+                    problem = error as? PasteImageError ?? .io(error)
+                    break
+                }
+            }
+            if !paths.isEmpty {
+                breakUndoCoalescing()
+                applyEdit(PasteImage.edit(forPaths: paths, replacing: selectedRange()))
+                breakUndoCoalescing()
+            }
+            if let problem { onPasteImageProblem?(.failed(problem)) }
+            return true
+        }
+        return linkPaste(pasteboard, storage)
+    }
+
+    private func linkPaste(_ pasteboard: NSPasteboard, _ storage: NSTextStorage) -> Bool {
+        guard let clipboard = pasteboard.string(forType: .string),
+              let edit = SmartPaste.linkEdit(clipboard: clipboard, selection: selectedRange(), in: storage.mutableString) else { return false }
+        applyEdit(edit)
+        return true
+    }
+
     // MARK: Smart Home
 
     public override func moveToBeginningOfLine(_ sender: Any?) { smartHome(sender) { super.moveToBeginningOfLine(sender) } }
@@ -503,7 +593,7 @@ public final class MarkdownTextView: NSTextView {
         let frame = fragment.layoutFragmentFrame
         let clip = scrollView.contentView
         let target = frame.minY + progress * frame.height + textContainerOrigin.y
-        let maxY = max(0, self.frame.height - clip.bounds.height)
+        let maxY = max(0, self.frame.height - clip.bounds.height + ((clip as? EditorClipView)?.extraScrollHeight ?? 0))
         clip.scroll(to: NSPoint(x: clip.bounds.origin.x, y: min(max(target, 0), maxY)))
         scrollView.reflectScrolledClipView(clip)
     }

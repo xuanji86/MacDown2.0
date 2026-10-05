@@ -1,7 +1,7 @@
 import Foundation
 
 /// The built-in editor themes (JSON files in `Resources/Themes`, written for this app) and the rule that picks one.
-/// User themes (`~/Library/Application Support/MacDown2/Themes/`) are M2: they would join `all` and nothing else changes.
+/// `all` is the built-ins only; user themes (`~/Library/Application Support/MacDown2/Themes/`) are `UserThemeStore`'s, which lists both.
 public enum ThemeLibrary {
     /// Display order. A test checks this against the files in `Resources/Themes`.
     static let builtInFiles = ["macdown-classic", "default-dark", "default-light", "solarized-dark", "solarized-light", "github-dark", "github-light"]

@@ -37,6 +37,7 @@ struct EditorSettings: DynamicProperty {
     @AppStorage(EditorViewSettings.Key.maxWidth) var maxWidth = Double(EditorViewSettings().maxWidth)
     @AppStorage(EditorViewSettings.Key.showInvisibles) var showInvisibles = EditorViewSettings().showsInvisibles
     @AppStorage(EditorViewSettings.Key.smartHome) var smartHome = EditorViewSettings().smartHome
+    @AppStorage(EditorViewSettings.Key.scrollPastEnd) var scrollPastEnd = EditorViewSettings().scrollsPastEnd
     @AppStorage(EditorViewSettings.Key.smartQuotes) var smartQuotes = EditorViewSettings().smartQuotes
     @AppStorage(EditorViewSettings.Key.smartDashes) var smartDashes = EditorViewSettings().smartDashes
     @AppStorage(EditorViewSettings.Key.textReplacement) var textReplacement = EditorViewSettings().textReplacement
@@ -63,6 +64,7 @@ struct EditorSettings: DynamicProperty {
         v.maxWidth = CGFloat(maxWidth)
         v.showsInvisibles = showInvisibles
         v.smartHome = smartHome
+        v.scrollsPastEnd = scrollPastEnd
         v.smartQuotes = smartQuotes
         v.smartDashes = smartDashes
         v.textReplacement = textReplacement

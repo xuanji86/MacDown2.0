@@ -20,7 +20,7 @@ struct EditorPane: NSViewRepresentable {
     private var settings = EditorSettings()
 
     private var theme: EditorTheme {
-        settings.apply(to: ThemeLibrary.resolve(name: themeName, followSystem: followsSystem, systemIsDark: colorScheme == .dark))
+        settings.apply(to: UserThemeFolder.resolve(name: themeName, followSystem: followsSystem, systemIsDark: colorScheme == .dark))
     }
     /// Lets the toolbar and menus reach the text view this pane creates.
     var editor: EditorHandle?
@@ -38,6 +38,7 @@ struct EditorPane: NSViewRepresentable {
         textView.delegate = context.coordinator
         textView.behavior = settings.behavior
         context.coordinator.textView = textView
+        context.coordinator.installPasteHooks(on: textView)
         context.coordinator.startSession(showing: document, in: textView)
         scrollSync.attach(editor: textView)
         editor?.textView = textView
@@ -66,7 +67,12 @@ struct EditorPane: NSViewRepresentable {
             }
         }
         let theme = theme
-        if textView.theme.name != theme.name || textView.theme.font != theme.font { textView.theme = theme }
+        // A user theme edited on disk keeps its name: the store's revision says the colours may have changed.
+        let revision = UserThemeFolder.store.revision
+        if textView.theme.name != theme.name || textView.theme.font != theme.font || context.coordinator.themeRevision != revision {
+            context.coordinator.themeRevision = revision
+            textView.theme = theme
+        }
     }
 
     /// The window is going away: its storages move to their documents, where the undo steps aimed at them still work (`EditorSession.close`).
@@ -83,11 +89,22 @@ struct EditorPane: NSViewRepresentable {
         var status: EditorStatus?
         var editor: EditorHandle?
         var decoratedFlavor: FlavorID?
+        var themeRevision = -1
 
         private let scrollSync: ScrollSyncController
 
         init(scrollSync: ScrollSyncController) {
             self.scrollSync = scrollSync
+        }
+
+        /// Image paste needs the folder of the document the view shows right now (the view is reused across tabs).
+        func installPasteHooks(on textView: MarkdownTextView) {
+            textView.documentURL = { [weak self] in (self?.session?.document as? MarkdownDocument)?.fileURL }
+            textView.pastePermits = { AppDefaults.permitsOpening($0) }
+            textView.onPasteImageProblem = { [weak self, weak textView] problem in
+                guard let window = textView?.window else { return }
+                PasteImageAlert.present(problem, document: self?.session?.document as? MarkdownDocument, in: window)
+            }
         }
 
         func startSession(showing document: MarkdownDocument, in textView: MarkdownTextView) {

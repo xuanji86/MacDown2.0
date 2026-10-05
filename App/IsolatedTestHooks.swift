@@ -1,4 +1,5 @@
 import AppKit
+import EditorKit
 import Foundation
 import OSLog
 import WebKit
@@ -47,6 +48,15 @@ import WorkspaceKit
 ///   MACDOWN2_TEST_DUMP_MENUS=<secs>       after this many seconds, the app's language and every title in the main menu bar go to the
 ///                                         log (menus cannot be photographed window-only): category "menu-dump"
 ///                                         (the language itself is chosen with MACDOWN2_LANGUAGE in `Scripts/run-isolated.sh`)
+///   MACDOWN2_TEST_PASTE=image|url         paste into the first window's editor through a private pasteboard (never the real clipboard):
+///                                         `image` a generated TIFF (saved as PNG under images/ next to the document, or the "save first"
+///                                         sheet for an untitled one), `url` https://example.com over the first word; `_AFTER=<secs>` (default 3)
+///   MACDOWN2_TEST_SCROLL_PAST_END=1       the launch's own defaults suite starts with Settings ▸ Editor ▸ Scroll past the end on
+///   MACDOWN2_TEST_SCROLL_TO_END=<secs>    after this many seconds the first editor scrolls as far down as it may
+///   MACDOWN2_TEST_EDITOR_THEME=<name>     after `_AFTER=<secs>` (default 3) the launch's defaults suite picks this editor theme
+///   MACDOWN2_TEST_DUMP_EDITOR=<secs>      after this many seconds the editor's scroll state, theme and the theme list (and the files the
+///                                         themes folder skipped) go to the log (category "editor-dump")
+///                                         The user themes folder of an isolated launch is `<root>/.macdown2-themes` (printed as ROOT).
 enum IsolatedTestHooks {
     #if DEBUG
     private static func value(_ name: String) -> String? {
@@ -61,6 +71,7 @@ enum IsolatedTestHooks {
     private static let tabLog = Logger(subsystem: "io.github.xuanji86.MacDown2", category: "tab-undo-hook")
     private static let hookLog = Logger(subsystem: "io.github.xuanji86.MacDown2", category: "task-toggle-hook")
     private static let toolbarLog = Logger(subsystem: "io.github.xuanji86.MacDown2", category: "toolbar-dump")
+    private static let editorLog = Logger(subsystem: "io.github.xuanji86.MacDown2", category: "editor-dump")
     private static let menuLog = Logger(subsystem: "io.github.xuanji86.MacDown2", category: "menu-dump")
     #endif
 
@@ -143,6 +154,11 @@ enum IsolatedTestHooks {
                 AppDefaults.store.set((current == .minimal ? ToolbarStyle.classic : .minimal).rawValue, forKey: ToolbarStyle.key)
             }
         }
+        if value("MACDOWN2_TEST_SCROLL_PAST_END") == "1" { AppDefaults.store.set(true, forKey: EditorViewSettings.Key.scrollPastEnd) }
+        if let name = value("MACDOWN2_TEST_EDITOR_THEME") {
+            let seconds = value("MACDOWN2_TEST_EDITOR_THEME_AFTER").flatMap(Double.init) ?? 3
+            DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { AppDefaults.store.set(name, forKey: AppearanceKey.editorTheme) }
+        }
         guard value("MACDOWN2_TEST_OPEN_SETTINGS") == "1" else { return }
         let reread = value("MACDOWN2_TEST_TOOL_ENV_REREAD") == "1"
         let delay = value("MACDOWN2_TEST_OPEN_SETTINGS_AFTER").flatMap(Double.init) ?? 1.5
@@ -175,6 +191,16 @@ enum IsolatedTestHooks {
             for window in NSApp.windows where window.isVisible && window.canBecomeKey { window.makeKeyAndOrderFront(nil) }
         }
         after("MACDOWN2_TEST_DUMP_MENUS") { dumpMenus() }
+        after("MACDOWN2_TEST_SCROLL_TO_END") {
+            guard let editor = firstEditor() else { return editorLog.error("scroll hook: no editor") }
+            editor.scroll(toLine: Double(editor.string.trimmingCharacters(in: .newlines).split(separator: "\n", omittingEmptySubsequences: false).count - 1))  // the last text line: it clamps to the scroll limit
+            editorLog.info("scroll hook: offset now \(editor.enclosingScrollView?.contentView.bounds.origin.y ?? -1, privacy: .public)")
+        }
+        after("MACDOWN2_TEST_DUMP_EDITOR") { dumpEditor() }
+        if let kind = value("MACDOWN2_TEST_PASTE") {
+            let seconds = value("MACDOWN2_TEST_PASTE_AFTER").flatMap(Double.init) ?? 3
+            DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { MainActor.assumeIsolated { pasteIntoEditor(kind) } }
+        }
         after("MACDOWN2_TEST_DUMP_TOOLBAR") { dumpToolbar() }
         after("MACDOWN2_TEST_TAB_RENAME") {
             guard let model = WorkspaceRegistry.shared.orderedModels().first, let url = model.controller.activeURL else { return }
@@ -199,6 +225,49 @@ enum IsolatedTestHooks {
     }
 
     #if DEBUG
+    @MainActor private static func firstEditor() -> MarkdownTextView? {
+        func find(_ view: NSView) -> MarkdownTextView? {
+            if let editor = view as? MarkdownTextView { return editor }
+            return view.subviews.lazy.compactMap(find).first
+        }
+        return WorkspaceRegistry.shared.orderedModels().first?.window?.contentView.flatMap(find)
+    }
+
+    /// Pastes from a pasteboard of its own, so the real clipboard is never read or written.
+    @MainActor private static func pasteIntoEditor(_ kind: String) {
+        guard let editor = firstEditor() else { return editorLog.error("paste hook: no editor") }
+        let board = NSPasteboard(name: NSPasteboard.Name("macdown2.test.paste.\(UUID().uuidString)"))
+        defer { board.releaseGlobally() }
+        board.clearContents()
+        if kind == "url" {
+            let text = editor.string as NSString
+            let word = text.rangeOfCharacter(from: .alphanumerics)
+            var end = word.location
+            while end < text.length, CharacterSet.alphanumerics.contains(Unicode.Scalar(text.character(at: end)) ?? " ") { end += 1 }
+            editor.setSelectedRange(NSRange(location: word.location, length: end - word.location))
+            board.setString("https://example.com", forType: .string)
+        } else {
+            let size = NSSize(width: 360, height: 160)
+            let image = NSImage(size: size, flipped: false) { rect in
+                NSGradient(starting: .systemTeal, ending: .systemIndigo)?.draw(in: rect, angle: 20)
+                NSAttributedString(string: "pasted image", attributes: [.font: NSFont.boldSystemFont(ofSize: 28), .foregroundColor: NSColor.white]).draw(at: NSPoint(x: 90, y: 60))
+                return true
+            }
+            board.setData(image.tiffRepresentation, forType: .tiff)
+        }
+        editorLog.info("paste hook: \(kind, privacy: .public) handled=\(editor.pasteIfSmart(from: board), privacy: .public)")
+    }
+
+    @MainActor private static func dumpEditor() {
+        guard let editor = firstEditor(), let scrollView = editor.enclosingScrollView else { return editorLog.error("dump: no editor") }
+        let clip = scrollView.contentView
+        editorLog.info("scroll: offset \(clip.bounds.origin.y, privacy: .public) of text height \(editor.frame.height, privacy: .public), window \(clip.bounds.height, privacy: .public), top line \(editor.topVisibleLine, privacy: .public), past end \(editor.viewSettings.scrollsPastEnd, privacy: .public)")
+        editorLog.info("theme: \(editor.theme.name, privacy: .public) background \(String(describing: editor.theme.background), privacy: .public)")
+        let store = UserThemeFolder.store
+        editorLog.info("themes: \(store.all.map(\.name).joined(separator: " | "), privacy: .public); folder \(store.directory.path, privacy: .public)")
+        for skipped in store.skipped { editorLog.info("skipped theme file: \(skipped.file, privacy: .public): \(skipped.reason, privacy: .public)") }
+    }
+
     /// Logs the language the app runs in and the title of every main-menu item ("File > Open Recent > Clear Menu").
     @MainActor private static func dumpToolbar() {
         for window in NSApp.windows {
@@ -217,9 +286,10 @@ enum IsolatedTestHooks {
     @MainActor private static func dumpMenus() {
         menuLog.info("language: \(Bundle.main.preferredLocalizations.joined(separator: ","), privacy: .public); AppleLanguages: \(UserDefaults.standard.stringArray(forKey: "AppleLanguages")?.joined(separator: ",") ?? "-", privacy: .public)")
         func walk(_ menu: NSMenu, _ path: String) {
+            menu.update()  // SwiftUI fills a menu when AppKit asks (menuNeedsUpdate), as it does just before the menu opens
             for item in menu.items where !item.isSeparatorItem {
                 let title = item.title.isEmpty ? (item.submenu?.title ?? "") : item.title
-                let name = path.isEmpty ? title : "\(path) > \(title)"
+                let name = (path.isEmpty ? title : "\(path) > \(title)") + (item.state == .on ? " [on]" : "")
                 menuLog.info("menu: \(name, privacy: .public)")
                 if let submenu = item.submenu { walk(submenu, name) }
             }

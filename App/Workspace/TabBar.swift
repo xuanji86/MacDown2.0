@@ -34,7 +34,7 @@ struct TabBar: View {
         let compact = toolbarStyle == .minimal
         let height = toolbarStyle.tabBarHeight
         // The active tab is painted in the editor's colours (it grows out of the editor), whatever the system appearance is.
-        let theme = ThemeLibrary.resolve(name: themeName, followSystem: followsSystem, systemIsDark: colorScheme == .dark)
+        let theme = UserThemeFolder.resolve(name: themeName, followSystem: followsSystem, systemIsDark: colorScheme == .dark)
         let activeFill = Color(nsColor: theme.background), activeInk = Color(nsColor: theme.text)
         ScrollViewReader { proxy in
         ScrollView(.horizontal) {
