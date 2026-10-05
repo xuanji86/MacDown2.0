@@ -7,6 +7,9 @@ import MarkdownCore
 final class EditorHandle {
     weak var textView: MarkdownTextView?
 
+    /// The selection in the editor changed, and not by an edit typed in the preview: the preview shows the same range (two-way selection).
+    var onSelectionChange: (() -> Void)?
+
     func perform(_ command: MarkdownCommand) {
         guard let textView else { return }
         textView.perform(command)
@@ -48,14 +51,43 @@ final class EditorHandle {
     /// layout (a hidden pane is only faded out), so the same path serves split and preview-only. Returns the editor's new
     /// text, or nil when nothing was changed.
     func toggleTask(_ task: TaskItem, checked: Bool, renderedText: String) -> String? {
-        guard let textView, textView.string == renderedText,
+        guard let textView, textView.holds(renderedText),
               let edit = TaskToggle.edit(in: renderedText, task: task, checked: checked),
               textView.replaceUndoably(edit.range, with: edit.replacement, actionName: String(localized: "Toggle Task"))
         else { return nil }
         return textView.string
     }
 
+    /// Text edited in the preview (PLAN M2): `edit` made on `expectedText`, which the editor must hold exactly, unit for unit, with the
+    /// edit's characters where the page saw them (`PreviewEditChain.fits`: one check, here). Typed into the text view as typing there
+    /// is, so undo and redo work as for keystrokes in the editor (the edit says whether it starts a new step), and the model, the
+    /// autosave and the next render follow as usual. Returns the editor's new text, or nil when nothing was changed.
+    func applyPreviewEdit(_ edit: PreviewEdit, expectedText: String) -> String? {
+        guard let textView, textView.holds(expectedText), PreviewEditChain.fits(edit, in: expectedText),
+              textView.typeExternally(edit.replacement, replacing: edit.range, startsNewStep: edit.startsStep)
+        else { return nil }
+        return textView.string
+    }
+
+    /// The preview's selection (a range of `text`, what the preview shows): drawn over the editor's text, not selected. Only while the
+    /// editor holds that same text and no input method is composing; nil clears it.
+    func showPeerHighlight(_ range: NSRange?, text: String) {
+        guard let textView else { return }
+        guard let range, range.length > 0, !textView.hasMarkedText(), textView.holds(text) else { return textView.clearPeerHighlight() }
+        textView.showPeerHighlight([range])
+    }
+
+    #if DEBUG
+    isolated deinit { debugLifetime.info("EditorHandle freed") }
+    #endif
+
     func resignFocus() {
         if let textView, textView.window?.firstResponder === textView { textView.window?.makeFirstResponder(nil) }
     }
+}
+
+private extension MarkdownTextView {
+    /// The view holds exactly `text`, unit for unit (NSString equality is literal, by UTF-16 unit, like `String.isIdentical`), without
+    /// copying the view's text.
+    func holds(_ text: String) -> Bool { textStorage?.mutableString.isEqual(to: text) ?? false }
 }

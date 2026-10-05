@@ -103,7 +103,7 @@ describe('the preview page (headless Chrome)', { skip: !chromeAvailable && 'no C
     }
   });
 
-  test('a click posts the token, the item line, the wanted state and the render version, and nothing else', async () => {
+  test('a click posts the token, the item line, where its mark is, the wanted state and the render version, and nothing else', async () => {
     const page = await open({ token: 'secret-7' });
     try {
       await render(page, DOC, 41);
@@ -111,11 +111,11 @@ describe('the preview page (headless Chrome)', { skip: !chromeAvailable && 'no C
       const tasks = renderResult(DOC, OPTIONS).tasks.map((t) => t.line);
       assert.deepEqual((await page.eval('__msgs.filter((m) => m.type === "toggleTask").map((m) => m.line)')), tasks); // the page and the renderer agree on every line
       assert.deepEqual(await toggles(page), [
-        { type: 'toggleTask', token: 'secret-7', line: 0, checked: true, version: 41 },
-        { type: 'toggleTask', token: 'secret-7', line: 1, checked: false, version: 41 },
-        { type: 'toggleTask', token: 'secret-7', line: 2, checked: true, version: 41 },
-        { type: 'toggleTask', token: 'secret-7', line: 4, checked: false, version: 41 },
-        { type: 'toggleTask', token: 'secret-7', line: 6, checked: true, version: 41 },
+        { type: 'toggleTask', token: 'secret-7', line: 0, mark: 0, column: 2, checked: true, version: 41 },
+        { type: 'toggleTask', token: 'secret-7', line: 1, mark: 1, column: 2, checked: false, version: 41 },
+        { type: 'toggleTask', token: 'secret-7', line: 2, mark: 2, column: 4, checked: true, version: 41 },
+        { type: 'toggleTask', token: 'secret-7', line: 4, mark: 4, column: 4, checked: false, version: 41 },
+        { type: 'toggleTask', token: 'secret-7', line: 6, mark: 6, column: 3, checked: true, version: 41 },
       ]);
       // the page holds the token in script memory only
       assert.equal((await page.eval('document.documentElement.outerHTML')).includes('secret-7'), false);
