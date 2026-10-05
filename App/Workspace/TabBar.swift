@@ -23,16 +23,6 @@ struct TabBar: View {
     @Environment(\.colorScheme) private var colorScheme
     @State private var dropTarget: String?
 
-    private var activeBackground: NSColor {
-        ThemeLibrary.resolve(name: themeName, followSystem: followsSystem, systemIsDark: colorScheme == .dark).background
-    }
-    private var activeFill: Color { Color(nsColor: activeBackground) }
-    /// The active tab is painted in the editor's background, which need not match the system appearance (a dark editor in light
-    /// mode): its name and close button take the scheme of that background, so they stay readable on it.
-    private var activeScheme: ColorScheme {
-        let color = activeBackground.usingColorSpace(.sRGB) ?? activeBackground
-        return 0.2126 * color.redComponent + 0.7152 * color.greenComponent + 0.0722 * color.blueComponent < 0.5 ? .dark : .light
-    }
 
     /// A file's name; an untitled document's "Untitled N".
     private static func title(of tab: TabSession.Tab) -> String {
@@ -43,12 +33,15 @@ struct TabBar: View {
         let session = model.controller.session
         let compact = toolbarStyle == .minimal
         let height = toolbarStyle.tabBarHeight
+        // The active tab is painted in the editor's colours (it grows out of the editor), whatever the system appearance is.
+        let theme = ThemeLibrary.resolve(name: themeName, followSystem: followsSystem, systemIsDark: colorScheme == .dark)
+        let activeFill = Color(nsColor: theme.background), activeInk = Color(nsColor: theme.text)
         ScrollViewReader { proxy in
         ScrollView(.horizontal) {
             HStack(spacing: 2) {
                 ForEach(session.tabs) { tab in
                     TabItem(
-                        tab: tab, title: Self.title(of: tab), isActive: tab.id == session.activeID, fill: activeFill, activeScheme: activeScheme, compact: compact,
+                        tab: tab, title: Self.title(of: tab), isActive: tab.id == session.activeID, fill: activeFill, ink: activeInk, compact: compact,
                         edited: WorkspaceRegistry.shared.document(for: tab.url)?.editedFlag,
                         isDropTarget: dropTarget == tab.id,
                         popover: Binding(
@@ -92,7 +85,8 @@ private struct TabItem: View {
     let title: String
     let isActive: Bool
     let fill: Color
-    let activeScheme: ColorScheme
+    /// Text colour on `fill` (the editor theme's), for the active tab; the others use the system's label colours.
+    let ink: Color
     let compact: Bool
     let edited: EditedFlag?
     let isDropTarget: Bool
@@ -106,7 +100,6 @@ private struct TabItem: View {
     let reveal: () -> Void
     let copyPath: () -> Void
     @State private var hovering = false
-    @Environment(\.colorScheme) private var systemScheme
     /// Where the name is, in the tab's own coordinates: only a click on it (not the padding or the close button's slot) renames.
     @State private var titleFrame = CGRect.null
 
@@ -122,7 +115,7 @@ private struct TabItem: View {
             Text(title)
                 .font(.system(size: compact ? 12 : 12.5))
                 .italic(tab.isPreview)
-                .foregroundStyle(tab.isPreview ? .secondary : .primary)
+                .foregroundStyle(isActive ? AnyShapeStyle(ink.opacity(tab.isPreview ? 0.6 : 1)) : AnyShapeStyle(tab.isPreview ? .secondary : .primary))
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(Self.space)) } action: { titleFrame = $0 }
@@ -133,13 +126,12 @@ private struct TabItem: View {
                 } else if hovering || isActive {
                     Button(action: close) { Image(systemName: "xmark").font(.system(size: 9, weight: .semibold)) }
                         .buttonStyle(.plain)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(isActive ? AnyShapeStyle(ink.opacity(0.6)) : AnyShapeStyle(.secondary))
                         .help(Text("Close Tab") + Text(verbatim: " (⌘W)"))
                 }
             }
             .frame(width: 14, height: 14)
         }
-        .environment(\.colorScheme, isActive ? activeScheme : systemScheme)
         .padding(.leading, compact ? 14 : 12)
         .padding(.trailing, compact ? 9 : 8)
         .frame(minWidth: 60, maxWidth: 200)
