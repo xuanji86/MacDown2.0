@@ -1,0 +1,636 @@
+// The incremental renderer (src/render/incremental.ts) against the whole-document renderer: after every edit of a long
+// random edit sequence, over the snapshot corpus, generated documents and hand-written adversarial cases, the incremental
+// result must equal renderResult's byte for byte (html, blocks, tasks, outline, stats, front matter), and its `segments`
+// what the preview page would cut the HTML into itself.
+//
+// MD2_DIFF_EDITS=<n> scales the random edit sequences (default 150 per generated document and option set, a third of that per fixture); MD2_DIFF_SEED=<n> replays one
+// seed. A failure prints the seed, the edit and the text; the text is also written to $TMPDIR/md2-incremental-failure.md.
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { alignSegments, splitBlocks } from '../src/preview/split-html.ts';
+import { LRU } from '../src/render/lru.ts';
+import { scanCuts } from '../src/render/incremental.ts';
+import { loadQuarto, quartoOptions } from './helpers/quarto.mjs';
+
+const here = dirname(fileURLToPath(import.meta.url));
+const { renderResult, renderIncremental, incremental, flavors } = await loadQuarto();
+
+const EDITS = Number(process.env.MD2_DIFF_EDITS ?? 150);
+const SEED = process.env.MD2_DIFF_SEED === undefined ? null : Number(process.env.MD2_DIFF_SEED);
+
+const ALL = ['tables', 'strikethrough', 'autolink', 'smartPunctuation', 'mark', 'sup', 'sub', 'underline', 'footnotes', 'taskLists', 'math', 'toc', 'frontMatter', 'cjkEmphasis', 'emoji'];
+const base = { flavor: 'markdown', hardBreaks: false, allowRawHTML: true, headingAnchors: true, codeHighlighting: true, codeLineNumbers: false, inlineDollarMath: false, frontMatterDisplay: 'hidden', files: {} };
+// The app's defaults, everything on, and the odd combinations (anchors off with [TOC], no source lines, raw HTML off, ...).
+const OPTION_SETS = {
+  app: { ...base, extensions: ['tables', 'strikethrough', 'autolink', 'mark', 'footnotes', 'taskLists', 'math', 'toc', 'frontMatter', 'cjkEmphasis'] },
+  all: { ...base, extensions: ALL, inlineDollarMath: true, codeLineNumbers: true, frontMatterDisplay: 'table' },
+  odd: { ...base, extensions: ALL, headingAnchors: false, hardBreaks: true, allowRawHTML: false, sourceLines: false, codeHighlighting: false },
+};
+
+// Cuts: everywhere the scanner allows (every boundary gets exercised), a few, or the shipped defaults. `adaptive: false`: no
+// falling back to a whole render for speed, so every text goes through the sections; DEFAULTS is what the app runs.
+const SECTIONS = {
+  every: { every: 1, max: 1e9, everyCandidate: true, adaptive: false },
+  some: { every: 2, max: 400, everyCandidate: false, adaptive: false },
+  shipped: { every: 16, max: 16 * 1024, everyCandidate: false, adaptive: false },
+};
+const DEFAULTS = { every: 16, max: 16 * 1024, everyCandidate: false, adaptive: true };
+
+function check(src, options, where) {
+  const want = renderResult(src, options);
+  const { segments, ...got } = renderIncremental(src, options);
+  const a = JSON.stringify(got);
+  const b = JSON.stringify(want);
+  if (a !== b) {
+    let at = 0;
+    while (at < a.length && a[at] === b[at]) at++;
+    const file = join(tmpdir(), 'md2-incremental-failure.md');
+    writeFileSync(file, src);
+    assert.fail(`${where}: incremental differs at JSON offset ${at} (${JSON.stringify(incremental.lastRun())}); text in ${file}\n  incremental: ${JSON.stringify(a.slice(Math.max(0, at - 100), at + 100))}\n  whole:       ${JSON.stringify(b.slice(Math.max(0, at - 100), at + 100))}`);
+  }
+  if (segments !== undefined) {
+    const expected = alignSegments(want.html, splitBlocks(want.html), want.blocks.length);
+    if (JSON.stringify(segments) !== JSON.stringify(expected)) {
+      writeFileSync(join(tmpdir(), 'md2-incremental-failure.md'), src);
+      assert.fail(`${where}: segments differ from what the page computes`);
+    }
+  }
+  return incremental.lastRun();
+}
+
+// mulberry32
+function rng(seed) {
+  let a = seed >>> 0;
+  const next = () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+  return { next, int: (n) => Math.floor(next() * n), pick: (xs) => xs[Math.floor(next() * xs.length)] };
+}
+
+// --- corpus ------------------------------------------------------------------------------------------------------------
+
+const fixtures = join(here, '../../Packages/MarkdownCore/Tests/MarkdownCoreTests/Fixtures');
+const corpus = [];
+for (const dir of ['macdown3000', 'own']) {
+  for (const f of readdirSync(join(fixtures, dir)).sort()) if (f.endsWith('.md')) corpus.push([`${dir}/${f}`, readFileSync(join(fixtures, dir, f), 'utf8')]);
+}
+
+// Block snippets for generated documents and for insertions: every construct the cuts must respect, several that span
+// blank lines with column-0 lines inside, footnotes, references, duplicate headings, tasks.
+const SNIPPETS = [
+  '# Heading\n', '## Heading\n', '## Heading\n', '### Same Title\n', 'Setext title\n===\n', 'Under\n---\n',
+  'A paragraph with *emphasis*, **strong**, `code`, ~~gone~~, ==mark==, H~2~O, x^2^, _under_ and a [link](http://example.com).\n',
+  'Reference [link][ref] and [another][Ref2] and [missing][nope].\n', '[ref]: http://example.com/a "Title"\n', '[Ref2]: <http://example.com/b>\n', '[ref]: http://example.com/override\n',
+  'A claim[^1] and another[^note] and again[^1].\n', '[^1]: The first note.\n', '[^note]: A note\n\n    with a second paragraph.\n', '[^1]: A duplicate definition.\n',
+  'Inline footnote^[inline *note* text] here.\n', 'Undefined[^missing] reference.\n',
+  '- item one\n- item two\n', '- [ ] open task\n- [x] done task\n', '1. first\n2. second\n', '- loose\n\n- list\n', '* star\n\n  continued paragraph\n',
+  '- outer\n  - inner\n    - deeper\n', '> quote line\n> second\n', '> [!NOTE]\n> An alert.\n', '> [!WARNING]\n> Careful.\n',
+  '```js\nconst a = 1;\n\nconsole.log(a);\n```\n', '```\nplain\n\n# not a heading\n\n```\n', '~~~python\ndef f():\n\n    return 1\n~~~\n', '````md\n```\nnested\n```\n````\n',
+  '    indented code\n\n    more code\n', '| a | b |\n|---|:-:|\n| 1 | 2 |\n', '| x |\n|---|\n| y |\n\n| z |\n|---|\n',
+  '$$\nx^2 + y^2\n\n= z^2\n$$\n', '$$ e^{i\\pi} + 1 = 0 $$\n', '\\[\n\\int_0^1 f\n\n\\]\n', 'Math $a+b$ inline and \\(c\\) too.\n',
+  '<div>\n<b>html</b>\n</div>\n', '<!--\ncomment\n\n# hidden heading\n\n-->\n', '<pre>\npre text\n\nmore\n</pre>\n', '<script>\nlet x = 1;\n\n</script>\n',
+  '***\n', '---\n', '\\newpage\n', '[TOC]\n', 'Emoji :smile: and :+1: here.\n', '中文**「强调」**的段落。\n', 'Trailing spaces  \nhard break\n',
+  'Line with\ttab\n', 'http://autolink.example.com and www.example.org\n', '"Smart" quotes -- and... (c)\n', '<span>inline html</span> text\n',
+  '![image](img.png "t")\n', '[![img](a.png)](http://x)\n', 'Term\n: not a definition\n', '{.attrs}\n', '::: div\ncontent\n:::\n',
+];
+// Fragments typed into the middle of things.
+const FRAGMENTS = ['```', '```\n', '~~~\n', '$$', '$$\n', '\\[', '\\]', '<!--', '-->', '---\n', '+++\n', '[^1]', '[^1]: x\n', '^[n]', '[ref]', '[ref]: /u\n', '# ', '- ', '1. ', '> ', '    ', '\t', '|', '*', '_', '`', '\n', '\n\n', ' ', '[TOC]', '- [ ] ', ':', '{', '\\', '<div>', '</div>', '[', ']', '(', ')', '!', 'x', 'é', '中', '😀'];
+
+function generate(r, blocks) {
+  const out = [];
+  if (r.int(4) === 0) out.push(r.pick(['---\ntitle: Doc\ntags: [a, b]\n---\n', '+++\ntitle = "Doc"\n+++\n', '---\nunclosed: yes\n']));
+  for (let i = 0; i < blocks; i++) out.push(r.pick(SNIPPETS));
+  return out.join(r.pick(['\n', '\n', '\n\n'])) + (r.int(3) === 0 ? '' : '\n');
+}
+
+function edit(r, src) {
+  const at = r.int(src.length + 1);
+  const lineStart = src.lastIndexOf('\n', at - 1) + 1;
+  switch (r.int(8)) {
+    case 0: // type a fragment
+    case 1:
+      return src.slice(0, at) + r.pick(FRAGMENTS) + src.slice(at);
+    case 2: { // delete a few characters
+      const n = 1 + r.int(12);
+      return src.slice(0, at) + src.slice(at + n);
+    }
+    case 3: // insert a block at a line start
+      return src.slice(0, lineStart) + r.pick(SNIPPETS) + (r.int(2) ? '\n' : '') + src.slice(lineStart);
+    case 4: { // delete a line
+      const end = src.indexOf('\n', at);
+      return src.slice(0, lineStart) + (end < 0 ? '' : src.slice(end + 1));
+    }
+    case 5: { // duplicate a line
+      const end = src.indexOf('\n', at);
+      const line = src.slice(lineStart, end < 0 ? src.length : end + 1);
+      return src.slice(0, lineStart) + line + (line.endsWith('\n') ? '' : '\n') + src.slice(lineStart);
+    }
+    case 6: // indent or unindent a line
+      return r.int(2) ? src.slice(0, lineStart) + r.pick(['  ', '    ', '\t']) + src.slice(lineStart) : src.slice(0, lineStart) + src.slice(lineStart).replace(/^[ \t]+/, '');
+    default: { // move a span elsewhere
+      const n = r.int(80);
+      const span = src.slice(at, at + n);
+      const rest = src.slice(0, at) + src.slice(at + n);
+      const to = r.int(rest.length + 1);
+      return rest.slice(0, to) + span + rest.slice(to);
+    }
+  }
+}
+
+function sequence(name, start, options, sections, seed, edits) {
+  incremental.configure({ sections });
+  const r = rng(seed);
+  let src = start;
+  const runs = { sections: 0, full: 0 };
+  const tally = (run) => (run.mode === 'sections' ? runs.sections++ : runs.full++);
+  tally(check(src, options, `${name} seed ${seed} initial`));
+  for (let i = 0; i < edits; i++) {
+    src = edit(r, src);
+    if (src.length > 12000) src = src.slice(0, 8000); // keep the whole-document renders cheap
+    if (process.env.MD2_DIFF_TRACE) writeFileSync(join(tmpdir(), 'md2-incremental-current.md'), src);
+    tally(check(src, options, `${name} seed ${seed} edit ${i + 1}`));
+  }
+  return runs;
+}
+
+const total = { checks: 0, sections: 0, full: 0 };
+const count = (runs) => {
+  total.checks += runs.sections + runs.full;
+  total.sections += runs.sections;
+  total.full += runs.full;
+};
+
+test('corpus: every fixture, every option set, every section layout, then random edits', () => {
+  let seed = SEED ?? 1;
+  for (const [name, src] of corpus) {
+    for (const [oname, options] of Object.entries(OPTION_SETS)) {
+      for (const [sname, sections] of Object.entries(SECTIONS)) {
+        incremental.configure({ sections });
+        check(src, options, `${name} ${oname} ${sname}`);
+        total.checks++;
+      }
+      count(sequence(`${name} ${oname}`, src, options, SECTIONS.every, seed++, Math.ceil(EDITS / 3)));
+    }
+  }
+});
+
+test('generated documents: long random edit sequences', () => {
+  const seeds = SEED === null ? Array.from({ length: 12 }, (_, i) => 1000 + i) : [SEED];
+  for (const seed of seeds) {
+    const r = rng(seed);
+    const doc = generate(r, 10 + r.int(40));
+    for (const [oname, options] of Object.entries(OPTION_SETS)) {
+      const layout = r.pick(Object.values(SECTIONS).slice(0, 2));
+      count(sequence(`generated ${oname}`, doc, options, layout, seed * 7 + oname.length, EDITS));
+    }
+  }
+  // most checks must really have gone through sections, or the test proves nothing
+  assert.ok(total.sections > total.full, JSON.stringify(total));
+});
+
+// --- adversarial -------------------------------------------------------------------------------------------------------
+
+const many = (n, f) => Array.from({ length: n }, (_, i) => f(i)).join('\n');
+const filler = many(30, (i) => `# Section ${i % 7}\n\nParagraph ${i} with a [ref] link[^${i % 3}] and $x_${i}$.\n`);
+
+// Each case: a starting text and edits applied one after another ([at, deleteCount, insert], `at` < 0 counts from the end).
+const ADVERSARIAL = {
+  'a fence opened at the top swallows every section, then closes': [filler, [[0, 0, '```\n'], [-1, 0, '\n```\n'], [0, 4, '']]],
+  'a fence closer typed below an opener far above': [`\`\`\`\n${filler}`, [[-1, 0, '\n```\n'], [-5, 5, '']]],
+  'unclosed $$ at the top': [filler, [[0, 0, '$$\n'], [3, 0, 'x\n$$\n']]],
+  '\\[ whose \\] is far below': [`\\[\n${filler}`, [[-1, 0, '\n\\]\n'], [0, 2, '']]],
+  'an HTML comment across many sections': [filler, [[0, 0, '<!--\n'], [-1, 0, '\n-->\n'], [0, 5, '']]],
+  'front matter opened and closed': [filler, [[0, 0, '---\n'], [4, 0, 'title: x\n\n# yaml comment\n\n---\n'], [0, 4, '']]],
+  'TOML front matter without its closing line, then with it': [filler, [[0, 0, '+++\ntitle = 1\n\n# t\n'], [-1, 0, '\n+++\n']]],
+  'footnote definitions moved, references reordered': [filler + '\n[^0]: zero\n\n[^1]: one\n\n[^2]: two\n', [[0, 0, 'First [^2] then [^0].\n\n'], [-12, 12, ''], [0, 0, 'Again [^1][^1].\n\n'], [-1, 0, '\n[^2]: redefined\n']]],
+  'a reference definition appears, changes and goes': [filler, [[0, 0, '[ref]: http://a\n\n'], [8, 1, 'b'], [0, 17, '']]],
+  'duplicate headings renumbered by an insertion above': [filler, [[0, 0, '# Section 3\n\n'], [0, 0, '# Section 3\n\n'], [0, 13, '']]],
+  'a [TOC] appears with anchors off': [filler, [[0, 0, '[TOC]\n\n'], [-1, 0, '\n# Late heading\n'], [0, 7, '']]],
+  'tasks renumbered by a task inserted above': [`${filler}\n- [ ] a\n- [x] b\n`, [[0, 0, '- [ ] first\n\n'], [0, 13, '']]],
+  'list continued across a blank line by an item at column 0': ['- a\n\nparagraph\n\n- b\n', [[5, 9, ''], [5, 0, 'x'], [0, 0, '\n']]],
+  'indented code continued after a blank line': ['    code\n\nText\n\n    more\n', [[10, 5, ''], [10, 0, '    ']]],
+  'lazy continuation into a quote': ['> quote\ntext\n\nnext\n', [[14, 0, '\n'], [8, 1, '']]],
+  'a table caption-like line and attrs after a blank': ['| a |\n|---|\n| b |\n\n{.cls}\n\n: caption\n', [[0, 0, 'x\n\n']]],
+  'blank lines that hold spaces and tabs': ['a\n \t\nb\n\t\n# c\n   \nd', [[2, 0, ' '], [0, 0, '# t\n\t\n']]],
+  'no trailing newline, then one': ['# a\n\nb', [[-1, 0, '\n'], [-1, 0, 'c']]],
+  'empty and whitespace-only documents': ['', [[0, 0, '\n'], [0, 0, '# x'], [0, 3, ''], [0, 0, '   \n\n']]],
+  'math with global macros falls back': ['$$\\gdef\\foo{x}$$\n\n$$\\foo$$\n', [[0, 0, 'a\n\n'], [-1, 0, '\n\n$$\\foo+1$$\n']]],
+  'CR and NUL fall back': ['a\r\n\r\nb\n', [[0, 0, '\0'], [0, 1, '']]],
+  'inline footnote with a reference inside falls back': ['x^[see [^1]]\n\n[^1]: n\n', [[0, 0, 'y\n\n']]],
+  'heading inside a footnote falls back': ['x[^1]\n\n[^1]:\n    # h\n', [[0, 0, '# t\n\n']]],
+  'alert, page break and HTML block at section starts': [filler, [[0, 0, '> [!TIP]\n> tip\n\n\\newpage\n\n<div>\nraw\n</div>\n\n']]],
+  'html block types 1-5 left open': [filler, [[0, 0, '<pre>\n'], [-1, 0, '\n</pre>\n'], [0, 0, '<script>\n'], [0, 0, '<?php\n'], [0, 0, '<![CDATA[\n']]],
+  'setext underline after a cut': ['a\n\nb\n\nc\n', [[5, 0, '---\n'], [5, 0, '===\n']]],
+  'footnote definition continued after a blank line': ['[^1]: a\n\n    b\n\nc[^1]\n', [[9, 4, ''], [9, 0, '\t']]],
+  // a later section must never be taken for the first one, whatever it starts with (the first section is cached apart)
+  'a section that is the first one behind a U+0001': ['a\n\nb\n\n\u0001a\n\nc\n', [[0, 0, 'x'], [0, 1, '']]],
+  'a section that is the first one, front matter and all, behind a U+0001': ['---\nx: 1\n---\n\nhello\n\n\u0001---\nx: 1\n---\n\nend\n', [[-1, 0, 'more\n'], [14, 0, '!']]],
+  // markdown-it gives up at 100 nesting levels and takes the rest of the document (not just the section) into the block
+  'nesting past markdown-it\'s limit in a list': [`${'- '.repeat(60)}x\n\n# After\n\ntext\n`, [[-1, 0, '\nmore\n'], [0, 0, 'a\n\n']]],
+  'nesting past the limit in a quote': [`${'> '.repeat(120)}x\n\n# After\n\ntext\n`, [[-1, 0, '\nmore\n']]],
+  'nesting past the limit in a footnote definition': [`ref[^a]\n\n[^a]: ${'- '.repeat(60)}x\n\n# After\n\ntext\n`, [[-1, 0, '\nmore\n'], [0, 0, 'a\n\n']]],
+};
+
+test('adversarial edit sequences', () => {
+  for (const [name, [start, edits]] of Object.entries(ADVERSARIAL)) {
+    for (const [oname, options] of Object.entries(OPTION_SETS)) {
+      for (const sections of [SECTIONS.every, SECTIONS.some, DEFAULTS]) {
+        incremental.configure({ sections });
+        let src = start;
+        check(src, options, `${name} (${oname}) start`);
+        edits.forEach(([at, del, ins], i) => {
+          const p = at < 0 ? Math.max(0, src.length + at + 1) : Math.min(at, src.length);
+          src = src.slice(0, p) + ins + src.slice(p + del);
+          check(src, options, `${name} (${oname}) edit ${i + 1}`);
+          total.checks++;
+        });
+      }
+    }
+  }
+});
+
+// Footnotes in every form the tail rule handles, densely: numbering by first reference, repeated references (sub ids,
+// back links), duplicate definitions (the last one wins), unreferenced and undefined ones, references inside definitions,
+// inline footnotes, multi-paragraph definitions, definitions inside lists and quotes.
+const FOOTNOTE_SNIPPETS = [
+  'Text[^a] and[^b] again[^a].\n', 'More[^c].\n', 'Inline^[an *inline* note] here.\n', 'Undefined[^zz].\n', 'Twice[^b][^b].\n',
+  '[^a]: Note a.\n', '[^b]: Note b with [^c] inside.\n', '[^c]: Note c\n\n    second paragraph.\n', '[^a]: A redefined.\n', '[^u]: Unreferenced.\n',
+  '- item[^a]\n\n  [^d]: in a list\n', '> quote[^d]\n>\n> [^e]: in a quote\n', 'See[^e] and[^d].\n', '# Heading[^a]\n', '[^f]:\n    ```\n    code\n    ```\n',
+  'f[^f]\n', 'Plain paragraph.\n', '| t[^b] |\n|---|\n| x |\n',
+];
+
+test('footnote-dense documents through both renderers (the footnote section is rebuilt here, see incremental.ts)', () => {
+  // The tail rule is re-implemented after @mdit/plugin-footnote 1.1.2; an upgrade must be re-checked against it.
+  const version = (name) => JSON.parse(readFileSync(join(here, '../node_modules', name, 'package.json'), 'utf8')).version;
+  assert.equal(version('@mdit/plugin-footnote'), '1.1.2', 're-check sectionFootnoteTail and assemble() against the new tail rule');
+  assert.equal(version('@mdit/plugin-alert'), '2.0.2', 're-check the silent-check state fix in core.ts');
+  assert.equal(version('markdown-it'), '15.0.2', 're-check the block rule wrappers and renderToken newline rule in incremental.ts');
+  const seeds = SEED === null ? [1, 2, 3, 4, 5, 6] : [SEED];
+  for (const seed of seeds) {
+    const r = rng(seed * 101);
+    const doc = Array.from({ length: 40 }, () => r.pick(FOOTNOTE_SNIPPETS)).join('\n');
+    for (const [oname, options] of Object.entries(OPTION_SETS)) {
+      const layout = [SECTIONS.every, SECTIONS.some][seed % 2];
+      let src = doc;
+      incremental.configure({ sections: layout });
+      check(src, options, `footnotes seed ${seed} ${oname}`);
+      for (let i = 0; i < Math.ceil(EDITS / 2); i++) {
+        const at = r.int(src.length + 1);
+        const lineStart = src.lastIndexOf('\n', at - 1) + 1;
+        src = r.int(3) ? edit(r, src) : src.slice(0, lineStart) + r.pick(FOOTNOTE_SNIPPETS) + '\n' + src.slice(lineStart);
+        if (src.length > 12000) src = src.slice(0, 8000);
+        check(src, options, `footnotes seed ${seed} ${oname} edit ${i + 1}`);
+        total.checks++;
+      }
+    }
+  }
+});
+
+test('a large document: typing in the middle re-renders one section', () => {
+  incremental.configure({ sections: DEFAULTS });
+  const r = rng(7);
+  const doc = generate(r, 1500);
+  const options = OPTION_SETS.app;
+  check(doc, options, 'large initial');
+  const mid = doc.indexOf('\n\nA paragraph', doc.length >> 1) + 2 + 40; // past the characters a cut decision hashes
+  let src = doc;
+  for (let i = 0; i < 20; i++) {
+    src = src.slice(0, mid + i) + 'z' + src.slice(mid + i);
+    const run = check(src, options, `large edit ${i + 1}`);
+    assert.equal(run.mode, 'sections');
+    assert.equal(run.rendered, 1, JSON.stringify(run));
+    assert.ok(run.parsed < 20000, JSON.stringify(run));
+  }
+  // new lines move every later section's line numbers (and, past 999 -> 1000 and the like, their HTML's length)
+  for (let i = 0; i < 8; i++) {
+    src = src.slice(0, mid) + 'z\n'.repeat(i % 2 ? 1 : 300) + src.slice(mid);
+    const run = check(src, options, `large newline ${i + 1}`);
+    assert.equal(run.mode, 'sections');
+  }
+});
+
+test('flavors other than Markdown and sanitized output render whole, with the same result', () => {
+  const qdir = join(here, 'fixtures/quarto');
+  for (const f of readdirSync(qdir).filter((n) => n.endsWith('.qmd'))) {
+    const src = readFileSync(join(qdir, f), 'utf8');
+    const options = quartoOptions({ codeLineNumbers: true, frontMatterDisplay: 'table' });
+    assert.equal(JSON.stringify(renderIncremental(src, options)), JSON.stringify(renderResult(src, options)), f);
+    assert.equal(incremental.lastRun().mode, 'full');
+  }
+});
+
+test('the debug cross-check compares with a whole render and stays quiet when they agree', () => {
+  const messages = [];
+  try {
+    incremental.configure({ crossCheckEvery: 1, onMismatch: (m) => messages.push(m), sections: SECTIONS.every });
+    let src = filler;
+    for (let i = 0; i < 10; i++) {
+      src = src.replace(`Paragraph ${i}`, `Paragraph ${i} edited`);
+      check(src, OPTION_SETS.app, `cross-check ${i}`);
+    }
+  } finally {
+    incremental.configure({ crossCheckEvery: 0, sections: DEFAULTS });
+  }
+  assert.deepEqual(messages, []);
+});
+
+test('the debug cross-check reports a difference without the text, and returns the whole render', () => {
+  // A renderer rule that counts its calls makes every render differ from every other one: the section renderer's output
+  // cannot match a whole render's, which is what the check is there to catch.
+  let n = 0;
+  flavors.register('markdown', (md) => {
+    md.renderer.rules.paragraph_open = () => `<p data-n="${n++}">`;
+  });
+  try {
+    const messages = [];
+    incremental.configure({ crossCheckEvery: 1, onMismatch: (m) => messages.push(m), sections: SECTIONS.every });
+    const result = renderIncremental('secret one\n\nsecret two\n', OPTION_SETS.app);
+    assert.equal(messages.length, 1);
+    assert.match(messages[0], /incremental render differs from a whole render at JSON offset \d+/);
+    assert.doesNotMatch(messages[0], /secret/, 'the document text stays out of the log');
+    assert.equal(result.segments, undefined); // the whole render's result
+  } finally {
+    incremental.configure({ crossCheckEvery: 0, sections: DEFAULTS });
+    flavors.register('markdown', () => {});
+  }
+  check('one\n\ntwo\n', OPTION_SETS.app, 'after restoring the flavor');
+});
+
+test('cuts land only before column-0 lines that follow a blank line, outside fences, $$ (math on) and raw HTML (on)', () => {
+  try {
+    incremental.configure({ sections: SECTIONS.every });
+    const lines = (src, cuts) => cuts.map((c) => src.slice(c, src.indexOf('\n', c) < 0 ? undefined : src.indexOf('\n', c)));
+    const on = { frontMatter: true, math: true, html: true };
+    const off = { frontMatter: true, math: false, html: false };
+    const src = 'a\n\nb\n\n  c\n\n- d\n\n```\n\ne\n\n```\n\nf\n\n1. g\n\n:h\n\n{i}\n\nj';
+    assert.deepEqual(lines(src, scanCuts(src, on)), ['b', '```', 'f', 'j']);
+    const math = '$$\nx\n\ny\n\n$$\n\nz\n\nw';
+    assert.deepEqual(lines(math, scanCuts(math, on)), ['z', 'w']);
+    assert.deepEqual(lines(math, scanCuts(math, off)), ['y', '$$', 'z', 'w']); // with math off `$$` is text
+    const html = '<!--\nc\n\nd\n\n-->\n\n<pre>\n```\n</pre>\n\ne\n\n```\nf\n\ng\n```\n\nh';
+    assert.deepEqual(lines(html, scanCuts(html, on)), ['<pre>', 'e', '```', 'h']);
+    assert.deepEqual(lines(html, scanCuts(html, off)).slice(0, 2), ['d', '<pre>']); // with raw HTML off `<!--` and `<pre>` are text
+  } finally {
+    incremental.configure({ sections: DEFAULTS });
+  }
+});
+
+test('LRU evicts the least recently used entries past its weight budget', () => {
+  const lru = new LRU(10);
+  lru.set('a', 1, 4);
+  lru.set('b', 2, 4);
+  assert.equal(lru.get('a'), 1); // a is now the most recent
+  lru.set('c', 3, 4); // 12 > 10: b goes
+  assert.equal(lru.get('b'), undefined);
+  assert.equal(lru.get('a'), 1);
+  assert.equal(lru.get('c'), 3);
+  lru.set('huge', 4, 11); // never kept
+  assert.equal(lru.get('huge'), undefined);
+  assert.ok(lru.weight <= 10);
+  let computed = 0;
+  assert.equal(lru.getOrSet('k', () => (computed++, 'v'), () => 1), 'v');
+  assert.equal(lru.getOrSet('k', () => (computed++, 'w'), () => 1), 'v');
+  assert.equal(computed, 1);
+});
+
+// --- work: never (much) more than one whole render -----------------------------------------------------------------------
+
+// Shapes where sections cannot help, or the scanner is fooled, or the footnote section is big, or the document holds what the
+// sections cannot. `make test` checks the work done, deterministically: which path each render took and how many characters
+// the sectioned path parsed (also when it then gave up). MD2_PERF=1 also times both renderers (ratios, not milliseconds).
+const paragraphs = (n, f) => Array.from({ length: n }, (_, i) => f(i)).join('\n');
+const fences = (n) => paragraphs(n, (i) => `\`\`\`\ncode ${i}\n\`\`\`\n\n# H ${i}\n\nPara ${i} *x*.\n`);
+const headed = (n) => paragraphs(n, (i) => `# H ${i}\n\nPara ${i} with *x*.\n`);
+const noMath = OPTION_SETS.app.extensions.filter((e) => e !== 'math');
+// name: [text, where the typing happens (fraction of the text), options over the app's, the path the renders must take:
+// 'full' where sections cannot help, 'sections' where they must, null where either may happen (backing off)]
+const SHAPES = {
+  'no blank line anywhere': [paragraphs(6000, (i) => `line ${i} with *emphasis* and \`code\` and [a link](http://x/${i})`), 0.5, {}, 'full'],
+  'one huge loose list': [paragraphs(3000, (i) => `- item ${i} with **strong** text\n`), 0.5, {}, 'full'],
+  'some text, then one huge loose list': [`${headed(60)}\n# The list\n\n${paragraphs(3000, (i) => `- item ${i} with **strong** text\n`)}`, 0.5, {}, 'full'],
+  'one long table': [`| a | b | c |\n|---|---|---|\n${paragraphs(5000, (i) => `| ${i} | *x${i}* | \`y\` |`)}`, 0.5, {}, 'full'],
+  'a fence inside <pre> (raw HTML on)': [`<pre>\n\`\`\`\n</pre>\n\n${fences(3000)}`, 0.5, {}, 'sections'],
+  'scanner fooled by a fence in a list item': [`- item\n  \`\`\`\n  code\n\npara\n\n${fences(3000)}`, 0.5, {}, null],
+  // the scanner pairs the fences the wrong way round: it sees the real (unclosed) one as a closer, and offers a cut at every
+  // paragraph inside it, none of which holds
+  'every cut inside an unclosed fence': [`- item\n  \`\`\`\n  x\n\npara\n\n\`\`\`\n${headed(20000)}`, 0.5, {}, 'full'],
+  'leading $$ with math off': [`$$\n\n${headed(3000)}`, 0.1, { extensions: noMath }, 'sections'],
+  'unclosed <!-- with raw HTML off': [`<!--\n\n${headed(3000)}`, 0.1, { allowRawHTML: false }, 'sections'],
+  '3000 footnotes, typing at the top': [`${paragraphs(3000, (i) => `# H ${i}\n\nClaim ${i}[^n${i}] and again[^n${(i * 7) % 3000}].\n`)}\n${paragraphs(3000, (i) => `[^n${i}]: Note ${i} with *x*.\n`)}`, 0.02, {}, 'sections'],
+  // a task in a footnote: the sections cannot place it, and find that out in the block phase (nothing rendered)
+  'a task in a footnote, reference links': [`[r]: http://a\n\n${paragraphs(3000, (i) => `# H ${i}\n\nPara ${i} with *x* and [link][r].\n`)}\n\nNote[^1]\n\n[^1]: - [ ] a task in a footnote\n`, 0.5, {}, 'full'],
+  // a NUL the renderer makes (KaTeX `\char0`) in a section: that render is whole, and the next ones back off
+  'KaTeX \\char0 in the middle': [`${headed(1500)}\n\n$$\\char0 x$$\n\n${headed(1500)}`, 0.25, {}, null],
+};
+
+test('work: on hostile shapes the sectioned path does little, or nothing, beyond one whole render', () => {
+  const timing = process.env.MD2_PERF === '1';
+  const results = [];
+  try {
+    incremental.configure({ sections: DEFAULTS });
+    incremental.reset();
+    for (const [name, [doc, at, over, path]] of Object.entries(SHAPES)) {
+      const options = { ...OPTION_SETS.app, ...over };
+      const pos = Math.floor(doc.length * at);
+      const time = (fn) => {
+        const t = performance.now();
+        fn();
+        return performance.now() - t;
+      };
+      const whole = [];
+      const sections = [];
+      let parsed = 0; // characters the sectioned path parsed after the warm-up, whether it then rendered or gave up
+      let rendered = 0;
+      const paths = new Set();
+      let src = doc;
+      for (let i = 0; i < 24; i++) {
+        src = src.slice(0, pos) + (i % 4 === 3 ? '\n' : 'x') + src.slice(pos); // typing, now and then a new line
+        // alternate which goes first, so neither always pays for the other's garbage
+        if (timing && i % 2) whole.push(time(() => renderResult(src, options)));
+        sections.push(time(() => renderIncremental(src, options)));
+        const run = incremental.lastRun();
+        if (timing && i % 2 === 0) whole.push(time(() => renderResult(src, options)));
+        if (i < 4) continue; // warm-up: the first render parses everything once
+        parsed += run.parsed;
+        rendered += run.rendered;
+        paths.add(run.mode);
+      }
+      check(src, options, name);
+      const renders = 20;
+      if (path) assert.deepEqual([...paths], [path], `${name}: took ${[...paths]}`);
+      // Sections: an edit re-parses and re-renders about one section (two or three when it moves a cut). Whole: no sectioned work at all, or
+      // (backing off) a couple of failed attempts over the 20 renders, each bounded by the text's length.
+      const limit = path === 'sections' ? renders * 2 * 16 * 1024 : 2.2 * doc.length;
+      assert.ok(parsed <= limit, `${name}: the sections parsed ${parsed} characters over ${renders} renders of a ${doc.length}-character text`);
+      if (path === 'sections') assert.ok(rendered <= 3 * renders, `${name}: ${rendered} sections rendered over ${renders} renders`);
+      if (path === 'full') assert.ok(rendered === 0, `${name}: ${rendered} sections rendered for nothing`);
+      const typical = (xs) => xs.slice(4).sort((a, b) => a - b)[(xs.length - 4) >> 2]; // lower quartile: GC pauses stay out
+      if (timing) results.push({ name, whole: typical(whole), incremental: typical(sections), parsed });
+    }
+  } finally {
+    incremental.configure({ sections: DEFAULTS });
+  }
+  if (!timing) return;
+  console.log(results.map((r) => `  ${r.name}: whole ${r.whole.toFixed(1)} ms, incremental ${r.incremental.toFixed(1)} ms (${(r.incremental / r.whole).toFixed(2)}x)`).join('\n'));
+  for (const r of results) assert.ok(r.incremental <= r.whole * 1.3 + 0.5, `${r.name}: incremental ${r.incremental.toFixed(1)} ms vs whole ${r.whole.toFixed(1)} ms`);
+});
+
+test('option sets are kept least recently used first: A, B, A, C keeps A', () => {
+  try {
+    incremental.configure({ sections: SECTIONS.every });
+    incremental.reset();
+    const doc = headed(40);
+    const [A, B, C] = [OPTION_SETS.app, OPTION_SETS.all, OPTION_SETS.odd];
+    for (const o of [A, B, A, C]) check(doc, o, 'mode switch');
+    renderIncremental(doc, A);
+    assert.equal(incremental.lastRun().parsed, 0, 'A was evicted');
+  } finally {
+    incremental.configure({ sections: DEFAULTS });
+  }
+});
+
+// NULs the renderer makes itself: KaTeX's `\char0`, `\0` / `\u0000` escapes in front matter values shown as a table. They
+// must never be taken for holes (a pair could look like one): such a render is whole, with the same result.
+const NUL_SNIPPETS = [
+  'a $\\char0$ b\n', 'x \\(\\char0\\) y \\(\\char0\\) z\n', '$$\\char0 x$$\n', '$$\\text{\\char0L5\\char0}$$\n', '\\(\\char0 H0\\char0\\)\n',
+  '[^1]: note \\(\\char0\\) end\n', 'x[^1] y\n', '# Title\n', '- [ ] task\n', '[TOC]\n', 'Plain.\n',
+];
+const NUL_FRONT = ['---\ntitle: "a\\0b"\nx: "c\\0d"\n---\n', '+++\ntitle = "a\\u0000b"\n+++\n', '---\ntitle: "\\0L5\\0"\n---\n', ''];
+
+test('NULs the renderer makes (KaTeX \\char0, front matter escapes) are never taken for holes', () => {
+  const cases = [
+    'a\n\n$$\\char0 x$$\n\n# H\n\nb $\\char0$ c\n\n# H2\n\n- [ ] t\n',
+    'a\n\nx \\(\\char0\\) y \\(\\char0\\) z\n\n# H\n\nend\n',
+    '---\ntitle: "a\\0b"\nx: "c\\0d"\n---\n\n# H\n\nbody\n',
+    '+++\ntitle = "a\\u0000b"\n+++\n\n# H\n\nbody\n',
+    'x[^1] y\n\n# H\n\n[^1]: note \\(\\char0\\) end\n\nlast\n',
+    // what a hole looked like before it carried a secret word: a document could write it
+    '---\ntitle: "\\0L5\\0"\nx: "\\0H0\\0"\n---\n\n# H\n\nbody\n',
+    'a\n\n$$\\text{\\char0L5\\char0}$$\n\n# H\n',
+  ];
+  try {
+    for (const sections of [SECTIONS.every, DEFAULTS]) {
+      incremental.configure({ sections });
+      for (const src of cases) for (const [oname, options] of Object.entries(OPTION_SETS)) {
+        incremental.reset();
+        check(src, options, `NUL case (${oname}): ${JSON.stringify(src.slice(0, 30))}`);
+        total.checks++;
+      }
+    }
+    // and in random documents with random edits
+    incremental.configure({ sections: SECTIONS.every });
+    for (let seed = 1; seed <= (SEED === null ? 6 : 1); seed++) {
+      const r = rng(SEED ?? seed * 31);
+      let src = r.pick(NUL_FRONT) + Array.from({ length: 24 }, () => r.pick(r.int(3) ? SNIPPETS : NUL_SNIPPETS)).join('\n');
+      for (const [oname, options] of Object.entries(OPTION_SETS)) {
+        for (let i = 0; i < Math.ceil(EDITS / 3); i++) {
+          const at = r.int(src.length + 1);
+          src = r.int(4) ? edit(r, src) : src.slice(0, at) + r.pick(['$\\char0$', '\\(\\char0\\)', '\\char0', '$$\\char0$$\n']) + src.slice(at);
+          if (src.length > 12000) src = src.slice(0, 8000);
+          check(src, options, `NUL fuzz seed ${seed} ${oname} edit ${i + 1}`);
+          total.checks++;
+        }
+      }
+    }
+  } finally {
+    incremental.configure({ sections: DEFAULTS });
+  }
+});
+
+// Cuts are local: typing anywhere moves at most the cuts next to the edit, never the ones after it.
+const notes = (n) => paragraphs(n, (i) => `## Note ${i}\n\nSome text for note ${i}, a sentence or two of it.\n`);
+
+test('cuts are content-defined: an edit at the top moves no cut further down', () => {
+  try {
+    incremental.configure({ sections: DEFAULTS });
+    incremental.reset();
+    let doc = notes(4000);
+    const options = OPTION_SETS.app;
+    renderIncremental(doc, options);
+    const scan = { frontMatter: true, math: true, html: true };
+    const at = doc.indexOf('note 3,') + 4;
+    let before = scanCuts(doc, scan);
+    let worst = 0;
+    for (let i = 0; i < 200; i++) {
+      doc = doc.slice(0, at + i) + 'z' + doc.slice(at + i);
+      const after = scanCuts(doc, scan);
+      // every cut behind the edit stays, shifted by the one character
+      const moved = before.filter((c) => c > at + i + 1 && !after.includes(c + 1)).length;
+      assert.ok(moved <= 1, `edit ${i}: ${moved} cuts behind the edit moved`);
+      before = after;
+      renderIncremental(doc, options);
+      const run = incremental.lastRun();
+      assert.equal(run.mode, 'sections', `edit ${i}: ${JSON.stringify(run)}`);
+      worst = Math.max(worst, run.rendered);
+    }
+    assert.ok(worst <= 3, `an edit re-rendered ${worst} sections`);
+    check(doc, options, 'notes after the edits');
+  } finally {
+    incremental.configure({ sections: DEFAULTS });
+  }
+});
+
+test('a huge section skipped while it was edited is parsed once the edit moves elsewhere', () => {
+  try {
+    incremental.configure({ sections: DEFAULTS });
+    incremental.reset();
+    let doc = `${headed(60)}\n# The list\n\n${paragraphs(3000, (i) => `- item ${i} with **strong** text\n`)}\n# Tail\n\n${headed(60)}`;
+    const options = OPTION_SETS.app;
+    renderIncremental(doc, options); // cold: everything parsed once
+    const listAt = doc.indexOf('- item 1500') + 7;
+    doc = doc.slice(0, listAt) + 'x' + doc.slice(listAt);
+    renderIncremental(doc, options);
+    assert.equal(incremental.lastRun().reason, 'an edit inside a section that is most of the text');
+    const runs = [];
+    for (let i = 0; i < 5; i++) {
+      const at = doc.indexOf('Para 10 ') + 5;
+      doc = doc.slice(0, at) + 'y' + doc.slice(at);
+      runs.push(check(doc, options, `edit in a small section ${i}`));
+    }
+    assert.ok(runs.every((r) => r.mode === 'sections'), JSON.stringify(runs));
+    assert.ok(runs[0].parsed > 0.75 * doc.length && runs.slice(1).every((r) => r.parsed < 4096), JSON.stringify(runs));
+  } finally {
+    incremental.configure({ sections: DEFAULTS });
+  }
+});
+
+test('typing in a reference definition renders whole while it changes, sections once it holds still', () => {
+  try {
+    incremental.configure({ sections: DEFAULTS });
+    incremental.reset();
+    let doc = `[r]: http://example.com/\n\n${paragraphs(4000, (i) => `# H ${i}\n\nPara ${i} with *x* and [link][r] and \`code\`.\n`)}`;
+    const options = OPTION_SETS.app;
+    renderIncremental(doc, options);
+    const at = doc.indexOf('/\n');
+    for (let i = 0; i < 3; i++) {
+      doc = doc.slice(0, at + i) + 'a' + doc.slice(at + i);
+      const run = check(doc, options, `definition edit ${i}`);
+      assert.equal(run.reason, 'the definitions changed, most sections would render again', JSON.stringify(run));
+    }
+    const p = doc.indexOf('Para 2000 ') + 5;
+    const runs = [];
+    for (let i = 0; i < 4; i++) {
+      doc = doc.slice(0, p + i) + 'b' + doc.slice(p + i);
+      runs.push(check(doc, options, `paragraph edit ${i}`));
+    }
+    // the first one renders every section again for the new definitions (and counts the parsing), the next ones one section
+    assert.ok(runs.every((r) => r.mode === 'sections'), JSON.stringify(runs));
+    assert.ok(runs[0].parsed > 0.9 * doc.length, JSON.stringify(runs[0]));
+    assert.ok(runs.slice(1).every((r) => r.rendered <= 2), JSON.stringify(runs));
+  } finally {
+    incremental.configure({ sections: DEFAULTS });
+  }
+});
+
+test(`totals (${EDITS} edits per sequence)`, () => {
+  console.log(`incremental differential: ${total.checks} comparisons, ${total.sections} through sections, ${total.full} whole`);
+  assert.ok(total.checks > 1000);
+});

@@ -1,9 +1,9 @@
 // `[TOC]` on a paragraph of its own -> nested heading list. The list is built at render time from
 // env.outline (filled by the annotate core rule), so the block's HTML changes whenever the headings do.
 import type { MarkdownIt, Token } from 'markdown-it';
-import type { OutlineItem } from '../index.ts';
+import type { OutlineItem } from '../core.ts';
 
-const TOC = /^\[toc\]$/i;
+export const TOC = /^\[toc\]$/i; // a paragraph's trimmed content
 
 export function toc(md: MarkdownIt): void {
   md.core.ruler.after('inline', 'macdown2_toc', (state) => {

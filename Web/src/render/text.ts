@@ -16,6 +16,22 @@ export function textStats(text: string): TextStats {
   const latin = text.replace(CJK, ' ').match(WORD)?.length ?? 0;
   let characters = 0;
   let charactersNoSpaces = 0;
+  // Printable ASCII and tabs/newlines (no CR, which pairs with LF): every character is a grapheme of its own, so count
+  // them directly instead of through the segmenter, which is slow on long texts.
+  let ascii = true;
+  for (let i = 0; i < text.length; i++) {
+    const c = text.charCodeAt(i);
+    if (c === 10) continue;
+    if (c > 126 || (c < 32 && c !== 9 && c !== 11 && c !== 12)) {
+      ascii = false;
+      break;
+    }
+    characters++;
+    if (c !== 32 && c !== 9 && c !== 11 && c !== 12) charactersNoSpaces++;
+  }
+  if (ascii) return { words: cjk + latin, characters, charactersNoSpaces };
+  characters = 0;
+  charactersNoSpaces = 0;
   for (const { segment } of graphemes.segment(text)) {
     if (segment === '\n') continue;
     characters++;
@@ -26,11 +42,19 @@ export function textStats(text: string): TextStats {
 
 // GitHub-style heading slug: lowercase, drop punctuation, spaces to hyphens, dedupe with -1, -2…
 export function slugify(text: string, seen: Map<string, number>): string {
-  const base = text
+  return dedupeSlug(slugBase(text), seen);
+}
+
+// The slug before deduplication.
+export function slugBase(text: string): string {
+  return text
     .trim()
     .toLowerCase()
     .replace(/[^\p{L}\p{N}\p{M}\s_-]/gu, '')
     .replace(/\s/g, '-');
+}
+
+export function dedupeSlug(base: string, seen: Map<string, number>): string {
   const count = seen.get(base) ?? 0;
   seen.set(base, count + 1);
   return count === 0 ? base : `${base}-${count}`;

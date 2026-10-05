@@ -86,6 +86,19 @@ const driver = `(async () => {
     MacDown2Preview.setStyle('github', null);
     await until(() => pres().every((p) => p.dataset.mermaidTheme === 'default'));
     out.steps.light = { themes: pres().map((p) => p.dataset.mermaidTheme) };
+
+    // 6. a rebuild re-creates the blocks: their diagrams come from the chunk's cache (same SVG, same id); the same diagram
+    // twice on the page is drawn twice, so ids stay unique
+    const svgIds = () => pres().map((p) => (p.querySelector('svg') || {}).id || null);
+    const before = svgIds();
+    const node = pres()[0];
+    MacDown2Preview.invalidate();
+    update('# Doc\\n\\n' + flow('A', 'B') + '\\n\`\`\`mermaid\\n---\\nconfig:\\n  layout: elk\\n---\\nflowchart LR\\n  X --> Y\\n\`\`\`\\n');
+    await until(() => pres()[0] !== node && settled(2)());
+    const after = svgIds();
+    update('# Twice\\n\\n' + flow('Q', 'R') + '\\n' + flow('Q', 'R'));
+    await until(() => settled(2)() && svgIds().every(Boolean));
+    out.steps.cache = { rebuilt: pres()[0] !== node, sameId: after[0] === before[0] && after[0] !== null, twice: svgIds() };
   } catch (e) {
     out.failure = String(e && e.stack || e);
   }
@@ -165,4 +178,7 @@ test('preview page draws mermaid blocks lazily, redraws only changed ones, repor
   assert.equal(s.dark.okSvg, 1);
   assert.equal(s.dark.colorScheme, 'dark');
   assert.deepEqual(s.light.themes, ['default', 'default']);
+  assert.equal(s.cache.rebuilt, true);
+  assert.equal(s.cache.sameId, true, 'a rebuilt block takes its diagram from the cache');
+  assert.equal(new Set(s.cache.twice).size, 2, 'the same diagram twice gets two ids');
 });

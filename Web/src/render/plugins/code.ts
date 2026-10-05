@@ -40,6 +40,7 @@ import swift from 'highlight.js/lib/languages/swift';
 import typescript from 'highlight.js/lib/languages/typescript';
 import xml from 'highlight.js/lib/languages/xml';
 import yaml from 'highlight.js/lib/languages/yaml';
+import { LRU } from '../lru.ts';
 
 // lazy: the common languages only (aliases such as js/ts/py/sh/html/objc/c++/toml come with them);
 // anything else renders as plain escaped text. Upgrade = add an import line here.
@@ -51,6 +52,14 @@ const languages = {
 for (const [name, def] of Object.entries(languages)) hljs.registerLanguage(name, def);
 
 export interface CodeOptions { highlight: boolean; lineNumbers: boolean }
+
+// Highlighting is a pure function of (language, code) and the costliest part of rendering a code-heavy document, so its
+// output is kept across renders: typing elsewhere re-renders a block, not its code.
+// lazy: a fixed character budget shared by all documents; upgrade = per-document budgets if one big file evicts another.
+const highlighted = new LRU<string>(4 * 1024 * 1024);
+
+export const highlightCode = (code: string, language: string): string =>
+  highlighted.getOrSet(`${language}\n${code}`, () => hljs.highlight(code, { language, ignoreIllegals: true }).value, (html) => code.length + html.length);
 
 // Wraps each line in <span class="line">, closing and reopening hljs spans that cross a line break.
 export function wrapLines(html: string): string {
@@ -76,9 +85,7 @@ export function codeBlocks(md: MarkdownIt, { highlight, lineNumbers }: CodeOptio
     const t = tokens[idx];
     const lang = t.info.trim().split(/\s+/)[0] ?? '';
     const known = highlight && lang !== '' && hljs.getLanguage(lang) !== undefined;
-    let body = known
-      ? hljs.highlight(t.content, { language: lang, ignoreIllegals: true }).value
-      : md.utils.escapeHtml(t.content);
+    let body = known ? highlightCode(t.content, lang) : md.utils.escapeHtml(t.content);
     if (lineNumbers && t.content !== '') body = wrapLines(body);
 
     const pre = { attrs: (t.attrs ?? []).map((a) => [...a]) } as Token;

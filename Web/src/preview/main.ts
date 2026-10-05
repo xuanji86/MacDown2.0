@@ -10,7 +10,7 @@ import { loadChunk } from './chunk-loader.ts';
 import { planPatch } from './dom-patch.ts';
 import { rewriteImages } from './images.ts';
 import { rewriteLinks, startAnchorScrolling, stripActiveContent } from './links.ts';
-import { renderMermaid } from './mermaid-loader.ts';
+import { renderMermaid, setMermaidStyle } from './mermaid-loader.ts';
 import { pageYToLine, recordAnchor, scrollToLine as scrollBlocksToLine, startAnchoring, startScrollReporting, type BlockHandle } from './scroll.ts';
 import { alignSegments, splitBlocks, type Segment } from './split-html.ts';
 import { DEFAULT_STYLE, styleLinks } from './styles.ts';
@@ -21,8 +21,20 @@ export { resyncTasks, setTaskToken } from './tasks.ts';
 
 interface RenderBlock { lineStart: number; lineEnd: number; hash: number }
 type Lines = Pick<RenderBlock, 'lineStart' | 'lineEnd'>
-interface RenderResult { html: string; blocks: RenderBlock[]; outline: unknown[]; stats: unknown }
-declare const MacDown2: { renderResult(source: string, options: unknown): RenderResult };
+// `segments`: the HTML already cut into its blocks (renderIncremental does it per section), what alignSegments would return.
+interface RenderResult { html: string; blocks: RenderBlock[]; outline: unknown[]; stats: unknown; segments?: Segment[] | null }
+declare const MacDown2: {
+  renderResult(source: string, options: unknown): RenderResult;
+  renderIncremental?(source: string, options: unknown): RenderResult;
+  incremental?: { configure(settings: { crossCheckEvery?: number; onMismatch?: (message: string) => void }): void };
+};
+
+// Debug builds of the app put `<meta name="md2-render-crosscheck" content="N">` into the page (PreviewAssetHandler): every N-th
+// incremental render is then compared with a whole render, and a difference is reported like any other page error.
+const crossCheck = Number(document.querySelector('meta[name="md2-render-crosscheck"]')?.getAttribute('content') ?? 0);
+if (crossCheck > 0) {
+  MacDown2.incremental?.configure({ crossCheckEvery: crossCheck, onMismatch: (message) => post({ type: 'error', stage: 'render', message }) });
+}
 
 const MARK = '<!--md2-->';
 const doc = (): HTMLElement => document.getElementById('doc')!;
@@ -159,9 +171,9 @@ export function update(md: string, optionsJSON: string, version = 0): string {
   const focusedTask = focusedTaskLine();
   try {
     const options = JSON.parse(optionsJSON) as { flavor: string };
-    const { html, ...meta } = MacDown2.renderResult(md, options);
+    const { html, segments, ...meta } = (MacDown2.renderIncremental ?? MacDown2.renderResult)(md, options);
     const t1 = performance.now();
-    const usable = alignSegments(html, splitBlocks(html), meta.blocks.length);
+    const usable = segments !== undefined ? segments : alignSegments(html, splitBlocks(html), meta.blocks.length);
     const lines = usable && linesOf(usable, meta.blocks);
     const t2 = performance.now();
     let mode: 'full' | 'patch' | 'full-unsplit' = 'full';
@@ -268,6 +280,7 @@ export function setStyle(light: string, dark: string | null): void {
   const key = JSON.stringify(links);
   if (key === appliedStyle) return;
   appliedStyle = key;
+  setMermaidStyle(key);
   const old = Array.from(document.head.querySelectorAll('link[data-md2-style]'));
   let pending = links.length;
   const loaded = (): void => {

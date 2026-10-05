@@ -21,6 +21,49 @@ test('textStats counts CJK per character and latin per word', () => {
   assert.equal(textStats('').words, 0);
 });
 
+test('textStats: the plain-ASCII shortcut counts exactly what the grapheme segmenter counts', () => {
+  const graphemes = new Intl.Segmenter('und', { granularity: 'grapheme' });
+  const reference = (text) => {
+    let characters = 0;
+    let charactersNoSpaces = 0;
+    for (const { segment } of graphemes.segment(text)) {
+      if (segment === '\n') continue;
+      characters++;
+      if (!/^\s+$/u.test(segment)) charactersNoSpaces++;
+    }
+    return { characters, charactersNoSpaces };
+  };
+  const alphabet = ['a', 'Z', '1', ' ', '\t', '\n', '\v', '\f', '.', "'", '-', '_', '~', '\r', '\u0007', '\u007f', 'é', 'é', '中', '😀', ' ', '　'];
+  let seed = 7;
+  const next = () => ((seed = (seed * 1103515245 + 12345) >>> 0) / 2 ** 32);
+  for (let i = 0; i < 3000; i++) {
+    const n = Math.floor(next() * 40);
+    // half the strings stay within the shortcut's alphabet, half wander out of it
+    const pool = i % 2 ? alphabet : alphabet.slice(0, 13);
+    const text = Array.from({ length: n }, () => pool[Math.floor(next() * pool.length)]).join('');
+    const { characters, charactersNoSpaces } = textStats(text);
+    assert.deepEqual({ characters, charactersNoSpaces }, reference(text), JSON.stringify(text));
+  }
+});
+
+test('KaTeX output is memoised only while no formula has defined a global macro', () => {
+  const math = { ...defaults, extensions: ['math'] };
+  const undefinedFoo = renderResult('$$\\foo$$\n', math).html; // memoised: an unknown macro
+  assert.match(undefinedFoo, /#cc0000/); // KaTeX shows an unknown macro in red
+  const defined = renderResult('$$\\gdef\\foo{x}$$\n\n$$\\foo$$\n', math).html;
+  const [, second] = defined.split('</p>\n');
+  assert.match(second, /<mi>x<\/mi>/, 'after \\gdef the formula renders with the macro, not from the memo');
+  assert.equal(renderResult('$$\\foo$$\n', math).html, undefinedFoo, 'the next render starts without the macro again');
+});
+
+test('an alert checked as a terminator leaves the block state alone: no hang, later source lines intact', () => {
+  const all = ['tables', 'strikethrough', 'autolink', 'mark', 'footnotes', 'taskLists', 'math', 'toc', 'frontMatter', 'cjkEmphasis'];
+  // this one used to loop until the page ran out of memory
+  assert.match(renderResult('.\n>[!WARNING]\n-\n$', { ...defaults, extensions: all }).html, /<blockquote[^]*<ul/);
+  const { blocks } = renderResult('para\n> [!NOTE]\n> note\n# Heading\n\n\nnext\n', defaults);
+  assert.deepEqual(blocks.map((b) => [b.lineStart, b.lineEnd]), [[0, 1], [1, 3], [3, 4], [6, 7]]);
+});
+
 test('slugify follows GitHub style and dedupes', () => {
   const seen = new Map();
   assert.equal(slugify('Hello, World!', seen), 'hello-world');
