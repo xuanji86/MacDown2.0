@@ -132,7 +132,7 @@ MacDown2.0 是一个独立项目，与 [MacDown](https://github.com/MacDownApp/m
 - [Mermaid](https://mermaid.js.org) 及其 dagre 布局
 - [parse5](https://github.com/inikulin/parse5)（HTML 净化器的基础）与 [smol-toml](https://github.com/squirrelchat/smol-toml)（TOML front matter）
 - Chris Kempson 的 Tomorrow Night Eighties 配色（MIT），MacDown Classic 编辑器主题的基础
-- [tree-sitter](https://tree-sitter.github.io) 与 [tree-sitter-markdown](https://github.com/tree-sitter-grammars/tree-sitter-markdown)；ChimeHQ 的 [SwiftTreeSitter](https://github.com/ChimeHQ/SwiftTreeSitter) 与 [Neon](https://github.com/ChimeHQ/Neon)
+- [tree-sitter](https://tree-sitter.github.io) 及语法 [tree-sitter-markdown](https://github.com/tree-sitter-grammars/tree-sitter-markdown)、[tree-sitter-python](https://github.com/tree-sitter/tree-sitter-python)、[tree-sitter-r](https://github.com/r-lib/tree-sitter-r)、[tree-sitter-yaml](https://github.com/tree-sitter-grammars/tree-sitter-yaml)；ChimeHQ 的 [SwiftTreeSitter](https://github.com/ChimeHQ/SwiftTreeSitter)、[Neon](https://github.com/ChimeHQ/Neon) 与 [Rearrange](https://github.com/ChimeHQ/Rearrange)
 - [Sparkle](https://sparkle-project.org)
 - [quarto-dev/quarto](https://github.com/quarto-dev/quarto) 的 markdown-it 插件
 

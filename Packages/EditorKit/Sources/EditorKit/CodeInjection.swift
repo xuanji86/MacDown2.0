@@ -14,8 +14,9 @@ import TreeSitterYAML
 /// predicates).
 ///
 /// lazy: a region is parsed whole, and not at all above `MarkdownHighlightEngine.maxInjectionLength`; no incremental re-parse of a
-/// region (the last few results are cached by text, so scrolling through one block parses it once); Quarto `#|` option lines are
-/// styled by the flavor's overlay, not as YAML.
+/// region (the last few results are cached per edit, so scrolling through one block parses it once); upgrade = keep each region's
+/// tree and `Parser.parse(oldTree)` it with the edit. Quarto `#|` option lines are styled by the flavor's overlay, not as YAML
+/// (upgrade = inject YAML over the option lines, blanking their `#|` prefix, and drop the overlay for them).
 enum InjectedLanguage: CaseIterable, Hashable, Sendable {
     case python, r, yaml
 

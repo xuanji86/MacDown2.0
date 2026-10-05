@@ -171,6 +171,43 @@ struct CodeInjectionTests {
         #expect(color(at("f():")) != keyword)
     }
 
+    private func color(_ view: MarkdownTextView, _ i: Int) -> NSColor? { view.textStorage?.attribute(.foregroundColor, at: i, effectiveRange: nil) as? NSColor }
+
+    @Test func changingTheLanguageOnTheFenceLineRestylesParagraphsAfterABlankLine() async throws {
+        let text = "```python\nx = 1\n\nTRUE\n\nNULL\n```\n"
+        let view = ViewTests.makeSizedView(text)
+        let constant = try #require(view.theme.tokens[.codeConstant]?.color)
+        let ns = text as NSString
+        #expect(await eventually { color(view, ns.range(of: "1").location) == constant })  // Python's number
+        #expect(color(view, ns.range(of: "NULL").location) != constant)  // a plain identifier in Python
+        view.textStorage?.replaceCharacters(in: ns.range(of: "python"), with: "r")
+        let edited = view.string as NSString
+        #expect(await eventually { color(view, edited.range(of: "NULL").location) == constant && color(view, edited.range(of: "TRUE").location) == constant })
+    }
+
+    @Test func openingAStringInTheFirstParagraphRestylesTheRestOfTheCell() async throws {
+        let text = "```python\nx = 1\n\nif y:\n    pass\n\nz = 2\n```\n"
+        let view = ViewTests.makeSizedView(text)
+        let keyword = try #require(view.theme.tokens[.codeKeyword]?.color)
+        let ns = text as NSString
+        #expect(await eventually { color(view, ns.range(of: "if").location) == keyword })
+        view.textStorage?.replaceCharacters(in: ns.range(of: "1"), with: "\"\"\"")
+        let edited = view.string as NSString
+        // Now the string runs to the end of the cell: nothing after the blank line is a keyword any more.
+        #expect(await eventually { color(view, edited.range(of: "if").location) != keyword && color(view, edited.range(of: "pass").location) != keyword })
+    }
+
+    @Test func theEngineKeepsRegionsInStepWithEdits() async throws {
+        let h = try await EngineHarness("a\n\n```python\nx = 1\n```\n")
+        _ = try await h.tokens()
+        let region = try #require(h.engine.injectionRegions.first)
+        #expect((h.text as NSString).substring(with: region.range) == "x = 1\n")
+        await h.replace(NSRange(location: 0, length: 0), with: "intro\n")  // before it: shifts
+        #expect((h.text as NSString).substring(with: try #require(h.engine.injectionRegions.first).range) == "x = 1\n")
+        await h.replace((h.text as NSString).range(of: "1"), with: "123")  // inside it: grows
+        #expect((h.text as NSString).substring(with: try #require(h.engine.injectionRegions.first).range) == "x = 123\n")
+    }
+
     @Test func everyThemeStylesTheCodeRoles() {
         for theme in ThemeLibrary.all {
             for kind in [TokenKind.codeKeyword, .codeString, .codeComment, .codeConstant, .codeFunction, .codeKey] {

@@ -132,7 +132,7 @@ MacDown2.0 is an independent project. It is not affiliated with, endorsed by, or
 - [Mermaid](https://mermaid.js.org) and its dagre layout
 - [parse5](https://github.com/inikulin/parse5), which backs the HTML sanitizer, and [smol-toml](https://github.com/squirrelchat/smol-toml) for TOML front matter
 - The Tomorrow Night Eighties palette by Chris Kempson (MIT), behind the MacDown Classic editor theme
-- [tree-sitter](https://tree-sitter.github.io) and [tree-sitter-markdown](https://github.com/tree-sitter-grammars/tree-sitter-markdown); [SwiftTreeSitter](https://github.com/ChimeHQ/SwiftTreeSitter) and [Neon](https://github.com/ChimeHQ/Neon) by ChimeHQ
+- [tree-sitter](https://tree-sitter.github.io) and the grammars [tree-sitter-markdown](https://github.com/tree-sitter-grammars/tree-sitter-markdown), [tree-sitter-python](https://github.com/tree-sitter/tree-sitter-python), [tree-sitter-r](https://github.com/r-lib/tree-sitter-r) and [tree-sitter-yaml](https://github.com/tree-sitter-grammars/tree-sitter-yaml); [SwiftTreeSitter](https://github.com/ChimeHQ/SwiftTreeSitter), [Neon](https://github.com/ChimeHQ/Neon) and [Rearrange](https://github.com/ChimeHQ/Rearrange) by ChimeHQ
 - [Sparkle](https://sparkle-project.org)
 - The markdown-it plugins from [quarto-dev/quarto](https://github.com/quarto-dev/quarto)
 

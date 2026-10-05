@@ -36,19 +36,26 @@ public final class MarkdownHighlightEngine {
     static let synchronousLimit = 1024
 
     /// A fenced block or front matter longer than this keeps the plain code colour instead of its language's.
-    // lazy: 64K UTF-16 units per region, parsed whole; split the region at blank lines if long scripts matter
+    // lazy: 64K UTF-16 units per region, parsed whole on each edit; upgrade = Parser.parse(oldTree) with the edit applied (incremental) if long scripts matter
     static let maxInjectionLength = 65_536
 
     private let client: TreeSitterClient
     private let inlineParser = Parser()
     private var injectionParsers: [InjectedLanguage: Parser] = [:]
-    /// The last few regions' tokens (relative to the region), by language and text: every chunk of a long block asks again.
+    /// The last few regions' tokens (relative to the region): every chunk of a long block asks again. Keyed by where the region is
+    /// and `contentVersion`, which any edit bumps, so a hit costs no copy of the region's text.
     private var injectionCache: [(key: InjectionKey, tokens: [HighlightToken])] = []
     private struct InjectionKey: Hashable {
         var language: InjectedLanguage
-        var text: String
+        var range: NSRange
+        var version: Int
     }
     private static let injectionCacheSize = 8
+    private var contentVersion = 0
+
+    /// Where the injected regions (fenced code, front matter) are, as the last token passes saw them and edits have moved them since.
+    /// The owner uses them to restyle a whole region when an edit inside it, or on its fence line, changes how all of it parses.
+    private(set) var injectionRegions: [InjectionRegion] = []
 
     /// - Parameter pointForOffset: UTF-16 offset -> (row, column in bytes). tree-sitter-markdown's scanner depends on
     ///   columns, so incremental edits must carry real points rather than zeros.
@@ -65,9 +72,22 @@ public final class MarkdownHighlightEngine {
 
     public func willChangeContent(in range: NSRange) { client.willChangeContent(in: range) }
 
+    /// Moves the remembered regions through an edit (`range` in the old text, `delta` the change in length): a region the edit
+    /// overlaps grows or shrinks with it.
+    private func noteEdit(in range: NSRange, delta: Int) {
+        contentVersion += 1
+        injectionRegions = injectionRegions.map { region in
+            var r = region.range
+            if NSMaxRange(r) <= range.location { return region }
+            if r.location >= NSMaxRange(range) { r.location += delta } else { r.length = max(0, r.length + delta) }
+            return InjectionRegion(language: region.language, range: r)
+        }
+    }
+
     /// `range`/`delta` are the pre-edit range and the length change, as in Neon (`NSTextStorage` `editedRange` with
     /// `changeInLength` already subtracted). `snapshot` must be immutable: Neon may parse it on a background queue.
     public func didChangeContent(to snapshot: NSString, in range: NSRange, delta: Int, completion: @escaping () -> Void = {}) {
+        noteEdit(in: range, delta: delta)
         client.didChangeContent(in: range, delta: delta, limit: snapshot.length, readHandler: Self.reader(for: snapshot), completionHandler: completion)
     }
 
@@ -127,6 +147,9 @@ public final class MarkdownHighlightEngine {
                 regions.append(InjectionRegion(language: language, range: content))
             }
         }
+        // The chunk's regions replace what was remembered for it.
+        injectionRegions.removeAll { NSIntersectionRange($0.range, range).length > 0 || regions.contains($0) }
+        injectionRegions += regions
         return Self.outerFirst(block) + inlineTokens(for: inlineNodes, clippedTo: range) + injectionTokens(for: regions, clippedTo: range)
     }
 
@@ -135,8 +158,7 @@ public final class MarkdownHighlightEngine {
         var tokens: [HighlightToken] = []
         var seen = Set<Int>()
         for region in regions where NSIntersectionRange(region.range, range).length > 0 && seen.insert(region.range.location).inserted {
-            guard let text = textProvider(region.range) else { continue }
-            for token in injectedTokens(region.language, text) {
+            for token in injectedTokens(region) {
                 let shifted = NSRange(location: token.range.location + region.range.location, length: token.range.length)
                 if let clipped = Self.clip(shifted, to: range) { tokens.append(HighlightToken(kind: token.kind, range: clipped)) }
             }
@@ -144,9 +166,10 @@ public final class MarkdownHighlightEngine {
         return tokens
     }
 
-    /// Tokens of `text` parsed as `language`, relative to its start, outer ones first.
-    private func injectedTokens(_ language: InjectedLanguage, _ text: String) -> [HighlightToken] {
-        let key = InjectionKey(language: language, text: text)
+    /// Tokens of the region parsed as its language, relative to its start, outer ones first.
+    private func injectedTokens(_ region: InjectionRegion) -> [HighlightToken] {
+        let language = region.language
+        let key = InjectionKey(language: language, range: region.range, version: contentVersion)
         if let hit = injectionCache.firstIndex(where: { $0.key == key }) {
             let entry = injectionCache.remove(at: hit)
             injectionCache.insert(entry, at: 0)
@@ -160,7 +183,7 @@ public final class MarkdownHighlightEngine {
             do { try parser.setLanguage(language.grammar) } catch { return [] }
             injectionParsers[language] = parser
         }
-        guard let tree = parser.parse(text) else { return [] }
+        guard let text = textProvider(region.range), let tree = parser.parse(text) else { return [] }
         var found: [HighlightToken] = []
         for match in language.query.execute(in: tree) {
             for capture in match.captures {

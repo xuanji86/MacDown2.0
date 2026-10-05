@@ -41,12 +41,14 @@
 # not a heading either
 &gt; nor a quote</li>
 </ul>
-<p data-line="43" data-line-end="44">Quote lines continue lazily, headings and lists included:</p>
-<blockquote data-line="45" data-line-end="48">
-<p data-line="45" data-line-end="48">a quote
-# lazy line, not a heading
-- lazy line, not an item</p>
+<p data-line="43" data-line-end="44">Known difference: Pandoc keeps these two lines in the quote as lazy text, here they end it:</p>
+<blockquote data-line="45" data-line-end="46">
+<p data-line="45" data-line-end="46">a quote</p>
 </blockquote>
+<h1 data-line="46" data-line-end="47" id="lazy-line-not-a-heading">lazy line, not a heading</h1>
+<ul data-line="47" data-line-end="49">
+<li data-line="47" data-line-end="49">lazy line, not an item</li>
+</ul>
 <blockquote data-line="49" data-line-end="52">
 <p data-line="49" data-line-end="50">A nested quote needs its blank <code>&gt;</code> line</p>
 <blockquote data-line="51" data-line-end="52">

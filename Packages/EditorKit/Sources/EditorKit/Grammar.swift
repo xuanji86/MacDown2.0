@@ -34,7 +34,8 @@ enum Grammar {
 
     /// Captures that name a region to run another grammar over (`InjectedLanguage`), not styles: the front matter block, and a
     /// fenced block's info string with its content. lazy: only fences directly in a section; one inside a list item or a block
-    /// quote has line prefixes in its content that the other grammar would choke on.
+    /// quote has line prefixes in its content that the other grammar would choke on; upgrade = parse the content with `includedRanges`
+    /// that skip the prefixes (the `block_continuation` nodes mark them).
     static let injectYAMLCapture = "injectYAML"
     static let injectInfoCapture = "injectInfo"
     static let injectContentCapture = "injectContent"

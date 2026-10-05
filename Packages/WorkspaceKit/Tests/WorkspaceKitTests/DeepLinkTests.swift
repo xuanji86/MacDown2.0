@@ -120,6 +120,11 @@ struct DeepLinkTests {
         #expect(failure("macdown2://workspace?path=/notes/a.md") == .badParameter("path"))
     }
 
+    @Test func theFileExtensionsAreTheTreesOwn() {
+        #expect(DeepLink.fileExtensions == FileTreeOptions.openableExtensions)
+        #expect(DeepLink.fileExtensions.isSuperset(of: ["md", "markdown", "qmd", "txt", "mdown", "text"]))
+    }
+
     @Test func aSymlinkToAnotherTypeIsRefused() throws {
         let dir = FileManager.default.temporaryDirectory.appending(path: "deeplink-\(UUID().uuidString)", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -135,6 +140,14 @@ struct DeepLinkTests {
         #expect(DeepLink.parse(URL(string: "macdown2://open?path=\(path(link))")!) == .failure(.unsupportedFileType))
         let real = DeepLink.parse(URL(string: "macdown2://open?path=\(path(good))&line=2")!)
         #expect((try? real.get().line) == 2)  // against the real file system, with the default lookup
-        #expect(DeepLink.parse(URL(string: "macdown2://open?path=\(path(dir))")!) == .success(DeepLink(url: dir.standardizedFileURL, kind: .folder, line: nil, layout: nil)))
+        let folder = try DeepLink.parse(URL(string: "macdown2://open?path=\(path(dir))")!).get()
+        #expect(folder.kind == .folder)
+        #expect(folder.url.path == dir.standardizedFileURL.path)
+        // A symlinked folder (`/tmp`, a synced `~/notes`) is a folder, not a file the extension check would refuse.
+        let folderLink = dir.appending(path: "linked-folder")
+        try FileManager.default.createSymbolicLink(at: folderLink, withDestinationURL: dir)
+        let viaLink = try DeepLink.parse(URL(string: "macdown2://workspace?path=\(path(folderLink))")!).get()
+        #expect(viaLink.kind == .folder)
+        #expect(viaLink.url.path == folderLink.standardizedFileURL.path)  // named as the user wrote it
     }
 }

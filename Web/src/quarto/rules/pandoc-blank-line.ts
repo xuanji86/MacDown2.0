@@ -15,21 +15,22 @@
 // `===`; it makes the line above a heading), the end of a fenced div / HTML `<div>`. Not touched because the Pandoc docs do not
 // say (thematic breaks, HTML blocks, tables): markdown-it's behaviour stays.
 //
-// lazy: the blank-line rule is applied to paragraphs and to the lazy continuation lines of a block quote only; a heading or list
-// right after the *last line of a list item* behaves as in Pandoc (it is text), but Pandoc's "fancy" list markers (`a.`, `(i)`,
-// `#.`) are not list starts here, as everywhere else in the preview. Upgrade = a `fancy_lists` rule.
+// lazy: Pandoc also collects a heading / list line right after a block quote's last line into the quote as lazy text; here such a
+// line still ends the quote (markdown-it's lazy-line rules are shared with tables and lists), and Pandoc's "fancy" list markers
+// (`a.`, `(i)`, `#.`) are not list starts, as everywhere else in the preview. Upgrade = a flavor-owned blockquote rule / `fancy_lists`.
 import type { MarkdownIt } from 'markdown-it';
 
 /** Block rules that markdown-it lets end a paragraph (alt chain 'paragraph') and that Pandoc does not. */
 const BLOCKS = ['heading', 'blockquote', 'alert', 'list'];
 
+// Only the 'paragraph' chain is edited: markdown-it reads it in two places, the paragraph rule and the setext-heading rule (both
+// "where does this paragraph end"). The 'blockquote' and 'list' chains stay as they are: the table rule, a quote's lazy lines
+// and a list's items all end on them, and a table row that swallowed a `# heading` line throws.
 export function pandocBlankLine(md: MarkdownIt): void {
   const ruler = md.block.ruler;
   for (const rule of [...ruler.__rules__]) {
     if (!BLOCKS.includes(rule.name) || !rule.alt.includes('paragraph')) continue;
-    // A heading or a list that follows a quote line is part of the quote's lazy text too (`blockQuote` collects such lines raw).
-    const alt = rule.alt.filter((a) => a !== 'paragraph' && (a !== 'blockquote' || rule.name === 'blockquote' || rule.name === 'alert'));
-    ruler.at(rule.name, rule.fn, { alt });
+    ruler.at(rule.name, rule.fn, { alt: rule.alt.filter((a) => a !== 'paragraph') });
     if (rule.name !== 'list') continue;
     // The one exception: in a list item the next marker line starts the next item (markdown-it ends the item's paragraph at it;
     // `listIndent` is >= 0 only while an item's content is parsed, `parentType` is already 'paragraph' when a terminator runs).

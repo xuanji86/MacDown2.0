@@ -41,7 +41,7 @@ A line after a list item that is not a marker is part of the item:
 # not a heading either
 > nor a quote
 
-Quote lines continue lazily, headings and lists included:
+Known difference: Pandoc keeps these two lines in the quote as lazy text, here they end it:
 
 > a quote
 # lazy line, not a heading

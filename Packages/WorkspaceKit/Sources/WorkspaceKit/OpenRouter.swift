@@ -45,9 +45,10 @@ public struct OpenPlan: Equatable, Sendable {
 /// root, else the frontmost window when that one is browsing with nothing open, else a new window. Several folders
 /// become roots of the same window; files in the same request open there as tabs.
 public enum OpenRouter {
-    /// A directory, but not a package (`.app`, `.pages` count as files, as in the tree).
+    /// A directory, but not a package (`.app`, `.pages` count as files, as in the tree). A symlink to a folder (`/tmp`, a synced
+    /// `~/notes`) is its target: resource values would describe the link itself.
     public static func isFolder(_ url: URL) -> Bool {
-        guard let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .isPackageKey]) else { return false }
+        guard let values = try? url.resolvingSymlinksInPath().resourceValues(forKeys: [.isDirectoryKey, .isPackageKey]) else { return false }
         return values.isDirectory == true && values.isPackage != true
     }
 

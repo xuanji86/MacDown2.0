@@ -22,9 +22,9 @@ public struct DeepLink: Equatable, Sendable {
     public static let scheme = "macdown2"
     public static let maxPathLength = 1024
     public static let maxLine = 10_000_000
-    /// What a link may open as a file: the extensions of the Markdown document types (Info.plist), Quarto, and `.txt`, which the
-    /// sidebar also opens.
-    public static let fileExtensions: Set<String> = ["md", "markdown", "mdown", "mkd", "mkdn", "mdwn", "mdtxt", "mdtext", "text", "qmd", "txt"]
+    /// What a link may open as a file: what the sidebar opens (`FileTreeOptions.openableExtensions`), so a link can never reach a
+    /// file the app would not open from its own tree.
+    public static var fileExtensions: Set<String> { FileTreeOptions.openableExtensions }
 
     public enum Failure: Error, Equatable, Sendable {
         /// Not `macdown2:`, or an action other than `open` / `workspace`, or something after the action (`macdown2://open/x`).

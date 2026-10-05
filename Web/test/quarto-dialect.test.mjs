@@ -40,14 +40,29 @@ test('inside a list item the next marker still starts an item or a nested list',
   assert.equal(quarto('- a\n\n  para\n- c'), '<ul>\n<li>\n<p>a</p>\n<p>para</p>\n</li>\n<li>\n<p>c</p>\n</li>\n</ul>');
 });
 
-test('lazy lines of a list item or a quote stay text (Pandoc collects them raw)', () => {
+test('lazy lines of a list item stay text (Pandoc collects them raw)', () => {
   assert.equal(quarto('- a\n# h'), '<ul>\n<li>a\n# h</li>\n</ul>');
   assert.equal(quarto('- a\n> q'), '<ul>\n<li>a\n&gt; q</li>\n</ul>');
   assert.equal(quarto('- a\n\n# h'), '<ul>\n<li>a</li>\n</ul>\n<h1>h</h1>');
-  assert.equal(quarto('> a\n# lazy'), '<blockquote>\n<p>a\n# lazy</p>\n</blockquote>');
-  assert.equal(quarto('> a\n- lazy'), '<blockquote>\n<p>a\n- lazy</p>\n</blockquote>');
   assert.equal(quarto('> text\n> - item'), '<blockquote>\n<p>text\n- item</p>\n</blockquote>'); // a list inside a quote follows the same rule
   assert.equal(quarto('> text\n>\n> - item'), '<blockquote>\n<p>text</p>\n<ul>\n<li>item</li>\n</ul>\n</blockquote>');
+});
+
+test('tables end at a heading, a quote or a list line (the shared terminator chains are intact)', () => {
+  const table = '| a | b |\n|---|---|\n| 1 | 2 |\n';
+  const t = '<table>\n<thead>\n<tr>\n<th>a</th>\n<th>b</th>\n</tr>\n</thead>\n<tbody>\n<tr>\n<td>1</td>\n<td>2</td>\n</tr>\n</tbody>\n</table>\n';
+  assert.equal(quarto(`${table}# Heading`), `${t}<h1>Heading</h1>`);
+  assert.equal(quarto(`${table}- item`), `${t}<ul>\n<li>item</li>\n</ul>`);
+  assert.equal(quarto(`${table}> q`), `${t}<blockquote>\n<p>q</p>\n</blockquote>`);
+  const inItem = quarto('- | a | b |\n  |---|---|\n  | 1 | 2 |\n  - nested\n- next');
+  assert.match(inItem, /<table>[\s\S]*<\/table>\n<ul>\n<li>nested<\/li>\n<\/ul>\n<\/li>\n<li>next<\/li>/);
+});
+
+test('a block quote inside a list item does not swallow the next item', () => {
+  assert.equal(quarto('- > q\n- b'), '<ul>\n<li>\n<blockquote>\n<p>q</p>\n</blockquote>\n</li>\n<li>b</li>\n</ul>');
+  assert.equal(quarto('1. > q\n2. b'), '<ol>\n<li>\n<blockquote>\n<p>q</p>\n</blockquote>\n</li>\n<li>b</li>\n</ol>');
+  assert.equal(quarto('- > q\n\n- b'), markdown('- > q\n\n- b'));
+  assert.equal(quarto('- > q\n- b'), markdown('- > q\n- b'));
 });
 
 test('what Pandoc still lets end a paragraph is unchanged: fences and setext underlines', () => {
