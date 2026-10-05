@@ -55,6 +55,13 @@ import WorkspaceKit
 ///   MACDOWN2_TEST_PREVIEW_IME=<a,ab,abc>|<commit>  ... an input method composing a, ab, abc and committing <commit> (`setMarkedText:...`)
 ///   MACDOWN2_TEST_PREVIEW_BACKSPACE=<n>   ... n backspaces (`doCommandBySelector: deleteBackward:`)
 ///   MACDOWN2_TEST_PREVIEW_UNDO=1          ... then undo and redo through the responder chain, as Cmd-Z / Cmd-Shift-Z reach them
+///   MACDOWN2_TEST_PREVIEW_AUTOCORRECT=1   ... first: the editor's spelling correction, text replacement, smart quotes and dashes on
+///   MACDOWN2_TEST_PREVIEW_IME_CANCEL=<a,ab>  ... after the IME step: composing a, ab; the editor gets text typed at its end meanwhile;
+///                                         then the composition is cancelled (empty marked text, unmarkText), as Escape does
+///   MACDOWN2_TEST_PREVIEW_IME_OVER=<a>:<b>|<z,zh>|<commit>  ... characters a ..< b of the edited block selected, then composed over
+///                                         (after each step the page's own record of WebKit's input events is logged too)
+///   MACDOWN2_TEST_FOLLOW_CARET=<line>     before edit mode: "preview follows the caret" on, the preview focused, and a search result
+///                                         on <line> revealed in the editor without focusing it; the preview's top line before/after
 ///   MACDOWN2_TEST_PEER_SELECT=<from>,<to> two-way selection: the editor (made first responder) selects source [from, to) and the
 ///                                         page's highlight is logged; `MACDOWN2_TEST_PAGE_SELECT=<line>:<a>:<b>` then selects characters
 ///                                         a ..< b of the first text node of the block on <line> in the page and logs what the editor shows.
@@ -78,7 +85,7 @@ enum IsolatedTestHooks {
     private nonisolated(unsafe) static var tabUndoRan = false
     private nonisolated(unsafe) static var previewEditRan = false
     private static let tabLog = Logger(subsystem: "io.github.xuanji86.MacDown2", category: "tab-undo-hook")
-    private static let editLog = Logger(subsystem: "io.github.xuanji86.MacDown2", category: "preview-edit-hook")
+    static let editLog = Logger(subsystem: "io.github.xuanji86.MacDown2", category: "preview-edit-hook")
     private static let hookLog = Logger(subsystem: "io.github.xuanji86.MacDown2", category: "task-toggle-hook")
     private static let toolbarLog = Logger(subsystem: "io.github.xuanji86.MacDown2", category: "toolbar-dump")
     private static let menuLog = Logger(subsystem: "io.github.xuanji86.MacDown2", category: "menu-dump")
@@ -358,7 +365,7 @@ enum IsolatedTestHooks {
     /// method; nothing reaches the desktop.
     @MainActor static func previewEditing(model: WindowModel, preview: PreviewModel, editor: EditorHandle, document: MarkdownDocument) async {
         #if DEBUG
-        guard !previewEditRan, value("MACDOWN2_TEST_PREVIEW_EDIT") != nil || value("MACDOWN2_TEST_PEER_SELECT") != nil else { return }
+        guard !previewEditRan, value("MACDOWN2_TEST_PREVIEW_EDIT") != nil || value("MACDOWN2_TEST_PEER_SELECT") != nil || value("MACDOWN2_TEST_FOLLOW_CARET") != nil else { return }
         previewEditRan = true
         for _ in 0..<100 where preview.metadata == nil { try? await Task.sleep(for: .milliseconds(100)) }
         let step = Double(value("MACDOWN2_TEST_PREVIEW_DELAY") ?? "") ?? 3
@@ -391,6 +398,20 @@ enum IsolatedTestHooks {
             }
         }
 
+        if let target = value("MACDOWN2_TEST_FOLLOW_CARET").flatMap(Int.init), let key = document.fileURL?.fileKey {
+            // "Preview follows the caret" on; the preview has the focus, not the editor; a search result is revealed in the editor
+            // without focusing it (the workspace search's path): the preview must follow.
+            AppDefaults.store.set(true, forKey: ScrollSyncPreferences.followCaretKey)
+            window.makeFirstResponder(web)
+            await pause(1)
+            let before = try? await preview.page.callJavaScript("return MacDown2Preview.visibleTopLine()")
+            editor.reveal(key: key, line: target, columns: 0..<1, focus: false)
+            await pause(1)
+            let after = try? await preview.page.callJavaScript("return MacDown2Preview.visibleTopLine()")
+            editLog.info("follow caret: revealed line \(target, privacy: .public) with the editor not focused (first responder \(String(describing: type(of: window.firstResponder)), privacy: .public)): preview top line \(String(describing: before), privacy: .public) -> \(String(describing: after), privacy: .public)")
+            await pause()
+        }
+
         guard let line = value("MACDOWN2_TEST_PREVIEW_EDIT").flatMap(Int.init) else { return }
         // the end of the line's text: the caret goes after its last character
         let lines = document.text.split(separator: "\n", omittingEmptySubsequences: false)
@@ -413,10 +434,27 @@ enum IsolatedTestHooks {
             typealias Fn = @convention(c) (AnyObject, Selector, AnyObject, NSRange, NSRange) -> Void
             unsafeBitCast(web.method(for: setMarked), to: Fn.self)(web, setMarked, s as NSString, NSRange(location: (s as NSString).length, length: 0), none)
         }
+        // The page's own record of the input events WebKit sent (`editingForTests.events`), logged after each step.
+        _ = try? await preview.page.callJavaScript("MacDown2Preview.editingForTests.configure({ trace: true })")
+        func events(_ label: String) async {
+            let seen = try? await preview.page.callJavaScript("return JSON.stringify([MacDown2Preview.editingForTests.events(), MacDown2Preview.editingForTests.state()])")
+            let page = try? await preview.page.callJavaScript("return [...document.querySelectorAll('#doc > *')].map((e) => e.textContent).join('|')")
+            editLog.info("\(label, privacy: .public): page events \(String(describing: seen), privacy: .public); page text \(String(describing: page).debugDescription, privacy: .public)")
+        }
+        if value("MACDOWN2_TEST_PREVIEW_AUTOCORRECT") == "1", let textView = editor.textView {
+            // The editor's own automatic changes on (this launch's text view only): what the preview types must still reach the source as typed.
+            textView.isContinuousSpellCheckingEnabled = true
+            textView.isAutomaticSpellingCorrectionEnabled = true
+            textView.isAutomaticTextReplacementEnabled = true
+            textView.isAutomaticQuoteSubstitutionEnabled = true
+            textView.isAutomaticDashSubstitutionEnabled = true
+            editLog.info("editor: spelling correction, text replacement, smart quotes and dashes on")
+        }
         if let text = value("MACDOWN2_TEST_PREVIEW_TYPE") {
             for c in text { typeText(String(c)); try? await Task.sleep(for: .milliseconds(80)) }
             await pause(1)
             state("typed \(text)")
+            await events("typed")
             await pause()
         }
         if let raw = value("MACDOWN2_TEST_PREVIEW_IME") {
@@ -426,7 +464,43 @@ enum IsolatedTestHooks {
             if parts.count == 2 { typeText(parts[1]) }
             await pause(1)
             state("composed \(raw)")
+            await events("composed")
             await pause()
+        }
+        if let raw = value("MACDOWN2_TEST_PREVIEW_IME_CANCEL") {
+            // An input method composes; meanwhile the text changes elsewhere (typed in the editor at the end); the composition is
+            // cancelled (Escape: the input method clears its marked text). The page must show the change at once.
+            for s in raw.split(separator: ",") { mark(String(s)); try? await Task.sleep(for: .milliseconds(150)) }
+            if let textView = editor.textView {
+                textView.insertText(" (changed elsewhere)", replacementRange: NSRange(location: (textView.string as NSString).length - 1, length: 0))
+            }
+            await pause(1)
+            await events("composing, the text changed elsewhere")
+            mark("")
+            let unmark = NSSelectorFromString("unmarkText")
+            if web.responds(to: unmark) { web.perform(unmark) }
+            await pause(1)
+            state("composition cancelled")
+            await events("composition cancelled")
+            await pause()
+        }
+        if let raw = value("MACDOWN2_TEST_PREVIEW_IME_OVER") {
+            // `<a>:<b>|<z,zh>|<commit>`: characters a ..< b of the edited block's first text node selected, then composed over.
+            let parts = raw.split(separator: "|").map(String.init)
+            let ends = parts.first?.split(separator: ":").compactMap { Int($0) } ?? []
+            if parts.count == 3, ends.count == 2 {
+                let selected = try? await preview.page.callJavaScript(
+                    "const e = document.querySelector('#doc [contenteditable]'); const w = e && document.createTreeWalker(e, NodeFilter.SHOW_TEXT); const t = w && w.nextNode(); if (!t) return null; getSelection().setBaseAndExtent(t, a, t, b); return getSelection().toString()",
+                    arguments: ["a": ends[0], "b": ends[1]])
+                await pause(1)
+                for s in parts[1].split(separator: ",") { mark(String(s)); try? await Task.sleep(for: .milliseconds(150)) }
+                await pause(1)
+                typeText(parts[2])
+                await pause(1)
+                state("composed over \(String(describing: selected))")
+                await events("composed over a selection")
+                await pause()
+            }
         }
         if let n = value("MACDOWN2_TEST_PREVIEW_BACKSPACE").flatMap(Int.init), web.responds(to: command) {
             typealias Fn = @convention(c) (AnyObject, Selector, Selector) -> Void

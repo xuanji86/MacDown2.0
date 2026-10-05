@@ -9,25 +9,29 @@
 // The page never lets the browser change the DOM on its own: every cancelable input is prevented and done here, so the browser's
 // own undo stack (which would sit in the document's undo manager next to the editor's steps) never gets an entry. An input
 // method's composition cannot be prevented; it is let through and turned into one edit when it ends (or, where WebKit asks with
-// `insertFromComposition`, prevented and inserted here like typing).
+// `insertFromComposition`, prevented and inserted here like typing). A composition over a selection replaces it (WebKit first
+// sends `deleteByComposition`, which is let through too).
 //
 // Edits go out at once and are shown at once; the app applies them in order. A burst is the run of edits since the page last showed
-// the app's text: each carries the render it started from (`base`) and its number in the burst (`seq`), plus the source it removes
-// and the source around it, and the app applies edit n only when its editor holds exactly the text the page had before it (the
-// render's text with edits 1 ..< n applied) and that text has those characters there; otherwise it refuses, and the page shows the
-// app's text again. Edits in several blocks of one burst are fine: every map is kept in the burst's text (source-map.ts `rebase`,
-// `shifted`). While a burst is in flight the renders the app sends that do not yet contain all of it are held back (the page already
-// shows more), and so is every render while an input method composes: the block under the caret is never rebuilt under the user's
-// hands. The render that catches up replaces the edited block and the caret goes back to the same source offset.
+// the app's text: it has the page's own number (counting up, so a late answer about an earlier burst never touches a later one),
+// each edit carries the render the burst started from (`base`) and its number in the burst (`seq`), plus the source it removes and
+// the source around it, and the app applies edit n only when its editor holds exactly the text the page had before it (the render's
+// text with edits 1 ..< n applied) and that text has those characters there; otherwise it refuses, and the page shows the app's text
+// again. Edits in several blocks of one burst are fine: every map is kept in the burst's text (source-map.ts `rebase`, `shifted`).
+// While a burst is in flight the renders the app sends that do not yet contain all of it are held back (the page already shows
+// more), and so is every render while an input method composes: the block under the caret is never rebuilt under the user's hands;
+// when the composition ends, however it ends, a render held back meanwhile is asked for again. The render that catches up replaces
+// the edited block and the caret (or selection) goes back to the same source offset it has now; the burst is over once that render
+// is on the page.
 //
-// Undo: each edit says whether it starts a new undo step. It continues the last one, as typing in the editor does, while it is next
-// to the previous edit in the same block and nothing else changed the text in between.
+// Undo: each edit says whether it starts a new undo step. It continues the last one, as typing in the editor does, only while it is
+// next to the previous edit in the same block and the caret did not move in between (arrow keys, a click, a selection).
 import { post } from './bridge.ts';
 import { blockNodes, type BlockHandle } from './scroll.ts';
-import { lineOf, linesRange, shown } from './shown.ts';
+import { lineOf, shown } from './shown.ts';
 import {
-  blockText, edited, handleOf, insertionAt, literalEdit, mapBlock, NEWLINE, pointAt, pointIn, rebase, renderedBlock, shifted,
-  sourceEdit, splitsPair, type BlockMapping, type BurstEdit, type Refusal, type SourceEdit,
+  blockText, carryContext, edited, handleOf, insertionAt, literalEdit, mapBlock, NEWLINE, pointAt, pointIn, rebase, renderedBlock,
+  shifted, sourceEdit, splitsPair, type BlockMapping, type BurstEdit, type Refusal, type SourceEdit,
 } from './source-map.ts';
 import { bridgeToken } from './tasks.ts';
 
@@ -49,20 +53,21 @@ let host: HTMLElement | null = null; // the block element that is contenteditabl
 let hostHandle: BlockHandle | null = null;
 
 interface Burst {
+  id: number; // the page's number for it (`bursts`): refusals and the app's marks name it
   base: number; // render the burst started from
   seq: number; // edits sent
   text: string; // that render's text with every sent edit applied
   edits: BurstEdit[]; // in order, each in the text before it
   maps: Map<BlockHandle, BlockMapping>; // the blocks edited in this burst, in step with the DOM, offsets in `text`
-  caret: number; // source offset of the caret after the last edit
   sentAt: number;
 }
 let burst: Burst | null = null;
+let bursts = 0;
 
 interface Composition {
   m: BlockMapping;
   text: string; // the block's text when it started
-  k0: number;
+  k0: number; // the units it replaces (a selection it started over), [k0, k1)
   k1: number;
   prev: boolean;
   next: boolean;
@@ -70,15 +75,20 @@ interface Composition {
 }
 let composing: Composition | null = null;
 let pendingResync: HintKind | null = null; // a resync that had to wait for the composition to end
-let heldBack = false; // a render was held back: once nothing is in flight any more, ask for the app's text again
-let restoreCaret: { at: number; trusted: boolean } | null = null; // after a render: put the caret back at this source offset
+let heldBack = false; // a render was held back: ask for the app's text again once nothing holds it back any more
+// After a render: put the caret (or the selection [at, end)) back at these source offsets. `trusted`: offsets in the render's text.
+let restoreCaret: { at: number; end: number; trusted: boolean } | null = null;
+let ending: 'caught-up' | 'dropped' | null = null; // what the render being applied does to the burst (once it is on the page)
 let updating = false; // a render is being applied: the focus moving off a replaced block is not the user's
 let forget: (h: BlockHandle) => void = () => {};
 let timer: ReturnType<typeof setTimeout> | null = null;
 // The last edit, for undo coalescing: its block (by first line: a rebuilt block is the same block) and the source offset after it.
 let lastEdit: { line0: number; end: number } | null = null;
+// Where this page itself last put the caret (after an edit, after a render): a selection anywhere else is the user moving it.
+let ownCaret: { node: Node | null; offset: number } | null = null;
 // Bumped by every edit and every render applied: a remembered caret (sticky) is good only until the next one.
 let epoch = 0;
+let trace: string[] | null = null; // tests and the app's Debug hooks: the input events seen
 
 /** The app turns editing on or off (Settings ▸ Rendering ▸ Edit in preview) and hands over the hint texts in its language. */
 export function setEditing(config: { enabled: boolean; hints?: Hints }): void {
@@ -97,10 +107,17 @@ export function busy(): boolean {
   return burst !== null || composing !== null;
 }
 
+function note(event: string): void {
+  if (!trace) return;
+  trace.push(event);
+  if (trace.length > 64) trace.shift();
+}
+
 // --- hints ------------------------------------------------------------------------------------------------------------------
 
 let hintTimer: ReturnType<typeof setTimeout> | null = null;
 function hint(kind: HintKind): void {
+  note(`hint ${kind}`);
   const text = hints[kind] ?? hints.structure;
   if (!text) return;
   let el = document.getElementById('md2-hint');
@@ -169,9 +186,14 @@ function onClick(e: MouseEvent): void {
 }
 
 function onMouseDown(e: MouseEvent): void {
+  if (!host || !(e.target instanceof Element) || !host.contains(e.target)) return;
+  lastEdit = null; // the caret goes where the click is: a new undo step, also when it lands where it was
   // A link or a checkbox inside the block being edited works as everywhere else: leave edit mode before the click lands.
-  if (host && e.target instanceof Element && host.contains(e.target) && e.target.closest('a[href], input')) leave();
+  if (e.target.closest('a[href], input')) leave();
 }
+
+// Keys that move the caret: like NSTextView, a move ends the typing step even when the caret comes back to the same place.
+const MOVES = new Set(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown']);
 
 function onFocusOut(e: FocusEvent): void {
   if (updating || composing) return; // a render replacing the block; the input method's own panels taking focus for a moment
@@ -182,11 +204,25 @@ function onFocusOut(e: FocusEvent): void {
 }
 
 function onKeyDown(e: KeyboardEvent): void {
+  if (host && !e.isComposing && MOVES.has(e.key)) lastEdit = null;
   if (host && e.key === 'Escape' && !e.isComposing) {
     lastEdit = null;
     host.blur();
     leave();
   }
+}
+
+/** The caret moved, and not by this page (an edit, a render): the next edit starts a new undo step, as in the editor (keys and clicks
+ *  are caught as they happen, `onKeyDown` / `onMouseDown`; this catches the rest: a selection made by other means, assistive tools). */
+function onSelectionChange(): void {
+  if (!lastEdit || composing) return;
+  const sel = getSelection();
+  if (!ownCaret || !sel || !sel.isCollapsed || sel.anchorNode !== ownCaret.node || sel.anchorOffset !== ownCaret.offset) lastEdit = null;
+}
+
+function rememberCaret(): void {
+  const sel = getSelection();
+  ownCaret = sel && sel.rangeCount && sel.isCollapsed ? { node: sel.anchorNode, offset: sel.anchorOffset } : null;
 }
 
 // --- edits --------------------------------------------------------------------------------------------------------------------
@@ -218,7 +254,14 @@ function graphemeAround(text: string, k: number, backward: boolean): [number, nu
 function onBeforeInput(e: InputEvent): void {
   if (!host || !(e.target instanceof Node) || !host.contains(e.target)) return;
   const type = e.inputType;
+  if (trace) note(`beforeinput ${type}${e.cancelable ? '' : ' (not cancelable)'} ${JSON.stringify(e.data ?? '')}`);
   if (type === 'insertCompositionText' || type === 'deleteCompositionText') return; // the input method's; finished at its end
+  if (type === 'deleteByComposition') {
+    // An input method starting over a selection takes the selection out first (WebKit, before or after compositionstart): the
+    // composition replaces it. Let through; the composition's record has the selection.
+    if (!composing) startComposition(e.getTargetRanges?.()[0] ?? currentRange());
+    return;
+  }
   if (!e.cancelable) {
     // Not ours to stop: let it happen, then show the app's text again.
     setTimeout(() => resync('structure'), 0);
@@ -259,11 +302,14 @@ function onBeforeInput(e: InputEvent): void {
   }
 }
 
+function currentRange(): Range | null {
+  const sel = getSelection();
+  return sel && sel.rangeCount ? sel.getRangeAt(0) : null;
+}
+
 /** The DOM range an input replaces: the browser's target range, else the selection; a deletion at a caret takes the grapheme. */
 function replacedRange(e: InputEvent, m: BlockMapping): { k0: number; k1: number; prev: boolean; next: boolean } | null {
-  const target = e.getTargetRanges?.()[0];
-  const sel = getSelection();
-  const range = target ?? (sel && sel.rangeCount ? sel.getRangeAt(0) : null);
+  const range = e.getTargetRanges?.()[0] ?? currentRange();
   if (!range) return null;
   const p0 = pointIn(m, range.startContainer, range.startOffset);
   const p1 = range.collapsed ? p0 : pointIn(m, range.endContainer, range.endOffset);
@@ -289,13 +335,18 @@ function typed(e: InputEvent, data: string): void {
   commit(m, at.k0, at.k1, data, at.prev, at.next, 'none', at.k0 === at.k1 ? stickyAt() : null);
 }
 
-/** Units [k0, k1) of `m` replaced by `data`: checked, shown, sent. `done`: what the browser did to the DOM already ('all': the
- *  whole edit, an input method's commit; 'deleted': only the removal of [k0, k1)). `at`: typing goes to this source offset (the
- *  caret's remembered place, see `sticky`) instead of next to its neighbours. */
-function commit(m: BlockMapping, k0: number, k1: number, data: string, prev: boolean, next: boolean, done: 'none' | 'deleted' | 'all', at: number | null = null): void {
+/** Units [k0, k1) of `m` replaced by `data`: checked, shown, sent; false when refused. `done`: what the browser did to the DOM already
+ *  ('all': the whole edit, an input method's commit; 'deleted': only the removal of [k0, k1)). `at`: typing goes to this source offset
+ *  (the caret's remembered place, see `sticky`) instead of next to its neighbours. A refusal shows its hint; when the DOM may have
+ *  changed (`done`) or `resyncOnRefusal`, it also shows the app's text again. */
+function commit(m: BlockMapping, k0: number, k1: number, data: string, prev: boolean, next: boolean, done: 'none' | 'deleted' | 'all', at: number | null = null, resyncOnRefusal = false): boolean {
   const h = m.handle;
   const source = burst?.text ?? shown.source;
-  const refuse = (kind: HintKind): void => (done === 'none' ? hint(kind) : resync(kind));
+  const refuse = (kind: HintKind): false => {
+    if (done === 'none' && !resyncOnRefusal) hint(kind);
+    else resync(kind);
+    return false;
+  };
   const v: SourceEdit = at === null || k1 !== k0
     ? sourceEdit(m, source, k0, k1, data, prev, next)
     : NEWLINE.test(data) ? { refused: 'newline' } : splitsPair(source, at) || at < m.start || at > m.end ? { refused: 'unmapped' } : { from: at, to: at };
@@ -331,57 +382,70 @@ function commit(m: BlockMapping, k0: number, k1: number, data: string, prev: boo
   }
   // The block's text now, which must be exactly the old one with the edit made.
   const now = blockText(h);
-  if (now.text !== expected) return resync('stale');
+  if (now.text !== expected) {
+    if (trace) note(`the block shows ${JSON.stringify(now.text)}, not ${JSON.stringify(expected)}`);
+    resync('stale');
+    return false;
+  }
   const token = bridgeToken();
-  if (!token) return resync('stale');
+  if (!token) {
+    resync('stale');
+    return false;
+  }
   const delta = literal.insert.length - (v.to - v.from);
   const mapping = edited(m, k0, k1, literal.units.map((u) => v.from + u), literal.widths, delta, now);
   const step = !lastEdit || lastEdit.line0 !== h.line0 || (v.from !== lastEdit.end && v.to !== lastEdit.end);
-  burst ??= { base: shown.version, seq: 0, text: shown.source, edits: [], maps: new Map(), caret: 0, sentAt: 0 };
+  burst ??= { id: ++bursts, base: shown.version, seq: 0, text: shown.source, edits: [], maps: new Map(), sentAt: 0 };
   for (const [b, other] of burst.maps) if (b !== h) burst.maps.set(b, shifted(other, v.to, delta));
   burst.maps.set(h, mapping);
   burst.seq++;
   burst.edits.push({ from: v.from, to: v.to, len: literal.insert.length });
   burst.text = source.slice(0, v.from) + literal.insert + source.slice(v.to);
-  burst.caret = v.from + literal.insert.length;
   burst.sentAt = performance.now();
-  lastEdit = { line0: h.line0, end: burst.caret };
+  const end = v.from + literal.insert.length;
+  lastEdit = { line0: h.line0, end };
   epoch++;
   forget(h);
   post({
-    type: 'previewEdit', token, base: burst.base, seq: burst.seq, from: v.from, to: v.to, text: literal.insert, step,
+    type: 'previewEdit', token, burst: burst.id, base: burst.base, seq: burst.seq, from: v.from, to: v.to, text: literal.insert, step,
     removed: source.slice(v.from, v.to), before: source.slice(Math.max(0, v.from - CONTEXT), v.from), after: source.slice(v.to, v.to + CONTEXT),
   });
   if (caret) {
-    const sel = getSelection();
-    sel?.setBaseAndExtent(caret.node, caret.offset, caret.node, caret.offset);
+    getSelection()?.setBaseAndExtent(caret.node, caret.offset, caret.node, caret.offset);
     // Typing goes on right there: after the inserted source, also when it ends in something the page shows differently (an escape).
-    sticky = { at: burst.caret, node: caret.node, offset: caret.offset, epoch };
+    sticky = { at: end, node: caret.node, offset: caret.offset, epoch };
   }
+  rememberCaret();
   armTimeout();
+  return true;
 }
 
 // --- input methods ------------------------------------------------------------------------------------------------------------
 
 function onCompositionStart(): void {
-  if (!host) return;
+  note('compositionstart');
+  if (host && !composing) startComposition(currentRange());
+}
+
+/** A composition starts, replacing `r` (the selection, collapsed or not). */
+function startComposition(r: AbstractRange | null): void {
   const m = current();
-  const sel = getSelection();
-  if (!m || !sel || !sel.rangeCount) {
+  if (!m || !r) {
     composing = { m: m ?? ({ handle: hostHandle } as BlockMapping), text: '', k0: -1, k1: -1, prev: false, next: false, at: null };
     return;
   }
-  const r = sel.getRangeAt(0);
   const p0 = pointIn(m, r.startContainer, r.startOffset);
   const p1 = r.collapsed ? p0 : pointIn(m, r.endContainer, r.endOffset);
-  composing = { m, text: m.text, k0: p0?.k ?? -1, k1: p1?.k ?? -1, prev: p0?.prev ?? false, next: p0?.next ?? false, at: stickyAt() };
+  composing = { m, text: m.text, k0: p0?.k ?? -1, k1: p1?.k ?? -1, prev: p0?.prev ?? false, next: p0?.next ?? false, at: r.collapsed ? stickyAt() : null };
 }
 
 function onCompositionEnd(e: CompositionEvent): void {
+  note(`compositionend ${JSON.stringify(e.data ?? '')}`);
   if (composing) finishComposition(e.data ?? '', true);
 }
 
-/** The composition is over: the committed text, already in the DOM (`inDOM`) or to put there (WebKit's insertFromComposition). */
+/** The composition is over: the committed text, already in the DOM (`inDOM`) or to put there (WebKit's insertFromComposition). Every
+ *  way out leaves nothing held back: a render that waited for the composition is asked for again. */
 function finishComposition(data: string, inDOM: boolean): void {
   const c = composing;
   composing = null;
@@ -394,18 +458,52 @@ function finishComposition(data: string, inDOM: boolean): void {
     return resync(kind);
   }
   if (c.k0 < 0 || !c.m.texts) return resync('unmapped');
+  const h = c.m.handle;
   if (!data && c.k0 === c.k1) {
-    // Cancelled, nothing replaced: the DOM must be as it was.
-    if (blockText(c.m.handle).text !== c.text) return resync('stale');
+    // Cancelled (Escape), nothing replaced: the DOM must be as it was.
+    if (!respace(h, c.text)) return resync('stale');
     return releaseHeldBack();
   }
   const at = c.k0 === c.k1 ? c.at : null;
-  if (inDOM) return commit(c.m, c.k0, c.k1, data, c.prev, c.next, 'all', at);
-  // WebKit asks to insert the committed text itself: its composition is gone from the DOM, and with it whatever it replaced.
-  const left = blockText(c.m.handle).text;
-  if (left === c.text) return commit(c.m, c.k0, c.k1, data, c.prev, c.next, 'none', at);
-  if (left === c.text.slice(0, c.k0) + c.text.slice(c.k1)) return commit(c.m, c.k0, c.k1, data, c.prev, c.next, 'deleted');
-  resync('stale');
+  if (inDOM) {
+    respace(h, c.text.slice(0, c.k0) + data + c.text.slice(c.k1)); // else the commit's own check finds it
+    commit(c.m, c.k0, c.k1, data, c.prev, c.next, 'all', at);
+  } else {
+    // WebKit asks to insert the committed text itself: its composition is gone from the DOM, and with it whatever it replaced. A
+    // refusal shows the app's text: the composed characters are gone, and a render may have waited for the composition.
+    if (trace) note(`insert ${JSON.stringify(data)} over [${c.k0}, ${c.k1}) of ${JSON.stringify(c.text)}: block has ${JSON.stringify(blockText(h).text)}`);
+    if (respace(h, c.text)) commit(c.m, c.k0, c.k1, data, c.prev, c.next, 'none', at, true);
+    else if (respace(h, c.text.slice(0, c.k0) + c.text.slice(c.k1))) commit(c.m, c.k0, c.k1, data, c.prev, c.next, 'deleted');
+    else resync('stale');
+  }
+  releaseHeldBack();
+}
+
+/** The block shows `want`, but for spaces WebKit's editing wrote as U+00A0 (a space at the edge of a text node, which would collapse:
+ *  seen when an input method replaces a selection): those are made spaces again, the caret and selection kept. False when it shows
+ *  anything else. */
+function respace(h: BlockHandle, want: string): boolean {
+  const now = blockText(h);
+  if (now.text === want) return true;
+  if (now.text.length !== want.length) return false;
+  const fixes: number[] = [];
+  for (let i = 0; i < want.length; i++) {
+    const a = now.text.charCodeAt(i);
+    const b = want.charCodeAt(i);
+    if (a === b) continue;
+    if (a !== 0xa0 || b !== 0x20) return false;
+    fixes.push(i);
+  }
+  const sel = getSelection();
+  const kept = sel && sel.rangeCount ? [sel.anchorNode, sel.anchorOffset, sel.focusNode, sel.focusOffset] as const : null;
+  for (const i of fixes) {
+    let j = now.starts.length - 1;
+    while (now.starts[j] > i) j--;
+    now.texts[j].replaceData(i - now.starts[j], 1, ' ');
+  }
+  if (kept && kept[0] && kept[2]) sel!.setBaseAndExtent(kept[0], kept[1], kept[2], kept[3]);
+  note(`respaced ${fixes.length}`);
+  return true;
 }
 
 // --- renders --------------------------------------------------------------------------------------------------------------------
@@ -421,9 +519,8 @@ function armTimeout(): void {
   }, burstTimeoutMs + 50);
 }
 
-/** Drops whatever is in flight and shows the app's text (`ask`: ask the app for it; a refusal already sends it). Never while an input
- *  method composes: that waits for the composition to end. */
-function resync(kind: HintKind | null, ask = true): void {
+/** Drops whatever is in flight and asks the app for its text. Never while an input method composes: that waits for its end. */
+function resync(kind: HintKind | null): void {
   if (composing) {
     pendingResync = kind ?? 'stale';
     return;
@@ -437,126 +534,136 @@ function resync(kind: HintKind | null, ask = true): void {
   lastEdit = null;
   if (timer) clearTimeout(timer);
   const token = bridgeToken();
-  if (ask && token) post({ type: 'resync', token });
+  if (token) post({ type: 'resync', token });
 }
 
+/** A render was held back and nothing holds it back any more (no composition): ask for the app's text again. A burst in flight
+ *  stays; the render that comes back is judged by its mark like any other. */
 function releaseHeldBack(): void {
-  if (heldBack && !busy()) {
-    heldBack = false;
-    const token = bridgeToken();
-    if (token) post({ type: 'resync', token });
-  }
+  if (!heldBack || composing) return;
+  heldBack = false;
+  const token = bridgeToken();
+  if (token) post({ type: 'resync', token });
 }
 
-/** The app refused edit `seq` of the burst started on render `base` (its text was not the one the edit was made on, or it could
- *  not apply it): if that is this page's burst, show the app's text. A refusal of a burst that is over already changes nothing. */
-export function editRefused(kind: HintKind | null, base: number, seq: number): boolean {
-  if (!burst || burst.base !== base || seq > burst.seq) return false;
+/** The app refused edit `seq` of burst `id` (its text was not the one the edit was made on, or it could not apply it): if that is
+ *  this page's burst, show the app's text. A refusal of a burst that is over already changes nothing. */
+export function editRefused(kind: HintKind | null, id: number, seq: number): boolean {
+  if (!burst || burst.id !== id || seq > burst.seq) return false;
   resync(kind ?? 'stale');
   return true;
 }
 
-/** main.ts, before applying a render of `md` that carries the app's mark of this page's edits (`edit`: base and seq of the last
- *  edit it contains, null when it is not made of them): 'defer' holds it back. */
-export function beforeUpdate(md: string, edit: { base: number; seq: number } | null): 'apply' | 'defer' {
-  if (composing) {
+/** main.ts, before applying a render of `md` that carries the app's mark of this page's edits (`edit`: the burst and the number of
+ *  the last of its edits it contains, null when it is not made of them): 'defer' holds it back. */
+export function beforeUpdate(md: string, edit: { burst: number; seq: number } | null): 'apply' | 'defer' {
+  const ours = burst !== null && edit !== null && edit.burst === burst.id;
+  if (composing || (ours && edit!.seq < burst!.seq)) {
     heldBack = true;
     return 'defer';
   }
   updating = true;
+  // The caret as it is now (the user may have moved it since the last edit), as source offsets of the text on screen.
+  const at = selectionSource();
   if (!burst) {
     // A render of something else: the caret goes back near where it was, but nothing typed next relies on that offset.
-    const at = caretSource();
-    restoreCaret = at === null ? null : { at, trusted: false };
+    restoreCaret = at && { ...at, trusted: false };
     if (edit === null) lastEdit = null;
+    ending = null;
     return 'apply';
   }
-  if (edit && edit.base === burst.base) {
-    if (edit.seq === burst.seq && md === burst.text) {
-      restoreCaret = host && document.activeElement === host ? { at: burst.caret, trusted: true } : null;
-      burst = null;
-      heldBack = false;
-      if (timer) clearTimeout(timer);
-      return 'apply';
-    }
-    if (edit.seq < burst.seq) {
-      heldBack = true;
-      updating = false;
-      return 'defer';
-    }
-  }
-  // The text moved on without these edits (an undo, a change on disk): show the app's.
-  restoreCaret = host && document.activeElement === host ? { at: burst.caret, trusted: false } : null; // near enough for the caret
-  for (const b of burst.maps.keys()) forget(b);
-  burst = null;
-  heldBack = false;
-  lastEdit = null;
-  if (timer) clearTimeout(timer);
+  // It catches up with the burst (exactly its text), or the text moved on without these edits (an undo, a change on disk).
+  ending = ours && edit!.seq === burst.seq && md === burst.text ? 'caught-up' : 'dropped';
+  if (ending === 'caught-up') carryContext(shown.source, md); // its definitions are the ones the burst started from
+  restoreCaret = at && { ...at, trusted: ending === 'caught-up' };
   return 'apply';
 }
 
-/** The source offset of the caret in the block being edited, while it has the focus. */
-function caretSource(): number | null {
+/** The source offsets of the selection in the block being edited ([at, end), equal for a caret), while it has the focus. */
+function selectionSource(): { at: number; end: number } | null {
   if (!host || document.activeElement !== host) return null;
+  const remembered = stickyAt();
+  if (remembered !== null) return { at: remembered, end: remembered };
   const m = current();
-  const sel = getSelection();
-  if (!m || !sel || !sel.rangeCount) return null;
-  const r = sel.getRangeAt(0);
-  const p = pointIn(m, r.endContainer, r.endOffset);
-  if (!p) return null;
-  const at = insertionAt(m, p.k, p.prev, p.next);
-  return at >= 0 ? at : null;
+  const r = currentRange();
+  if (!m || !r) return null;
+  const p1 = pointIn(m, r.endContainer, r.endOffset);
+  const p0 = r.collapsed ? p1 : pointIn(m, r.startContainer, r.startOffset);
+  if (!p0 || !p1) return null;
+  const end = insertionAt(m, p1.k, p1.prev, p1.next);
+  const at = r.collapsed ? end : insertionAt(m, p0.k, p0.prev, p0.next);
+  return at >= 0 && end >= at ? { at, end } : null;
 }
 
-/** main.ts, after a render was applied to the DOM (or failed): the block being edited was rebuilt, so edit mode and the caret move
- *  to the new one (the focus went with the old). */
-export function afterUpdate(): void {
+/** main.ts, after a render was applied to the DOM (`ok`) or failed: the block being edited was rebuilt, so edit mode and the caret move
+ *  to the new one (the focus went with the old). The burst ends here, once the render that ends it is on the page. A failed render
+ *  leaves the page as it was; if it was to end the burst, the burst goes (the edits on the page are the app's) and edit mode with it,
+ *  so nothing is typed on top of a render that did not happen. */
+export function afterUpdate(ok: boolean): void {
   updating = false;
-  epoch++;
+  const end = ending;
+  ending = null;
   const caret = restoreCaret;
   restoreCaret = null;
+  if (end && burst) {
+    if (end === 'dropped' || !ok) {
+      for (const b of burst.maps.keys()) forget(b);
+      lastEdit = null;
+    }
+    burst = null;
+    heldBack = false;
+    if (timer) clearTimeout(timer);
+    if (!ok) leave();
+  }
+  if (!ok) return; // the old content stays: so does edit mode (unless a burst ended with it)
+  heldBack = false; // whatever was held back is older than this render
+  epoch++;
   if (host && host.isConnected) return;
   leave();
-  if (caret) reenterAt(caret.at, caret.trusted);
+  if (caret) reenterAt(caret.at, caret.trusted, caret.end);
 }
 
-/** Edit mode on the block that holds source offset `at`, caret there (after the character before it when it can). `trusted`: `at`
- *  is an offset in the text on screen (else the caret is only placed near it, and typing goes by what the page shows). */
-function reenterAt(at: number, trusted: boolean): void {
-  const line = lineOf(shown.source, at);
-  const h = shown.blocks.find((b) => b.line0 <= line && line < b.line1);
-  if (!h) return;
-  const el = elementOf(h);
-  const m = mapBlock(h);
-  if (!el || !m) return;
-  // Right after the character before `at`, or right before the one at it; else (the source has characters there the page does not
-  // show: a space typed at the end of a line, which Markdown drops) after the last shown one before it, remembering `at` itself.
+/** Where source offset `at` goes in `m`: unit k, in the node of the unit before it (`after`); `exact` when a unit starts or ends
+ *  there (else the source has characters there the page does not show: a space typed at the end of a line, which Markdown drops). */
+function placeOf(m: BlockMapping, at: number): { k: number; after: boolean; exact: boolean } | null {
   let k = -1;
   let after = false;
-  let exact = false;
   for (let i = 0; i < m.offsets.length; i++) {
     const o = m.offsets[i];
-    if (o === at - 1) {
-      [k, after, exact] = [i + 1, true, true];
-      break;
-    }
-    if (o === at) {
-      [k, after, exact] = [i, false, true];
-      break;
-    }
+    if (o === at - 1) return { k: i + 1, after: true, exact: true };
+    if (o === at) return { k: i, after: false, exact: true };
     if (o >= 0 && o < at) [k, after] = [i + 1, true];
     else if (o > at) {
       if (k < 0) k = i;
       break;
     }
   }
-  if (k < 0) return enter(h, el, null);
-  const p = pointAt(m, k, after);
+  return k < 0 ? null : { k, after, exact: false };
+}
+
+/** Edit mode on the block that holds source offset `at`, caret there (after the character before it when it can), or the selection
+ *  [at, end). `trusted`: `at` is an offset in the text on screen (else the caret is only placed near it, and typing goes by what the
+ *  page shows). */
+function reenterAt(at: number, trusted: boolean, end = at): void {
+  const line = lineOf(shown.source, at);
+  const h = shown.blocks.find((b) => b.line0 <= line && line < b.line1);
+  if (!h) return;
+  const el = elementOf(h);
+  const m = mapBlock(h);
+  if (!el || !m) return;
+  const place = placeOf(m, at);
+  if (!place) return enter(h, el, null);
+  const p = pointAt(m, place.k, place.after);
+  if (!p) return enter(h, el, null);
   const r = document.createRange();
-  if (p) r.setStart(p.node, p.offset);
+  r.setStart(p.node, p.offset);
   r.collapse(true);
-  enter(h, el, p ? r : null);
-  sticky = trusted && !exact && p && at >= m.start && at <= m.end ? { at, node: p.node, offset: p.offset, epoch } : null;
+  const last = end > at ? placeOf(m, end) : null;
+  const q = last && pointAt(m, last.k, last.after);
+  if (q) r.setEnd(q.node, q.offset);
+  enter(h, el, r);
+  rememberCaret();
+  sticky = trusted && !q && !place.exact && at >= m.start && at <= m.end ? { at, node: p.node, offset: p.offset, epoch } : null;
 }
 
 // The caret's source offset where the page cannot tell it from the DOM: right after an edit (its source may end in an escape the page
@@ -579,9 +686,10 @@ export function startEditing(): void {
   document.addEventListener('beforeinput', onBeforeInput, true);
   document.addEventListener('compositionstart', onCompositionStart, true);
   document.addEventListener('compositionend', onCompositionEnd, true);
+  document.addEventListener('selectionchange', onSelectionChange);
 }
 
-// Tests drive edit mode without a pointer.
+// Tests (and the app's Debug hooks) drive edit mode without a pointer and read what happened.
 export const editingForTests = {
   enterAt(line: number, at: number | null): boolean {
     const h = shown.blocks.find((b) => b.line0 <= line && line < b.line1);
@@ -595,17 +703,17 @@ export const editingForTests = {
     reenterAt(at, false);
     return host === el;
   },
-  state: () => ({ editing: host !== null, burst: burst ? { base: burst.base, seq: burst.seq } : null, composing: composing !== null }),
-  configure(settings: { burstTimeoutMs?: number }): void {
+  state: () => ({
+    editing: host !== null, burst: burst ? { id: burst.id, base: burst.base, seq: burst.seq } : null, composing: composing !== null, heldBack,
+  }),
+  configure(settings: { burstTimeoutMs?: number; trace?: boolean }): void {
     if (settings.burstTimeoutMs !== undefined) burstTimeoutMs = settings.burstTimeoutMs;
+    if (settings.trace !== undefined) trace = settings.trace ? [] : null;
   },
-  /** The map of the block on `line`, timed (benchmarks). */
-  mapLine(line: number): { ms: number; placed: number; units: number } | null {
-    const h = shown.blocks.find((b) => b.line0 <= line && line < b.line1);
-    if (!h) return null;
-    const t0 = performance.now();
-    const m = mapBlock(h);
-    return { ms: performance.now() - t0, placed: m?.placed ?? 0, units: m?.text.length ?? 0 };
+  /** The input events seen since the last call (with `configure({ trace: true })`). */
+  events(): string[] {
+    const out = trace ?? [];
+    if (trace) trace = [];
+    return out;
   },
-  linesRange,
 };

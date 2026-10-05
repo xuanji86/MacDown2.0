@@ -1,5 +1,5 @@
 // What the page shows right now, for the parts that work on it after a render (source map, selection, editing): the Markdown and
-// options of the render that was last applied to the DOM, its version, and its blocks. main.ts keeps it current.
+// options of the render that was last applied to the DOM, its version, its blocks and its task checkboxes. main.ts keeps it current.
 import type { BlockHandle } from './scroll.ts';
 
 export interface RenderOptionsLike {
@@ -8,14 +8,16 @@ export interface RenderOptionsLike {
   [key: string]: unknown;
 }
 
+/** A task-list checkbox of the render (render/core.ts `tasksOf`): its item's line, and the line and column of its `[ ]` mark. */
+export interface TaskItem { line: number; mark: number; column: number }
+
 export const shown = {
   source: '',
   options: null as RenderOptionsLike | null,
   optionsJSON: '',
   version: 0,
   blocks: [] as BlockHandle[],
-  /** Bumped whenever the DOM of #doc changes under a render (patch or rebuild). */
-  generation: 0,
+  tasks: [] as TaskItem[],
 };
 
 let starts: { source: string; at: Int32Array } | null = null;

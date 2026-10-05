@@ -4,7 +4,7 @@
 // callJavaScript, where the app learns that a render landed, runs later (`landing`), so an edit made on a fresh render can arrive
 // before the app knows the page shows it. The simulator applies an edit only on exactly the text it was made on (the burst chain,
 // the base from the renders it sent, the removed source and the source around it), renders after a delay with the burst's mark,
-// refuses with base and seq (and sends nothing else), re-renders on a resync.
+// refuses with the burst's id and seq (and sends nothing else), re-renders on a resync, and forgets what a landed render settled.
 // Input goes through Chrome's own input pipeline (DevTools Input.insertText / dispatchKeyEvent / imeSetComposition).
 //
 // The plain-text fuzz knows where every shown character is in the source without the source map (its documents have no markup
@@ -51,12 +51,12 @@ function rng(seed) {
 const APP = `
 window.app = {
   text: '', version: 0, sent: [], displayed: null, chain: null, applied: [], refused: 0, renders: 0,
-  delay: () => 0, landing: () => 0, queue: [], busy: false, timer: null, landingsDue: 0,
+  delay: () => 0, landing: () => 0, queue: [], busy: false, timer: null, landingsDue: 0, base: undefined, failNext: false,
   load(text) { this.text = text; this.chain = null; this.push(); },
   // PreviewEditChain.mark: the burst and the number of the last of its edits a text is the result of
   mark(md) {
     if (!this.chain) return null;
-    for (const [seq, t] of this.chain.texts) if (t === md) return { base: this.chain.base, seq };
+    for (const [seq, t] of this.chain.texts) if (t === md) return { burst: this.chain.burst, seq };
     return null;
   },
   // PreviewModel.push: one render in flight at a time, the latest text when it is the next one's turn
@@ -66,13 +66,20 @@ window.app = {
     this.sent.push({ version: v, text: md });
     if (this.sent.length > 8) this.sent.shift();
     this.renders++;
-    const out = JSON.parse(MacDown2Preview.update(md, OPTIONS, v, mark));
-    (window.__updates ??= []).push({ v, mark, deferred: !!out.deferred, error: out.error, state: MacDown2Preview.editingForTests.state() });
+    const options = this.failNext ? '{' : OPTIONS; // a render that throws inside the page
+    this.failNext = false;
+    const out = JSON.parse(MacDown2Preview.update(md, options, v, mark, false, this.base));
+    (window.__updates ??= []).push({ v, mark, deferred: !!out.deferred, error: out.error, mode: out.perf?.mode, state: MacDown2Preview.editingForTests.state() });
     // the callJavaScript continuation: the app learns what the page shows, later than it hears the page's messages
     this.landingsDue++;
     setTimeout(() => {
       this.landingsDue--;
-      if (!out.deferred && !out.error) this.displayed = { version: v, text: md };
+      if (!out.deferred && !out.error) {
+        // PreviewEditChain.landed: older renders are not needed any more, nor a burst this render ended
+        this.displayed = { version: v, text: md };
+        this.sent = this.sent.filter((r) => r.version >= v);
+        if (mark && this.chain && this.chain.burst === mark.burst && this.chain.seq === mark.seq) this.chain = null;
+      }
       if (this.pushAgain) { this.pushAgain = false; this.push(); }
     }, this.landing());
     return out;
@@ -89,21 +96,21 @@ window.app = {
     if (m.type === 'previewEdit') {
       let expected = null;
       if (m.seq === 1) expected = this.sent.find((r) => r.version === m.base)?.text ?? null;
-      else if (this.chain && this.chain.base === m.base && this.chain.seq === m.seq - 1) expected = this.chain.text;
+      else if (this.chain && this.chain.burst === m.burst && this.chain.seq === m.seq - 1) expected = this.chain.text;
       const fits = expected !== null && this.text === expected && !/[\\n\\r\\v\\f\\u0085\\u2028\\u2029]/.test(m.text) && m.to <= expected.length &&
         expected.slice(m.from, m.to) === m.removed && expected.slice(Math.max(0, m.from - 16), m.from) === m.before && expected.slice(m.to, m.to + 16) === m.after;
       if (!fits) {
         this.refused++;
-        this.why = { edit: m, expected, text: this.text, chain: this.chain && { base: this.chain.base, seq: this.chain.seq } };
-        if (!this.chain || this.chain.base === m.base) this.chain = null;
-        MacDown2Preview.editRefused('stale', m.base, m.seq);
+        this.why = { edit: m, expected, text: this.text, chain: this.chain && { burst: this.chain.burst, seq: this.chain.seq } };
+        if (!this.chain || this.chain.burst <= m.burst) this.chain = null;
+        MacDown2Preview.editRefused('stale', m.burst, m.seq);
         return;
       }
       this.text = expected.slice(0, m.from) + m.text + expected.slice(m.to);
       const texts = m.seq === 1 ? new Map() : this.chain.texts;
       texts.set(m.seq, this.text);
       if (texts.size > 8) texts.delete(texts.keys().next().value);
-      this.chain = { base: m.base, seq: m.seq, text: this.text, texts };
+      this.chain = { burst: m.burst, base: m.base, seq: m.seq, text: this.text, texts };
       this.applied.push(m);
       this.schedule();
     } else if (m.type === 'resync') this.schedule();
@@ -158,6 +165,13 @@ describe('preview editing (headless Chrome)', { skip: !chromeAvailable && 'no Ch
     await page.send('Input.dispatchKeyEvent', { type: 'keyUp', key: name, code, windowsVirtualKeyCode: vk, nativeVirtualKeyCode: vk });
   };
   const backspace = (page) => key(page, 'Backspace', 'Backspace', 8);
+  const arrow = (page, name) => key(page, name, name, { ArrowLeft: 37, ArrowUp: 38, ArrowRight: 39, ArrowDown: 40 }[name]);
+  const hintText = (page) => page.eval(`document.getElementById('md2-hint')?.textContent ?? null`);
+  // An event dispatched to the block being edited (WebKit's input events that Chrome does not send); true when it was prevented.
+  const fire = (page, js) => page.eval(`(() => { const ev = ${js}; document.querySelector('#doc [contenteditable]').dispatchEvent(ev); return ev.defaultPrevented; })()`);
+  // A cancelable beforeinput of one of WebKit's input types; Chrome blanks the ones it does not know in the constructor.
+  const webkitInput = (inputType, data) =>
+    `(() => { const ev = new InputEvent('beforeinput', { data: ${JSON.stringify(data)}, cancelable: true, bubbles: true }); Object.defineProperty(ev, 'inputType', { value: ${JSON.stringify(inputType)} }); return ev; })()`;
   const forwardDelete = (page) => key(page, 'Delete', 'Delete', 46);
   const compose = async (page, steps, commit, pause = 0) => {
     for (const s of steps) {
@@ -382,8 +396,8 @@ describe('preview editing (headless Chrome)', { skip: !chromeAvailable && 'no Ch
       await caretAt(page, 0, 3);
       await type(page, 'X');
       const state = await page.eval('MacDown2Preview.editingForTests.state()');
-      assert.equal(await page.eval(`MacDown2Preview.editRefused('stale', ${state.burst.base - 1}, 1)`), false);
-      assert.equal(await page.eval(`MacDown2Preview.editRefused('stale', ${state.burst.base}, ${state.burst.seq + 1})`), false);
+      assert.equal(await page.eval(`MacDown2Preview.editRefused('stale', ${state.burst.id - 1}, 1)`), false);
+      assert.equal(await page.eval(`MacDown2Preview.editRefused('stale', ${state.burst.id}, ${state.burst.seq + 1})`), false);
       assert.deepEqual(await page.eval('MacDown2Preview.editingForTests.state().burst'), state.burst);
       await page.eval('app.delay = () => 0');
       await settle(page);
@@ -428,6 +442,166 @@ describe('preview editing (headless Chrome)', { skip: !chromeAvailable && 'no Ch
     }
   });
 
+  test('a late refusal of an earlier burst on the same render does not end the next one', async () => {
+    const page = await open('one two\n\nthree\n');
+    try {
+      await page.eval('app.delay = () => 150');
+      await caretAt(page, 0, 3);
+      await type(page, 'X');
+      const first = await page.eval('MacDown2Preview.editingForTests.state().burst');
+      assert.equal(await page.eval(`MacDown2Preview.editRefused('stale', ${first.id}, 1)`), true); // it goes: the page asks for the app's text
+      await caretAt(page, 2, 3);
+      await type(page, 'Y'); // before that text comes: a new burst (in a block the page still shows as rendered), on the same render
+      const second = await page.eval('MacDown2Preview.editingForTests.state().burst');
+      assert.equal(second.base, first.base);
+      assert.notEqual(second.id, first.id);
+      assert.equal(await page.eval(`MacDown2Preview.editRefused('stale', ${first.id}, 1)`), false); // the same answer again, late
+      assert.deepEqual(await page.eval('MacDown2Preview.editingForTests.state().burst'), second);
+    } finally {
+      await page.close();
+    }
+  });
+
+  test('a composition cancelled (Escape) shows the render that came meanwhile at once, also with an edit in flight', async () => {
+    const page = await open('alpha beta\n\nnext\n');
+    try {
+      await page.eval('MacDown2Preview.editingForTests.configure({ burstTimeoutMs: 60000 })'); // no help from the timeout
+      for (const inFlight of [false, true]) {
+        await page.eval(`app.delay = () => ${inFlight ? 80 : 0}; app.load('alpha beta\\n\\nnext\\n')`);
+        await settle(page);
+        await caretAt(page, 0, 5);
+        if (inFlight) await type(page, 'x');
+        await page.send('Input.imeSetComposition', { text: 'zh', selectionStart: 2, selectionEnd: 2 });
+        await wait(page, inFlight ? 250 : 0); // the app has the edit and renders it: held back, the input method composes
+        await page.eval(`app.text = app.text.replace('next', 'next more'); app.push()`); // and a change from elsewhere: held back too
+        assert.equal(await page.eval('MacDown2Preview.editingForTests.state().heldBack'), true);
+        await page.send('Input.imeSetComposition', { text: '', selectionStart: 0, selectionEnd: 0 }); // Escape
+        await settle(page);
+        assert.equal(await page.eval('app.text'), inFlight ? 'alphax beta\n\nnext more\n' : 'alpha beta\n\nnext more\n');
+        assert.equal(await docText(page), await freshText(await page.eval('app.text')));
+        assert.equal(await hintText(page), null, 'no "the text changed" hint');
+        assert.equal(await page.eval('app.refused'), 0);
+      }
+    } finally {
+      await page.eval('MacDown2Preview.editingForTests.configure({ burstTimeoutMs: 2000 })').catch(() => {});
+      await page.close();
+    }
+  });
+
+  test('WebKit asking to insert a composition the page refuses: the app text comes back, with what was held back', async () => {
+    const page = await open('alpha beta\n\nnext\n');
+    try {
+      await page.eval('MacDown2Preview.editingForTests.configure({ burstTimeoutMs: 60000, trace: true })');
+      await caretAt(page, 0, 5);
+      // WebKit's order of events, which Chrome does not send: compositionstart, then a cancelable insertFromComposition at the end
+      await fire(page, `new CompositionEvent('compositionstart', { bubbles: true })`);
+      await page.eval(`app.text = 'alpha beta\\n\\nnext more\\n'; app.push()`); // held back: it composes
+      assert.equal(await fire(page, webkitInput('insertFromComposition', 'a\nb')), true);
+      await settle(page).catch(async (e) => { throw new Error(`${e.message} ${JSON.stringify(await page.eval('[MacDown2Preview.editingForTests.events(), __msgs]'))}`); });
+      assert.equal(await hintText(page), 'H-newline');
+      assert.equal(await docText(page), await freshText('alpha beta\n\nnext more\n'));
+      assert.equal(await sentEdits(page), 0);
+    } finally {
+      await page.eval('MacDown2Preview.editingForTests.configure({ burstTimeoutMs: 2000 })').catch(() => {});
+      await page.close();
+    }
+  });
+
+  test('a composition over a selection replaces it: in Chrome, and in WebKit with its deleteByComposition', async () => {
+    const page = await open('alpha beta gamma\n');
+    try {
+      const select = (a, b) => page.eval(`(() => { MacDown2Preview.editingForTests.enterAt(0, null); const t = document.querySelector('#doc p').firstChild; getSelection().setBaseAndExtent(t, ${a}, t, ${b}); })()`);
+      await select(6, 10); // "beta"
+      await compose(page, ['z', 'zh'], '中');
+      await settle(page);
+      assert.equal(await page.eval('app.text'), 'alpha 中 gamma\n');
+      // WebKit (as the app logs it): compositionstart over the selection, the composition replaces it, at the end the composition is
+      // taken out again and a cancelable insertFromComposition asks for the committed text; the space left at the edge of the text
+      // node is written as U+00A0 meanwhile. (Its deleteByComposition, sent elsewhere, is let through, not refused.)
+      await select(6, 7); // "中"
+      await fire(page, `new CompositionEvent('compositionstart', { bubbles: true })`);
+      await page.eval(`(() => { getSelection().getRangeAt(0).deleteContents(); const t = document.querySelector('#doc p').firstChild; t.replaceData(5, 1, '\\u00a0'); })()`);
+      assert.equal(await page.eval(`document.querySelector('#doc p').textContent`), 'alpha  gamma');
+      assert.equal(await fire(page, webkitInput('insertFromComposition', '文')), true);
+      await fire(page, `new CompositionEvent('compositionend', { data: '文', bubbles: true })`);
+      await settle(page);
+      assert.equal(await page.eval('app.text'), 'alpha 文 gamma\n');
+      assert.equal(await page.eval(`document.querySelector('#doc p').textContent`), 'alpha 文 gamma');
+      await select(6, 7);
+      assert.equal(await fire(page, webkitInput('deleteByComposition', null)), false);
+      assert.equal(await page.eval('MacDown2Preview.editingForTests.state().composing'), true); // its record has the selection
+      await page.eval(`getSelection().getRangeAt(0).deleteContents()`);
+      assert.equal(await fire(page, webkitInput('insertFromComposition', '字')), true);
+      await settle(page);
+      assert.equal(await page.eval('app.text'), 'alpha 字 gamma\n');
+      assert.equal(await hintText(page), null);
+      assert.equal(await page.eval('app.refused'), 0);
+    } finally {
+      await page.close();
+    }
+  });
+
+  test('the render that catches up puts the caret where the user moved it since the last edit', async () => {
+    const page = await open('alpha beta\n');
+    try {
+      await page.eval('app.delay = () => 60');
+      await caretAt(page, 0, 5);
+      await type(page, 'x');
+      for (let i = 0; i < 3; i++) await arrow(page, 'ArrowLeft'); // before the app answers
+      await settle(page);
+      await type(page, 'Q');
+      await settle(page);
+      assert.equal(await page.eval('app.text'), 'alpQhax beta\n');
+      // and a selection made meanwhile stays selected
+      await caretAt(page, 0, 2);
+      await type(page, 'y');
+      await page.eval(`(() => { const t = document.querySelector('#doc p').firstChild; getSelection().setBaseAndExtent(t, 5, t, 9); })()`); // "hax " of "alypQhax beta"
+      await settle(page);
+      assert.equal(await page.eval('getSelection().toString()'), 'hax ');
+    } finally {
+      await page.close();
+    }
+  });
+
+  test('a render that fails to catch up leaves a consistent page: the burst and edit mode go, the next render shows the text', async () => {
+    const page = await open('alpha beta\n');
+    try {
+      await caretAt(page, 0, 5);
+      await page.eval('app.failNext = true');
+      await type(page, 'x');
+      for (let i = 0; i < 100 && !(await page.eval('app.applied.length === 1 && !app.landingsDue && app.renders >= 2')); i++) await wait(page, 5);
+      assert.deepEqual(await page.eval('MacDown2Preview.editingForTests.state()'), { editing: false, burst: null, composing: false, heldBack: false });
+      assert.equal(await page.eval(`document.querySelector('#doc p').textContent`), 'alphax beta'); // the edit stays on the page
+      await page.eval('app.push()');
+      await settle(page);
+      await caretAt(page, 0, 6);
+      await type(page, 'y');
+      await settle(page);
+      assert.equal(await page.eval('app.text'), 'alphaxy beta\n');
+      assert.equal(await page.eval('app.refused'), 0);
+    } finally {
+      await page.close();
+    }
+  });
+
+  test('a render held back with another document folder changes nothing on the page (its blocks stay)', async () => {
+    const page = await open('alpha\n\nbeta\n');
+    try {
+      await page.eval(`app.base = 'file:///one/'; app.push()`);
+      await settle(page);
+      await caretAt(page, 0, 5);
+      await page.send('Input.imeSetComposition', { text: 'zh', selectionStart: 2, selectionEnd: 2 });
+      await page.eval(`app.base = 'file:///two/'; app.push()`); // held back: it composes
+      await page.eval(`app.base = 'file:///one/'`);
+      await page.send('Input.insertText', { text: '中' });
+      await settle(page);
+      assert.equal(await page.eval('app.text'), 'alpha中\n\nbeta\n');
+      assert.deepEqual(await page.eval('__updates.filter((u) => !u.deferred).slice(-1).map((u) => u.mode)'), ['patch'], 'the block table survived the held-back render');
+    } finally {
+      await page.close();
+    }
+  });
+
   test('undo steps: typing on goes on in the same step across renders; a jump or another block starts a new one', async () => {
     const page = await open('alpha beta\n\ngamma\n');
     try {
@@ -438,13 +612,20 @@ describe('preview editing (headless Chrome)', { skip: !chromeAvailable && 'no Ch
       }
       await backspace(page);
       await settle(page);
+      await arrow(page, 'ArrowLeft'); // the caret moves away and back: the editor starts a new step after that too
+      await arrow(page, 'ArrowRight');
+      await type(page, 'W');
+      await settle(page);
+      await type(page, 'V'); // and typing on goes on in it
+      await settle(page);
       await caretAt(page, 0, 0); // a caret jump
       await type(page, 'Q');
       await settle(page);
       await caretAt(page, 2, 5); // another block
       await type(page, 'R');
       await settle(page);
-      assert.deepEqual(await page.eval('app.applied.map((m) => [m.text, m.step])'), [['x', true], ['y', false], ['z', false], ['', false], ['Q', true], ['R', true]]);
+      assert.equal(await page.eval('app.text'), 'QalphaxyWV beta\n\ngammaR\n');
+      assert.deepEqual(await page.eval('app.applied.map((m) => [m.text, m.step])'), [['x', true], ['y', false], ['z', false], ['', false], ['W', true], ['V', false], ['Q', true], ['R', true]]);
     } finally {
       await page.close();
     }

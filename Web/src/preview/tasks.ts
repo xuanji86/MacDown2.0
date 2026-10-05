@@ -1,13 +1,15 @@
 // Task-list checkboxes in the live preview. The renderer emits them `disabled` (so Quick Look, export, print and
 // `macdown2 render` stay static); only this page enables them, and only once the app has handed over its per-load token.
 //
-// A click does not edit anything here. It posts {token, line, checked, version} to the app: `line` is the source line of
-// the element holding the checkbox (data-line, kept current by the patcher), `checked` the state the user asked for,
-// `version` the render the page shows (main.ts passes the app's counter into every update). The app checks the token, that
-// version against its latest render, and that the line is a task item in the text now; it edits the source, and the next
-// render brings the new state in through the normal block patch. One listener on the document serves every checkbox,
+// A click does not edit anything here. It posts {token, line, mark, column, checked, version} to the app: `line` is the source
+// line of the element holding the checkbox (data-line, kept current by the patcher), `mark` / `column` where the renderer found its
+// `[ ]` (the render's task list, shown.ts), `checked` the state the user asked for, `version` the render the page shows (main.ts
+// passes the app's counter into every update). The app checks the token, that version against the renders it sent (their text), that
+// the text has a `[ ]` / `[x]` there and that its editor still holds that text; it edits the source, and the next render brings the
+// new state in through the normal block patch. One listener on the document serves every checkbox,
 // including those of blocks that arrive later.
 import { post } from './bridge.ts';
+import { shown } from './shown.ts';
 
 const BOX = 'input.task-list-item-checkbox';
 
@@ -77,6 +79,7 @@ export function startTaskToggling(): void {
       e.preventDefault();
       return;
     }
-    post({ type: 'toggleTask', token, line, checked: box.checked, version });
+    const task = shown.tasks.find((t) => t.line === line);
+    post({ type: 'toggleTask', token, line, mark: task?.mark ?? -1, column: task?.column ?? -1, checked: box.checked, version });
   });
 }

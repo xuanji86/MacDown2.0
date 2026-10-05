@@ -17,7 +17,7 @@ import { DEFAULT_STYLE, styleLinks } from './styles.ts';
 import { enableTaskCheckboxes, focusedTaskLine, restoreTaskFocus, setRenderVersion, startTaskToggling } from './tasks.ts';
 import { afterUpdate, beforeUpdate, busy, onForget, startEditing } from './editing.ts';
 import { clearHighlight, muteSelectionWhile, selectionStale, startSelectionReporting } from './peer.ts';
-import { shown } from './shown.ts';
+import { shown, type TaskItem } from './shown.ts';
 
 // The app hands over its per-load token and, after refusing a toggle, asks the page to take back what the user flipped.
 export { resyncTasks, setTaskToken } from './tasks.ts';
@@ -25,12 +25,11 @@ export { resyncTasks, setTaskToken } from './tasks.ts';
 // and tells the page when it refused an edit.
 export { editRefused, editingForTests, setEditing } from './editing.ts';
 export { highlightSource, selectedSource } from './peer.ts';
-export { mapBlock } from './source-map.ts';
 
 interface RenderBlock { lineStart: number; lineEnd: number; hash: number }
 type Lines = Pick<RenderBlock, 'lineStart' | 'lineEnd'>
 // `segments`: the HTML already cut into its blocks (renderIncremental does it per section), what alignSegments would return.
-interface RenderResult { html: string; blocks: RenderBlock[]; outline: unknown[]; stats: unknown; segments?: Segment[] | null }
+interface RenderResult { html: string; blocks: RenderBlock[]; tasks?: TaskItem[]; outline: unknown[]; stats: unknown; segments?: Segment[] | null }
 declare const MacDown2: {
   renderResult(source: string, options: unknown): RenderResult;
   renderIncremental?(source: string, options: unknown): RenderResult;
@@ -165,11 +164,15 @@ function patch(html: string, segs: Segment[], lines: Lines[], st: State): number
 // `version` is the app's counter for this render; checkbox clicks carry it back so the app knows which text the page shows.
 // `edit`: when the text is made of this page's preview edits, the base render and number of the last one it contains (editing.ts);
 // while the page shows more than that, or an input method is composing, the render is held back and `{deferred: true}` returned.
-// `rebuild`: forget the block table first (the whole page is built again), only when the render is applied.
+// `rebuild`: forget the block table first (the whole page is built again); `base`: the document folder (`setBase`, undefined = as it
+// is). Both only when the render is applied: a render held back changes nothing on the page.
 // On a render failure the previous content stays, the error bar shows the message, the error goes to Swift over
 // the bridge, and `{error}` is returned.
-export function update(md: string, optionsJSON: string, version = 0, edit: { base: number; seq: number } | null = null, rebuild = false): string {
+export function update(
+  md: string, optionsJSON: string, version = 0, edit: { burst: number; seq: number } | null = null, rebuild = false, base?: string | null,
+): string {
   if (beforeUpdate(md, edit) === 'defer') return JSON.stringify({ deferred: true });
+  if (base !== undefined) setBase(base);
   if (rebuild) invalidate();
   const t0 = performance.now();
   const focusedTask = focusedTaskLine();
@@ -203,17 +206,17 @@ export function update(md: string, optionsJSON: string, version = 0, edit: { bas
     shown.optionsJSON = optionsJSON;
     shown.version = version;
     shown.blocks = state?.blocks ?? [];
-    shown.generation++;
+    shown.tasks = meta.tasks ?? [];
     clearHighlight(); // the app sends its editor's selection again for this render
     selectionStale();
-    afterUpdate();
+    afterUpdate(true);
     restoreTaskFocus(focusedTask);
     anchorAfterRender();
     renderMermaid(doc()); // async; draws the diagrams that are new in the DOM, the metadata below does not wait for it
     const ms = (a: number, b: number): number => Math.round((b - a) * 100) / 100;
     return JSON.stringify({ ...meta, perf: { mode, created, render: ms(t0, t1), split: ms(t1, t2), apply: ms(t2, t3), patch: ms(t1, t3), total: ms(t0, t3) } });
   } catch (e) {
-    afterUpdate(); // the old content stays: so does edit mode
+    afterUpdate(false); // the old content stays
     const message = errorText(e);
     errorBar().textContent = `Render error: ${message}`;
     errorBar().hidden = false;

@@ -6,8 +6,13 @@ import Testing
 private final class Delegate: NSObject, NSTextViewDelegate {
     let undo = UndoManager()
     var changes = 0
+    /// Per selection change: whether the view said it was the preview's edit.
+    var selectionChanges: [Bool] = []
     func undoManager(for view: NSTextView) -> UndoManager? { undo }
     func textDidChange(_ notification: Notification) { changes += 1 }
+    func textViewDidChangeSelection(_ notification: Notification) {
+        selectionChanges.append((notification.object as? MarkdownTextView)?.isTypingExternally ?? false)
+    }
 }
 
 /// Edits that come from the preview (`typeExternally`) behave like typing in the editor: the same undo steps, the same delegate
@@ -100,6 +105,65 @@ struct PreviewEditingTests {
         let far = (text as NSString).length - 3
         #expect(v.typeExternally("Z", replacing: NSRange(location: far, length: 0), startsNewStep: true))
         #expect(v.enclosingScrollView!.contentView.bounds.origin == origin)
+    }
+
+    /// The selection change a preview edit causes is reported while `isTypingExternally` says so (the app does not scroll the preview to
+    /// it); the user's own selection changes are not.
+    @Test func theSelectionChangeOfAPreviewEditIsMarkedAsSuch() {
+        let (v, d) = view("hello world")
+        // in a window (never shown): a view outside one does not report the selection change of typing
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600), styleMask: [.titled], backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        window.contentView = v.enclosingScrollView
+        defer { window.close() }
+        v.setSelectedRange(NSRange(location: 2, length: 0))
+        #expect(d.selectionChanges == [false])
+        #expect(v.typeExternally("X", replacing: NSRange(location: 5, length: 0), startsNewStep: true))
+        // whatever the edit reported, it reported while the call ran, so marked; nothing comes after it, on later turns of the run loop
+        #expect(d.selectionChanges.dropFirst().allSatisfy { $0 }, "\(d.selectionChanges)")
+        let reported = d.selectionChanges.count
+        endEvent()
+        #expect(!v.isTypingExternally && d.selectionChanges.count == reported)
+        v.setSelectedRange(NSRange(location: 0, length: 3))
+        #expect(d.selectionChanges.last == false && d.selectionChanges.count == reported + 1)
+    }
+
+    /// The system's text checking can propose its changes after the call returned; those that change the text of a view the preview
+    /// typed into are dropped (the source must hold what the preview showed), until the user types in it again; the others stay.
+    @Test func automaticChangesProposedAfterAPreviewEditAreDropped() {
+        let (v, _) = view("hello te ")
+        let fixes: [NSTextCheckingResult] = [
+            .correctionCheckingResult(range: NSRange(location: 6, length: 3), replacementString: "the"),
+            .replacementCheckingResult(range: NSRange(location: 6, length: 3), replacementString: "the"),
+            .quoteCheckingResult(range: NSRange(location: 0, length: 1), replacementString: "\u{201C}"),
+            .dashCheckingResult(range: NSRange(location: 0, length: 1), replacementString: "\u{2014}"),
+            .spellCheckingResult(range: NSRange(location: 6, length: 3)),
+        ]
+        #expect(v.automaticChangesToApply(fixes).count == 5)  // nothing typed by the preview yet
+        #expect(v.typeExternally("h", replacing: NSRange(location: 8, length: 0), startsNewStep: true))
+        endEvent()
+        #expect(v.automaticChangesToApply(fixes).map(\.resultType) == [.spelling])
+        // the user types here: theirs again
+        let key = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil,
+                                   characters: "", charactersIgnoringModifiers: "", isARepeat: false, keyCode: 0)!
+        v.keyDown(with: key)
+        #expect(v.automaticChangesToApply(fixes).count == 5)
+    }
+
+    /// When the ranges change, what was painted goes, where it was painted: the text may have moved since (an edit above it), and the
+    /// old ranges laid out now would be somewhere else.
+    @Test func theOldHighlightIsErasedWhereItWasPainted() throws {
+        let (v, _) = view("first line\nsecond line\nthird line\n")
+        v.showPeerHighlight([NSRange(location: 11, length: 6)])  // "second"
+        let overlay = try #require(v.peerHighlightOverlay)
+        let rep = try #require(overlay.bitmapImageRepForCachingDisplay(in: overlay.bounds))
+        overlay.cacheDisplay(in: overlay.bounds, to: rep)  // painted
+        let painted = v.peerHighlightRects
+        #expect(painted.count == 1)
+        v.textStorage!.replaceCharacters(in: NSRange(location: 0, length: 0), with: "new\nlines\n")  // the text under it moves down
+        v.layoutSubtreeIfNeeded()
+        v.clearPeerHighlight()
+        #expect(overlay.lastInvalidated.contains(painted[0]))
     }
 
     /// A highlight over a whole long document looks at what is on screen only: a rectangle per visible line, not per line of the text.

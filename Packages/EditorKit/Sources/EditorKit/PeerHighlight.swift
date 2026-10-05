@@ -7,18 +7,25 @@ import AppKit
 final class PeerHighlightView: NSView {
     weak var textView: NSTextView?
     private(set) var ranges: [NSRange] = []
+    /// Everything `draw` painted since the ranges last changed, where it painted it: what has to go when they change, wherever the
+    /// text has moved since (the old ranges laid out now would be somewhere else).
+    private var painted: [NSRect] = []
+    /// What the last `show` marked for drawing again (tests).
+    private(set) var lastInvalidated: [NSRect] = []
     static let color = NSColor.systemYellow.withAlphaComponent(0.32)
 
     override var isFlipped: Bool { true }
     override var isOpaque: Bool { false }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
-    /// New ranges: only where the old and the new ones are on screen is drawn again.
+    /// New ranges: what was painted and where the new ones are on screen is drawn again, nothing else.
     func show(_ new: [NSRange]) {
         guard new != ranges else { return }
-        let old = rects(in: visibleRect)
         ranges = new
-        for rect in old + rects(in: visibleRect) { setNeedsDisplay(rect.insetBy(dx: -1, dy: -1)) }
+        let dirty = painted + rects(in: visibleRect)
+        painted = []
+        lastInvalidated = dirty
+        for rect in dirty { setNeedsDisplay(rect.insetBy(dx: -1, dy: -1)) }
     }
 
     /// The text view was resized (wrapping moved the text under the ranges).
@@ -26,7 +33,12 @@ final class PeerHighlightView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         Self.color.setFill()
-        for rect in rects(in: dirtyRect) { rect.fill(using: .sourceOver) }
+        for rect in rects(in: dirtyRect) {
+            rect.fill(using: .sourceOver)
+            painted.append(rect)
+        }
+        // lazy: repaints (scrolling over a highlight) add up; past this many they are kept as their union. upgrade = a region type
+        if painted.count > 256 { painted = [painted.reduce(NSRect.null) { $0.union($1) }] }
     }
 
     /// The highlight's rectangles inside `area` (view coordinates): the ranges cut to the characters laid out there, one per line
@@ -84,4 +96,7 @@ extension MarkdownTextView {
 
     /// The highlight's rectangles on screen, in view coordinates (tests).
     var peerHighlightRects: [NSRect] { peerHighlightView.map { $0.rects(in: visibleRect) } ?? [] }
+
+    /// The overlay itself (tests: drawing it, what it invalidated).
+    var peerHighlightOverlay: PeerHighlightView? { peerHighlightView }
 }

@@ -1,11 +1,13 @@
 import Foundation
 
 /// A text edit made in the preview (PLAN M2, `Web/src/preview/editing.ts`): source `range` (UTF-16, in the text the edit was made
-/// on) replaced by `replacement`. `base` is the render the page showed when its burst of edits began, `seq` this edit's number in
-/// the burst (1, 2, ...). `removed`, `before` and `after` are what the page had in `range` and right around it, so a text with the
-/// right length but other characters there is not mistaken for the one the edit was made on. `startsStep`: a new undo step (the
-/// page's previous edit was elsewhere, or in another block); otherwise it continues the last typing step, as keystrokes do.
+/// on) replaced by `replacement`. `burst` is the page's number for the run of edits it belongs to (counting up within a page load),
+/// `base` the render the page showed when that burst began, `seq` this edit's number in the burst (1, 2, ...). `removed`, `before`
+/// and `after` are what the page had in `range` and right around it, so a text with the right length but other characters there is
+/// not mistaken for the one the edit was made on. `startsStep`: a new undo step (the page's previous edit was elsewhere, in another
+/// block, or the caret moved since); otherwise it continues the last typing step, as keystrokes do.
 public struct PreviewEdit: Equatable, Sendable {
+    public let burst: Int
     public let base: Int
     public let seq: Int
     public let range: NSRange
@@ -15,7 +17,8 @@ public struct PreviewEdit: Equatable, Sendable {
     public let after: String
     public let startsStep: Bool
 
-    public init(base: Int, seq: Int, range: NSRange, replacement: String, removed: String, before: String, after: String, startsStep: Bool) {
+    public init(burst: Int, base: Int, seq: Int, range: NSRange, replacement: String, removed: String, before: String, after: String, startsStep: Bool) {
+        self.burst = burst
         self.base = base
         self.seq = seq
         self.range = range
@@ -37,31 +40,45 @@ public enum PreviewEditRefusal: String, Error, Sendable {
 
 extension String {
     /// The same UTF-16 code units (Swift's `==` compares canonically: "é" and "e\u{301}" are equal there, and offsets into them are not).
+    /// The lengths first (constant time for a string bridged from AppKit, which a text view's is); then the bytes when both strings are
+    /// native (no copy), else unit by unit (no copy either).
     public func isIdentical(to other: String) -> Bool {
-        var a = self, b = other
-        return a.withUTF8 { ua in b.withUTF8 { ub in ua.count == ub.count && (ua.count == 0 || memcmp(ua.baseAddress!, ub.baseAddress!, ua.count) == 0) } }
+        guard utf16.count == other.utf16.count else { return false }
+        let native = utf8.withContiguousStorageIfAvailable { a in
+            other.utf8.withContiguousStorageIfAvailable { b in
+                a.count == b.count && (a.baseAddress == b.baseAddress || a.isEmpty || memcmp(a.baseAddress!, b.baseAddress!, a.count) == 0)
+            }
+        }
+        if let native, let same = native { return same }
+        return utf16.elementsEqual(other.utf16)
     }
 }
 
-/// Which preview edits the app may apply, and what the renders it sends back say about them.
+/// What the page has been sent and shows, and which preview edits the app may apply.
+///
+/// Every render is recorded as sent before the call that sends it (`sent`), and as on the page when that call returns (`landed`). The
+/// page may report something about a render before that call has returned (an edit, a selection, a checkbox click: its message comes
+/// first), so whatever it names is looked up among the renders sent (`text(ofRender:)`), not only the one known to have landed. Once a
+/// render has landed, older ones are dropped: the page shows that one or a newer one.
 ///
 /// The page shows each edit at once and sends it; the app applies edit n of a burst only to exactly the text the page had when it
-/// made it: edit 1 to the text of the render it names as its base (one of the renders the app sent: the page may report an edit on a
-/// render before the app's own call that sent it has returned), edit n to the text edit n-1 produced, and only if the editor still
-/// holds that text (the caller checks) with the edit's characters in their place. A gap, a different burst, or a text that changed in
-/// between (typing in the editor, an undo, a reload) means the page's text is not the app's: the edit is refused and the page shows
-/// the app's text again. A render whose text one of the burst's edits produced carries its `mark`, so the page knows which of its edits
-/// it contains (and holds back one that does not have all of them yet).
+/// made it: edit 1 to the text of the render it names as its base, edit n to the text edit n-1 produced, and only if the editor still
+/// holds that text (the caller checks) with the edit's characters in their place. A gap, an edit of another burst, or a text that
+/// changed in between (typing in the editor, an undo, a reload) means the page's text is not the app's: the edit is refused and the
+/// page shows the app's text again. A render whose text one of the burst's edits produced carries its `mark`, so the page knows which
+/// of its edits it contains (and holds back one that does not have all of them yet); the render with the last edit, once it has
+/// landed, ends the burst here too.
 public struct PreviewEditChain: Sendable {
-    public private(set) var base: Int?
+    public private(set) var burst: Int?
     public private(set) var seq = 0
     public private(set) var text: String?
     /// The texts the burst's last edits produced (seq, text), newest last.
     private var history: [(seq: Int, text: String)] = []
-    /// The renders sent to the page lately (version, text), newest last.
+    /// The renders sent to the page and not superseded yet (version, text), newest last; `landed` the newest one known to be on it.
     private var rendered: [(version: Int, text: String)] = []
-    // lazy: the last 8 of each (copies of the text); a render or an edit older than that is refused and the page shows the app's
-    // text again; upgrade = hashes instead of copies if very large documents make the memory matter.
+    private var landedVersion: Int?
+    // lazy: at most 8 of each (copies of the text; normally one or two, `landed` drops the rest); a render or an edit older than that
+    // is refused and the page shows the app's text again. upgrade = hashes instead of copies if very large documents make it matter.
     private static let kept = 8
 
     public init() {}
@@ -70,6 +87,20 @@ public struct PreviewEditChain: Sendable {
     public mutating func sent(version: Int, text: String) {
         rendered.append((version, text))
         if rendered.count > Self.kept { rendered.removeFirst() }
+    }
+
+    /// The render `version` is on the page (its call returned, the page applied it), carrying `mark`. Renders before it are not
+    /// needed any more, and a burst whose last edit it contains is over.
+    public mutating func landed(version: Int, mark: (burst: Int, seq: Int)?) {
+        rendered.removeAll { $0.version < version }
+        landedVersion = version
+        if let mark, mark.burst == burst, mark.seq == seq { clearBurst() }
+    }
+
+    /// The render last known to be on the page: what the editor's selection is shown on.
+    public var displayed: (version: Int, text: String)? {
+        guard let landedVersion, let render = rendered.first(where: { $0.version == landedVersion }) else { return nil }
+        return (render.version, render.text)
     }
 
     /// The text of a render sent lately (what the page shows when it names it), nil when it is not one of them.
@@ -81,41 +112,45 @@ public struct PreviewEditChain: Sendable {
     public func expectedText(for edit: PreviewEdit) -> Result<String, PreviewEditRefusal> {
         if containsNewline(edit.replacement) { return .failure(.newline) }
         if edit.seq == 1 {
-            guard let render = rendered.last(where: { $0.version == edit.base }) else { return .failure(.stale) }
-            return .success(render.text)
+            guard let text = text(ofRender: edit.base) else { return .failure(.stale) }
+            return .success(text)
         }
-        guard let base, let text, base == edit.base, seq == edit.seq - 1 else { return .failure(.stale) }
+        guard let burst, let text, burst == edit.burst, seq == edit.seq - 1 else { return .failure(.stale) }
         return .success(text)
     }
 
     /// `edit` was applied and gave `result`.
     public mutating func accept(_ edit: PreviewEdit, result: String) {
-        if edit.seq == 1 || base != edit.base { history = [] }
-        base = edit.base
+        if edit.seq == 1 || burst != edit.burst { history = [] }
+        burst = edit.burst
         seq = edit.seq
         text = result
         history.append((edit.seq, result))
         if history.count > Self.kept { history.removeFirst() }
     }
 
-    /// `edit` was refused. The chain goes when it was this burst's (later edits of it cannot fit any more); a refusal of an older
-    /// burst's edit leaves a newer burst alone.
+    /// `edit` was refused. The burst's chain goes (later edits of it cannot fit any more); a refusal of an edit of an earlier burst
+    /// (bursts count up) leaves a later one alone.
     public mutating func refused(_ edit: PreviewEdit) {
-        if let base, edit.base < base { return }  // renders count up: an older burst's edit
-        base = nil
-        seq = 0
-        text = nil
-        history = []
+        if let burst, edit.burst < burst { return }
+        clearBurst()
     }
 
     public mutating func reset() {
         self = PreviewEditChain()
     }
 
+    private mutating func clearBurst() {
+        burst = nil
+        seq = 0
+        text = nil
+        history = []
+    }
+
     /// What a render of `text` tells the page: the burst and the number of its last edit `text` is the result of.
-    public func mark(for text: String) -> (base: Int, seq: Int)? {
-        guard let base, let entry = history.last(where: { $0.text.isIdentical(to: text) }) else { return nil }
-        return (base, entry.seq)
+    public func mark(for text: String) -> (burst: Int, seq: Int)? {
+        guard let burst, let entry = history.last(where: { $0.text.isIdentical(to: text) }) else { return nil }
+        return (burst, entry.seq)
     }
 
     /// `edit` fits `text` (the text it was made on): its range lies inside, neither end splits a surrogate pair, the characters in it

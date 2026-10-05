@@ -117,15 +117,6 @@ export function sourceEdit(m: Pick<BlockMapping, 'offsets' | 'widths' | 'text'>,
 /** One edit of a burst: source [from, to) of the text before it replaced by `len` units. */
 export interface BurstEdit { from: number; to: number; len: number }
 
-/** A source offset of the text a burst started from, moved through its edits (in order); -1 when an edit replaced it. */
-export function rebaseOffset(at: number, edits: readonly BurstEdit[]): number {
-  for (const e of edits) {
-    if (at >= e.to) at += e.len - (e.to - e.from);
-    else if (at >= e.from && e.to > e.from) return -1;
-  }
-  return at;
-}
-
 /** A map of the render on screen moved into the text with a burst's edits made (they were in other blocks), or null when one of
  *  them reached into this block. */
 export function rebase<M extends Pick<BlockMapping, 'offsets' | 'start' | 'end' | 'placed'>>(m: M, edits: readonly BurstEdit[]): M | null {
@@ -217,8 +208,6 @@ export function literalEdit(
 
 // --- on the page --------------------------------------------------------------------------------------------------------
 
-export { blockNodes };
-
 let inert: HTMLElement | null = null;
 function parsedText(html: string): { text: string; tags: string } {
   inert ??= document.implementation.createHTMLDocument('').createElement('div');
@@ -231,13 +220,20 @@ function parsedText(html: string): { text: string; tags: string } {
 }
 const textOfHTML = (html: string): string => parsedText(html).text;
 
-// The document's definitions, per text: a burst does not change them (definitions are not blocks the page edits).
+// The document's definitions (link references, footnote labels), per text. Edits made here never change them: a definition is not a
+// block the page edits, and an edit that would make or unmake one changes the block's markup, which the page refuses. So the render
+// that catches up with a burst keeps them (`carryContext`); only a text from elsewhere (the editor, the disk) is parsed again.
 let context: { source: string; options: string; value: Context } | null = null;
 function documentContext(options: RenderOptionsLike): Context {
   if (context?.source === shown.source && context.options === shown.optionsJSON) return context.value;
   const value = MacDown2.inlineMap!.context(shown.source, options);
   context = { source: shown.source, options: shown.optionsJSON, value };
   return value;
+}
+
+/** editing.ts: the render of `to` that is about to replace `from` on the page is `from` with this page's edits made. */
+export function carryContext(from: string, to: string): void {
+  if (context?.source === from) context.source = to;
 }
 
 interface Cached { text: string; blockText: string; options: string; first: boolean; rel: Int32Array | null; context: boolean }
@@ -308,10 +304,10 @@ export function mapBlock(h: BlockHandle): BlockMapping | null {
 }
 
 /** The block's source `text` rendered on its own with the document's definitions (a `[^1]` typed must find the footnote defined
- *  elsewhere): its text and its elements. */
+ *  elsewhere): its text and its elements. A text without `[` cannot use a definition, and is rendered without them. */
 export function renderedBlock(text: string, m: Pick<BlockMapping, 'handle'>): Rendered {
   const options = shown.options!;
-  const html = MacDown2.inlineMap!.render(text, options, m.handle.line0 === 0, documentContext(options));
+  const html = MacDown2.inlineMap!.render(text, options, m.handle.line0 === 0, text.includes('[') ? documentContext(options) : null);
   return parsedText(html);
 }
 

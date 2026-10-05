@@ -18,7 +18,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { inlineMap, renderResult } from '../src/render/index.ts';
 import { alignKept } from '../src/render/align.ts';
-import { insertionAt, literalEdit, readProbes, rebase, rebaseOffset, settle, sourceEdit } from '../src/preview/source-map.ts';
+import { insertionAt, literalEdit, readProbes, rebase, settle, sourceEdit } from '../src/preview/source-map.ts';
 import { blockHTML, linesRange, nodesOf, textNodesOf, textOf } from './helpers/text-dom.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -209,7 +209,6 @@ test('a map moves through the edits made elsewhere in a burst, and an edit insid
   assert.deepEqual([...moved.offsets], [12, 13, -1, 14]);
   assert.deepEqual([moved.start, moved.end], [12, 15]);
   assert.equal(rebase(m, [{ from: 11, to: 12, len: 1 }]), null);
-  assert.equal(rebaseOffset(20, [{ from: 25, to: 25, len: 4 }]), 20); // after it: unchanged
 });
 
 // What a block's source shows on its own (text and elements), the way the page renders a block to check an edit.

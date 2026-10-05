@@ -13,9 +13,10 @@ private let log = Logger(subsystem: "io.github.xuanji86.MacDown2", category: "pr
 enum PreviewMessage: Equatable {
     case scroll(line: Double)  // 0-based, fractional source line at the top of the viewport
     case error(stage: String, message: String)
-    /// A task-list checkbox was clicked (`Web/src/preview/tasks.ts`): the page's per-load token, the 0-based source line of
-    /// its item, the state the user asked for, and the render version the page shows.
-    case toggleTask(token: String, line: Int, checked: Bool, version: Int)
+    /// A task-list checkbox was clicked (`Web/src/preview/tasks.ts`): the page's per-load token, the checkbox as the render found it
+    /// (its item's 0-based source line, the line and column of its `[ ]` mark), the state the user asked for, and the render version
+    /// the page shows.
+    case toggleTask(token: String, task: TaskItem, checked: Bool, version: Int)
     /// The page's selection as a source range of the text of render `version`, nil when there is none (`Web/src/preview/peer.ts`).
     case selection(token: String, version: Int, range: NSRange?)
     /// A text edit made in the preview (`Web/src/preview/editing.ts`).
@@ -34,10 +35,11 @@ enum PreviewMessage: Equatable {
         case "toggleTask":
             guard let token = dict["token"] as? String,
                   let line = (dict["line"] as? NSNumber)?.intValue, line >= 0,
+                  let mark = (dict["mark"] as? NSNumber)?.intValue, let column = (dict["column"] as? NSNumber)?.intValue,
                   let checked = (dict["checked"] as? NSNumber)?.boolValue,
                   let version = (dict["version"] as? NSNumber)?.intValue
             else { return nil }
-            self = .toggleTask(token: token, line: line, checked: checked, version: version)
+            self = .toggleTask(token: token, task: TaskItem(line: line, mark: mark, column: column), checked: checked, version: version)
         case "selection":
             guard let token = dict["token"] as? String,
                   let version = (dict["version"] as? NSNumber)?.intValue,
@@ -45,14 +47,14 @@ enum PreviewMessage: Equatable {
             else { return nil }
             self = .selection(token: token, version: version, range: from >= 0 && to > from ? NSRange(location: from, length: to - from) : nil)
         case "previewEdit":
-            guard let token = dict["token"] as? String,
+            guard let token = dict["token"] as? String, let burst = (dict["burst"] as? NSNumber)?.intValue,
                   let base = (dict["base"] as? NSNumber)?.intValue, let seq = (dict["seq"] as? NSNumber)?.intValue, seq >= 1,
                   let from = (dict["from"] as? NSNumber)?.intValue, let to = (dict["to"] as? NSNumber)?.intValue, from >= 0, to >= from,
                   let text = dict["text"] as? String, let removed = dict["removed"] as? String,
                   let before = dict["before"] as? String, let after = dict["after"] as? String
             else { return nil }
             self = .edit(token: token, edit: PreviewEdit(
-                base: base, seq: seq, range: NSRange(location: from, length: to - from), replacement: text,
+                burst: burst, base: base, seq: seq, range: NSRange(location: from, length: to - from), replacement: text,
                 removed: removed, before: before, after: after, startsStep: (dict["step"] as? NSNumber)?.boolValue ?? true))
         case "resync":
             guard let token = dict["token"] as? String else { return nil }
@@ -84,8 +86,6 @@ private final class PreviewMessageHandler: NSObject, WKScriptMessageHandler {
 struct PreviewMetadata: Decodable, Equatable {
     var outline: [OutlineItem]
     var stats: TextStats
-    /// The task-list checkboxes of the text the page shows (`TaskToggle` edits from these).
-    var tasks: [TaskItem]
 }
 
 /// Owns the `WebPage` that shows `preview.html` and pushes Markdown into it.
@@ -124,7 +124,7 @@ final class PreviewModel {
     }
 
     /// The pane now shows `document` (called first in its per-document task, before any of its text arrives). A different document
-    /// drops the previous one's text everywhere (`lastMarkdown`, `pending`, `displayed`, a waiting render; `clearEpoch` keeps one
+    /// drops the previous one's text everywhere (`lastMarkdown`, `pending`, the renders sent, a waiting render; `clearEpoch` keeps one
     /// in flight from publishing), so the one-frame delay can never render the old text with the new base or flavor: the new
     /// document's first text renders instead. The same document with another folder or flavor still re-renders (the setters,
     /// which `PreviewPane`'s onChange handlers also reach, before or after this: whichever comes second is a no-op).
@@ -144,7 +144,6 @@ final class PreviewModel {
         debounce?.cancel()
         pending = nil
         lastMarkdown = nil
-        displayed = nil
         editChain.reset()
         editorSelection = nil
         highlighted = nil
@@ -174,12 +173,6 @@ final class PreviewModel {
     /// Secret of the current page load, given to the page once it has loaded; a message that does not carry it is dropped.
     /// Not persisted anywhere: a new load (or a new launch) has a new one.
     private var bridgeToken: String?
-    /// The render the page displays: its version (every render gets the next one; the page reports the one it shows with each
-    /// checkbox click), the text, and the checkboxes the renderer found in it. Set when a render LANDS (not when it starts), so a
-    /// click on what the page still shows is matched while a newer render is in flight; a click that arrives before the
-    /// landing carries a newer version than this and is refused. A failed render leaves it (and the page) as it was.
-    /// nil until the first render, and after `clear()`, a document switch or a page load.
-    private var displayed: (version: Int, text: String, tasks: [TaskItem])?
     /// The document `lastMarkdown` belongs to (`show`).
     private var currentDocument: ObjectIdentifier?
     private var renderCount = 0
@@ -363,14 +356,15 @@ final class PreviewModel {
         case .error(let stage, let text):
             log.error("preview \(stage, privacy: .public) error: \(text, privacy: .public)")
             onRenderError?(text)
-        case .toggleTask(let token, let line, let checked, let version):
-            toggleTask(token: token, line: line, checked: checked, version: version)
+        case .toggleTask(let token, let task, let checked, let version):
+            toggleTask(token: token, task: task, checked: checked, version: version)
         case .selection(let token, let version, let range):
             guard token == bridgeToken else { return }
-            // The render the page names may be one whose call has not returned yet: its text is known from when it was sent.
+            // The render the page names may be one whose call has not returned yet: its text is known from when it was sent. A range
+            // of a render no longer known (or none) clears the editor's highlight: it would be of another text.
             if let range, let text = editChain.text(ofRender: version) {
                 onPreviewSelection?(range, text)
-            } else if range == nil {
+            } else {
                 onPreviewSelection?(nil, "")
             }
         case .edit(let token, let edit):
@@ -399,10 +393,10 @@ final class PreviewModel {
             return
         }
         let reason: PreviewEditRefusal = if case .failure(let why) = expected { why } else { .stale }
-        log.info("preview edit refused (burst \(edit.base), edit \(edit.seq)): \(reason.rawValue, privacy: .public)")
+        log.info("preview edit refused (burst \(edit.burst) on render \(edit.base), edit \(edit.seq)): \(reason.rawValue, privacy: .public)")
         editChain.refused(edit)
         Task { [page] in
-            _ = try? await page.callJavaScript("MacDown2Preview.editRefused(kind, base, seq)", arguments: ["kind": reason.rawValue, "base": edit.base, "seq": edit.seq])
+            _ = try? await page.callJavaScript("MacDown2Preview.editRefused(kind, burst, seq)", arguments: ["kind": reason.rawValue, "burst": edit.burst, "seq": edit.seq])
         }
     }
 
@@ -452,7 +446,7 @@ final class PreviewModel {
     }
 
     private func applyEditorSelection() async {
-        guard pageLoaded, let displayed else { return }
+        guard pageLoaded, let displayed = editChain.displayed else { return }
         var request = (version: displayed.version, from: -1, to: -1)
         if let selection = editorSelection, selection.text.isIdentical(to: displayed.text) {
             request.from = selection.range.location
@@ -465,24 +459,22 @@ final class PreviewModel {
         _ = try? await page.callJavaScript("MacDown2Preview.highlightSource(from, to, version)", arguments: ["from": request.from, "to": request.to, "version": request.version])
     }
 
-    /// Anything but a click on the page we last loaded, showing the text we last rendered, is ignored: a stale click can only
-    /// mean the text moved on (typing, another tab) and the next render is on its way. The editor then re-checks the line
-    /// against the text it holds now (`TaskToggle`) and makes the change as one undo step.
-    private func toggleTask(token: String, line: Int, checked: Bool, version: Int) {
+    /// Only a click on the page we last loaded, on a render we sent and still know (`PreviewEditChain`, the same record edits and
+    /// selections are matched against: a render whose call has not returned yet counts), is taken. The editor then checks that it
+    /// holds exactly that render's text and that the task's mark is a `[ ]` / `[x]` there (`TaskToggle`), and makes the change as one
+    /// undo step; a click on a page that is out of date by an edit changes nothing.
+    private func toggleTask(token: String, task: TaskItem, checked: Bool, version: Int) {
         guard token == bridgeToken else {
             log.error("preview task toggle dropped: wrong token")
             return
         }
-        // Matched against the render that landed (`displayed`), not the newest one started; `onToggleTask` still refuses unless the
-        // editor holds exactly that text, so a click on a page that is out of date by an edit changes nothing.
-        if let displayed, displayed.version == version, let task = displayed.tasks.first(where: { $0.line == line }),
-           let new = onToggleTask?(task, checked, displayed.text) {
+        if let text = editChain.text(ofRender: version), let new = onToggleTask?(task, checked, text) {
             // Render the new text now instead of after the next frame: a second click inside that window would be stale.
             lastMarkdown = new
             debounce?.cancel()  // a render of older text still waiting would otherwise land after this one
             Task { [weak self] in await self?.push(new) }
         } else {
-            log.info("preview task toggle refused (line \(line), version \(version))")
+            log.info("preview task toggle refused (line \(task.line), version \(version))")
             Task { [page] in _ = try? await page.callJavaScript("MacDown2Preview.resyncTasks()") }
         }
     }
@@ -519,7 +511,6 @@ final class PreviewModel {
     private func giveToken() async {
         let token = UUID().uuidString
         bridgeToken = token
-        displayed = nil
         editChain.reset()
         do {
             _ = try await page.callJavaScript("MacDown2Preview.setTaskToken(token)", arguments: ["token": token])
@@ -548,27 +539,30 @@ final class PreviewModel {
             let epoch = clearEpoch
             // The page's preview edits this text contains (the page holds back a render that does not contain all of them yet). Recorded
             // as sent before the call: the page may report an edit on it before the call returns.
-            let mark: Any = editChain.mark(for: next).map { ["base": $0.base, "seq": $0.seq] as [String: Int] } ?? NSNull()
-            if epoch == clearEpoch { editChain.sent(version: version, text: next) }
+            let mark = editChain.mark(for: next)
+            editChain.sent(version: version, text: next)
             do {
                 // A chunk that fails to load is reported by `update` itself (the flavor is then unknown). The page forgets its block table
-                // (`rebuild`) only when it applies the render, not when it holds it back.
+                // (`rebuild`) and takes the document folder (`base`) only when it applies the render, not when it holds it back.
                 let result = try await page.callJavaScript(
-                    "await MacDown2Preview.useFlavor(flavor).catch(() => {}); MacDown2Preview.setBase(base); return MacDown2Preview.update(md, options, version, edit, rebuild)",
-                    arguments: ["md": next, "options": optionsJSON, "rebuild": rebuild, "flavor": flavorFiles, "base": base.map { $0 as Any } ?? NSNull(), "version": version, "edit": mark]
+                    "await MacDown2Preview.useFlavor(flavor).catch(() => {}); return MacDown2Preview.update(md, options, version, edit, rebuild, base)",
+                    arguments: [
+                        "md": next, "options": optionsJSON, "rebuild": rebuild, "flavor": flavorFiles, "base": base.map { $0 as Any } ?? NSNull(),
+                        "version": version, "edit": mark.map { ["burst": $0.burst, "seq": $0.seq] as [String: Int] } ?? NSNull(),
+                    ]
                 )
                 let elapsed = ContinuousClock.now - started
                 // Render failures are reported over the bridge (`handle`); success carries blocks/outline/stats/perf.
                 let meta = (result as? String).flatMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any] }
                 if meta?["deferred"] as? Bool == true {
-                    // Held back by the page: it still shows the previous render (and more); `displayed` stays as it is.
+                    // Held back by the page: it still shows the previous render (and more).
                     if rebuild { needsRebuild = true }
                     log.info("preview update held back by the page (edit in flight)")
                 } else if meta?["error"] == nil {
                     // A render that started before `clear()` / a document switch must not publish: its text is not the pane's any more.
                     if epoch == clearEpoch, let decoded = try? JSONDecoder().decode(PreviewMetadata.self, from: Data((result as? String ?? "").utf8)) {
                         if decoded != metadata { metadata = decoded }
-                        displayed = (version, next, decoded.tasks)
+                        editChain.landed(version: version, mark: mark)
                         if editorSelection != nil { await applyEditorSelection() }  // the render dropped the page's highlight
                     }
                     let perf = meta?["perf"] as? [String: Any]

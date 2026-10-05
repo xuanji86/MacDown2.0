@@ -118,13 +118,19 @@ struct EditorPane: NSViewRepresentable {
         func textViewDidChangeSelection(_ notification: Notification) {
             guard let textView = notification.object as? MarkdownTextView else { return }
             status?.selectionChanged(in: textView)
-            // Only what happens here moves the preview: an edit typed in the preview moves this view's selection too (while the preview
-            // has the focus), and must neither scroll the preview to it ("preview follows the caret") nor highlight it there.
-            guard textView.window?.firstResponder === textView else { return }
+            // An edit typed in the preview moves this view's selection too: that one must neither scroll the preview to it ("preview
+            // follows the caret") nor highlight it there. Every other change does, with or without the focus here (Find Next, a search
+            // result revealed, an undo).
+            guard !textView.isTypingExternally else {
+                #if DEBUG
+                IsolatedTestHooks.editLog.info("selection change of a preview edit: not followed")
+                #endif
+                return
+            }
             scrollSync.caretMoved(in: textView)
             if !textView.hasMarkedText() {
                 textView.clearPeerHighlight()  // working here ends the preview's highlight in this view
-                editor?.onSelectionChange?(textView.selectedRange())
+                editor?.onSelectionChange?()
             }
         }
 

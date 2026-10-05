@@ -94,9 +94,14 @@ struct DocumentView: View {
             preview.onPreviewEdit = { [weak editor] edit, expected in editor?.applyPreviewEdit(edit, expectedText: expected) }
             preview.onPreviewSelection = { [weak editor] range, text in editor?.showPeerHighlight(range, text: text) }
             // Selection and text read together from the text view when the preview looks (the model may not have the text yet, after an
-            // undo or a command).
-            editor.onSelectionChange = { [weak preview, weak editor] _ in
-                preview?.showEditorSelection { [weak editor] in editor?.textView.map { ($0.selectedRange(), $0.string) } }
+            // undo or a command); the text (a copy) only for a selection that is not empty.
+            editor.onSelectionChange = { [weak preview, weak editor] in
+                preview?.showEditorSelection { [weak editor] in
+                    editor?.textView.flatMap { view in
+                        let range = view.selectedRange()
+                        return range.length > 0 ? (range, view.string) : nil
+                    }
+                }
             }
         }
         .onChange(of: syncScrolling, initial: true) { _, on in scrollSync.isEnabled = on }
