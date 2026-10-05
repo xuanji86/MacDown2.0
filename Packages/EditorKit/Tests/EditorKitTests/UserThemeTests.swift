@@ -101,41 +101,85 @@ struct UserThemeTests {
         defer { try? FileManager.default.removeItem(at: folder) }
         try Self.write(Self.json(name: "Mine"), as: "mine.json", in: folder)
         let store = UserThemeStore(directory: folder)
-        #expect(store.all.map(\.name) == ThemeLibrary.all.map(\.name))  // nothing read before start()
-        store.reload()
+        #expect(store.all.map(\.name) == ThemeLibrary.all.map(\.name))  // nothing read before the first reload()
+        store.rescan()
         #expect(store.all.map(\.name) == ThemeLibrary.all.map(\.name) + ["Mine"])
     }
 
-    @Test func storeReloadsWhenFilesChange() async throws {
+    @Test func reloadOnlyPublishesWhenSomethingChanged() throws {
         let folder = try Self.makeFolder()
         defer { try? FileManager.default.removeItem(at: folder) }
         let store = UserThemeStore(directory: folder)
-        store.start()
-        #expect(store.userThemes.isEmpty)
+        store.rescan()
+        #expect(store.revision == 0, "an empty folder is what the store starts with")
 
         try Self.write(Self.json(name: "One"), as: "one.json", in: folder)
-        #expect(await eventually(timeout: .seconds(10)) { store.userThemes.map(\.name) == ["One"] }, "a new file is picked up")
+        store.rescan()
+        #expect(store.userThemes.map(\.name) == ["One"] && store.revision == 1)
 
-        try Self.write(Self.json(name: "One", background: "#222222"), as: "one.json", in: folder)  // edited in place
-        #expect(await eventually(timeout: .seconds(10)) { store.userThemes.first?.background == NSColor(hex: 0x222222) }, "an edit is picked up")
+        store.rescan()  // nothing changed
+        try Self.write("junk", as: ".DS_Store", in: folder)  // unrelated file
+        try Self.write("notes", as: "readme.txt", in: folder)
+        store.rescan()
+        #expect(store.revision == 1, "unrelated files and repeated reloads do not make every editor re-apply its theme")
+
+        try Self.write(Self.json(name: "One", background: "#222222"), as: "one.json", in: folder)  // edited in place, same name
+        store.rescan()
+        #expect(store.revision == 2 && store.userThemes.first?.background == NSColor(hex: 0x222222))
 
         try Self.write("{ broken", as: "two.json", in: folder)
-        #expect(await eventually(timeout: .seconds(10)) { store.skipped.map(\.file) == ["two.json"] }, "a broken file is skipped, the rest stays")
-        #expect(store.userThemes.map(\.name) == ["One"])
+        store.rescan()
+        #expect(store.revision == 3 && store.skipped.map(\.file) == ["two.json"] && store.userThemes.map(\.name) == ["One"])
 
         try FileManager.default.removeItem(at: folder.appending(path: "one.json"))
-        #expect(await eventually(timeout: .seconds(10)) { store.userThemes.isEmpty }, "a deleted file disappears")
+        store.rescan()
+        #expect(store.userThemes.isEmpty && store.revision == 4)
     }
 
-    @Test func storeNoticesAFolderCreatedAfterStart() async throws {
-        let parent = try Self.makeFolder()
-        defer { try? FileManager.default.removeItem(at: parent) }
-        let folder = parent.appending(path: "Themes", directoryHint: .isDirectory)
-        let store = UserThemeStore(directory: folder)
-        store.start()  // the folder does not exist yet
-        #expect(store.userThemes.isEmpty)
-        #expect(store.ensureDirectory())
-        try Self.write(Self.json(name: "Late"), as: "late.json", in: folder)
-        #expect(await eventually(timeout: .seconds(10)) { store.userThemes.map(\.name) == ["Late"] })
+    @Test func skippedReasonsAreShortAndNameTheField() throws {
+        let folder = try Self.makeFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        try Self.write("{ broken", as: "1.json", in: folder)
+        try Self.write(Self.json(name: "X", background: "red"), as: "2.json", in: folder)
+        try Self.write(#"{"name": "X", "appearance": "dark"}"#, as: "3.json", in: folder)
+        let reasons = UserThemes.load(from: folder).skipped.map(\.reason)
+        #expect(reasons[0] == "not valid JSON")
+        #expect(reasons[1].hasPrefix("colors.background: colour must be #RRGGBB"))
+        #expect(reasons[2] == "missing \"colors\"")
+    }
+
+    @Test func aSymlinkedThemeFileIsLoaded() throws {
+        let folder = try Self.makeFolder(), elsewhere = try Self.makeFolder()
+        defer {
+            try? FileManager.default.removeItem(at: folder)
+            try? FileManager.default.removeItem(at: elsewhere)
+        }
+        try Self.write(Self.json(name: "Linked"), as: "real.json", in: elsewhere)
+        try FileManager.default.createSymbolicLink(at: folder.appending(path: "linked.json"), withDestinationURL: elsewhere.appending(path: "real.json"))
+        try FileManager.default.createSymbolicLink(at: folder.appending(path: "dangling.json"), withDestinationURL: elsewhere.appending(path: "nothing.json"))
+        let listing = UserThemes.load(from: folder)
+        #expect(listing.themes.map(\.name) == ["Linked"])
+        #expect(listing.skipped.map(\.file) == ["dangling.json"])
+    }
+
+    @Test func counterpartFollowsARenamedSibling() throws {
+        let folder = try Self.makeFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        // A pair written together, both named like built-ins: both are renamed, and the pair must still point at each other.
+        try Self.write(Self.json(name: "Solarized Dark", extra: #", "counterpart": "Solarized Light""#), as: "a.json", in: folder)
+        try Self.write(Self.json(name: "Solarized Light", appearance: "light", extra: #", "counterpart": "Solarized Dark""#), as: "b.json", in: folder)
+        // A custom dark theme whose partner is the built-in light one: unchanged.
+        try Self.write(Self.json(name: "Night", extra: #", "counterpart": "GitHub Light""#), as: "c.json", in: folder)
+        // A pair whose partner kept its name: unchanged.
+        try Self.write(Self.json(name: "Dusk", extra: #", "counterpart": "Dawn""#), as: "d.json", in: folder)
+        try Self.write(Self.json(name: "Dawn", appearance: "light"), as: "e.json", in: folder)
+        let themes = UserThemes.load(from: folder).themes
+        let byName = Dictionary(uniqueKeysWithValues: themes.map { ($0.name, $0) })
+        #expect(byName["Solarized Dark (User)"]?.counterpart == "Solarized Light (User)")
+        #expect(byName["Solarized Light (User)"]?.counterpart == "Solarized Dark (User)")
+        #expect(byName["Night"]?.counterpart == "GitHub Light")
+        #expect(byName["Dusk"]?.counterpart == "Dawn")
+        let all = ThemeLibrary.all + themes
+        #expect(ThemeLibrary.resolve(name: "Solarized Dark (User)", followSystem: true, systemIsDark: false, among: all).name == "Solarized Light (User)")
     }
 }

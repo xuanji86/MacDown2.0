@@ -27,6 +27,20 @@ enum SmartPaste {
         return depth == 0
     }
 
+    /// The selection is the text of an existing link (`[do|cs](old)`) or its destination (`[docs](o|ld)`): wrapping it again would nest links.
+    // lazy: looks at the selection's own line only (a link text split over two lines is not recognised)
+    private static func isInsideLink(_ selection: NSRange, in text: NSString) -> Bool {
+        let line = text.lineRange(for: selection)
+        let before = text.substring(with: NSRange(location: line.location, length: selection.location - line.location))
+        let after = text.substring(with: NSRange(location: NSMaxRange(selection), length: NSMaxRange(line) - NSMaxRange(selection)))
+        // Link text: an unclosed `[` before, and a `]` after with no new `[` in between.
+        if let open = before.lastIndex(of: "["), !before[open...].contains("]"),
+           let close = after.firstIndex(of: "]"), !after[..<close].contains("[") { return true }
+        // Destination: `](` before and the closing `)` after.
+        if let paren = before.range(of: "](", options: .backwards), !before[paren.upperBound...].contains(")"), after.contains(")") { return true }
+        return false
+    }
+
     /// The edit for pasting `clipboard` over `selection` of `text`, or nil when this is an ordinary paste: no selection,
     /// clipboard not a single URL, a selection that spans lines, is blank, holds brackets (they would need escaping and the
     /// text would change), or is itself a URL (the user is replacing a URL by another). The caret ends after the link.
@@ -36,6 +50,7 @@ enum SmartPaste {
         guard label.rangeOfCharacter(from: .newlines) == nil, !label.contains("["), !label.contains("]"),
               !label.trimmingCharacters(in: .whitespaces).isEmpty, Self.url(in: label) == nil
         else { return nil }
+        guard !isInsideLink(selection, in: text) else { return nil }
         let link = "[\(label)](\(url))"
         return TextEdit(range: selection, replacement: link, selection: NSRange(location: selection.location + (link as NSString).length, length: 0))
     }

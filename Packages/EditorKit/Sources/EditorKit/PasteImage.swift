@@ -34,8 +34,15 @@ public enum PasteImage {
 
     // MARK: Encoding
 
-    /// What gets written for image bytes of type `type`: PNG, JPEG, GIF (animation) and SVG stay as they are, anything else
-    /// the system can decode (TIFF, HEIC, WebP, BMP ...) becomes PNG. nil when the bytes are not an image.
+    /// Phone photos and web photos: converted to JPEG (a PNG of a 12 MP photo is 10x the size). An image with transparency stays PNG.
+    private static let lossyTypes: [UTType] = [.heic, .heif, .webP]
+    private static let jpegQuality = 0.9
+
+    /// What gets written for image bytes of type `type`: PNG, JPEG, GIF (animation) and SVG stay as they are; HEIC and WebP
+    /// photos become JPEG (PNG when they have transparency); anything else the system can decode (TIFF, BMP ...) becomes PNG.
+    /// nil when the bytes are not an image.
+    // lazy: synchronous on the main thread; only conversions (TIFF/HEIC/WebP) cost anything. Move to a detached task, insert when done, if a
+    // multi-megapixel paste ever feels slow.
     public static func encode(_ data: Data, type: UTType) -> PastedImage? {
         guard !data.isEmpty else { return nil }
         if type.conforms(to: .svg) {  // text, not decodable by ImageIO: keep as is when it at least looks like SVG
@@ -45,11 +52,16 @@ public enum PasteImage {
         if type.conforms(to: .png) { return PastedImage(data: data, fileExtension: "png") }
         if type.conforms(to: .jpeg) { return PastedImage(data: data, fileExtension: "jpg") }
         if type.conforms(to: .gif) { return PastedImage(data: data, fileExtension: "gif") }
-        return png(from: source).map { PastedImage(data: $0, fileExtension: "png") }
+        let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
+        let opaque = (properties?[kCGImagePropertyHasAlpha] as? Bool) != true
+        if opaque, lossyTypes.contains(where: type.conforms(to:)) {
+            return reencode(source, as: .jpeg).map { PastedImage(data: $0, fileExtension: "jpg") }
+        }
+        return reencode(source, as: .png).map { PastedImage(data: $0, fileExtension: "png") }
     }
 
-    /// The first frame as an upright PNG (EXIF orientation applied: a phone's HEIC must not land sideways).
-    private static func png(from source: CGImageSource) -> Data? {
+    /// The first frame, upright (EXIF orientation applied: a phone's photo must not land sideways), as `type` (PNG or JPEG).
+    private static func reencode(_ source: CGImageSource, as type: UTType) -> Data? {
         let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
         let width = (properties?[kCGImagePropertyPixelWidth] as? Int) ?? 0, height = (properties?[kCGImagePropertyPixelHeight] as? Int) ?? 0
         guard width > 0, height > 0 else { return nil }
@@ -60,8 +72,9 @@ public enum PasteImage {
         ]
         guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else { return nil }
         let out = NSMutableData()
-        guard let destination = CGImageDestinationCreateWithData(out, UTType.png.identifier as CFString, 1, nil) else { return nil }
-        CGImageDestinationAddImage(destination, image, nil)
+        guard let destination = CGImageDestinationCreateWithData(out, type.identifier as CFString, 1, nil) else { return nil }
+        let destinationOptions: [CFString: Any] = type == .jpeg ? [kCGImageDestinationLossyCompressionQuality: jpegQuality] : [:]
+        CGImageDestinationAddImage(destination, image, destinationOptions as CFDictionary)
         return CGImageDestinationFinalize(destination) ? out as Data : nil
     }
 
@@ -71,33 +84,63 @@ public enum PasteImage {
     private static let dataTypes: [(NSPasteboard.PasteboardType, UTType)] = [
         (.png, .png), (NSPasteboard.PasteboardType(UTType.jpeg.identifier), .jpeg), (NSPasteboard.PasteboardType(UTType.heic.identifier), .heic), (.tiff, .tiff),
     ]
+    private static let offered: [NSPasteboard.PasteboardType] = [.fileURL] + dataTypes.map(\.0)
 
-    /// The images `pasteboard` offers, or nil when this is not an image paste (so the normal paste runs).
+    /// Whether `pasteboard` offers something that might be an image paste: a cheap look at the type list, nothing is read.
+    /// Edit > Paste uses it, because NSTextView would grey the item out for a pasteboard with only image data.
+    static func offersImage(on pasteboard: NSPasteboard) -> Bool { pasteboard.availableType(from: offered) != nil }
+
+    /// What an image paste would use, found without reading or decoding any image.
+    struct Candidates {
+        enum Source {
+            case file(URL, UTType)
+            case data(NSPasteboard.PasteboardType, UTType)
+        }
+        var sources: [Source]
+        let pasteboard: NSPasteboard
+    }
+
+    /// The image paste `pasteboard` offers, or nil when this is not one (so the normal paste runs):
     ///   * image files copied in Finder win (the pasteboard also carries their names as text);
     ///   * otherwise text wins (a spreadsheet range or a web selection comes with a picture of itself);
     ///   * otherwise image data (a screenshot, "Copy Image").
-    /// `permits` is asked before a file is read. Throws when an image is claimed but cannot be used: nothing is silently dropped.
-    public static func images(on pasteboard: NSPasteboard, permits: (URL) -> Bool = { _ in true }) throws -> [PastedImage]? {
+    static func candidates(on pasteboard: NSPasteboard) -> Candidates? {
+        guard offersImage(on: pasteboard) else { return nil }
         if let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL], !urls.isEmpty {
             let types = urls.map { UTType(filenameExtension: $0.pathExtension) }
             if types.allSatisfy({ $0?.conforms(to: .image) == true }) {
-                return try zip(urls, types).map { url, type in
-                    guard permits(url) else { throw PasteImageError.notPermitted(url) }
-                    let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
-                    guard size <= maxBytes else { throw PasteImageError.tooLarge }
-                    guard let data = try? Data(contentsOf: url), let image = encode(data, type: type!) else { throw PasteImageError.unreadable }
-                    return image
-                }
+                return Candidates(sources: zip(urls, types).map { .file($0, $1!) }, pasteboard: pasteboard)
             }
         }
-        if pasteboard.string(forType: .string) != nil { return nil }
-        for (pasteboardType, type) in dataTypes {
-            guard let data = pasteboard.data(forType: pasteboardType) else { continue }
-            guard data.count <= maxBytes else { throw PasteImageError.tooLarge }
-            guard let image = encode(data, type: type) else { throw PasteImageError.unreadable }
-            return [image]
+        if pasteboard.availableType(from: [.string]) != nil { return nil }
+        guard let (type, uti) = dataTypes.first(where: { pasteboard.availableType(from: [$0.0]) != nil }) else { return nil }
+        return Candidates(sources: [.data(type, uti)], pasteboard: pasteboard)
+    }
+
+    /// Reads and encodes the candidates. Image files that cannot be used (unreadable, too big, outside `permits`) give nil: the
+    /// normal paste runs, which pastes their names. Image data that cannot be used throws: the user copied an image and
+    /// would otherwise see nothing happen.
+    static func load(_ candidates: Candidates, permits: (URL) -> Bool = { _ in true }) throws -> [PastedImage]? {
+        var images: [PastedImage] = []
+        for source in candidates.sources {
+            switch source {
+            case .file(let url, let type):
+                guard permits(url), (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0 <= maxBytes,
+                      let data = try? Data(contentsOf: url), let image = encode(data, type: type) else { return nil }
+                images.append(image)
+            case .data(let pasteboardType, let type):
+                guard let data = candidates.pasteboard.data(forType: pasteboardType) else { throw PasteImageError.unreadable }
+                guard data.count <= maxBytes else { throw PasteImageError.tooLarge }
+                guard let image = encode(data, type: type) else { throw PasteImageError.unreadable }
+                images.append(image)
+            }
         }
-        return nil
+        return images
+    }
+
+    /// `candidates` and `load` in one step (nil: not an image paste, or image files that cannot be used).
+    public static func images(on pasteboard: NSPasteboard, permits: (URL) -> Bool = { _ in true }) throws -> [PastedImage]? {
+        try candidates(on: pasteboard).flatMap { try load($0, permits: permits) }
     }
 
     // MARK: Writing
@@ -148,9 +191,12 @@ public enum PasteImage {
         throw PasteImageError.io(POSIXError(.EEXIST))
     }
 
-    /// `![](images/x.png)` per path, one per line; the caret goes after the last one.
+    /// The alt text of an inserted image: not empty, so screen readers and a broken link both say something. The user can refine it.
+    public static let altText = "image"
+
+    /// `![image](images/x.png)` per path, one per line; the caret goes after the last one.
     public static func edit(forPaths paths: [String], replacing selection: NSRange) -> TextEdit {
-        let text = paths.map { "![](\($0))" }.joined(separator: "\n")
+        let text = paths.map { "![\(altText)](\($0))" }.joined(separator: "\n")
         return TextEdit(range: selection, replacement: text, selection: NSRange(location: selection.location + (text as NSString).length, length: 0))
     }
 }

@@ -242,6 +242,7 @@ enum IsolatedTestHooks {
         if kind == "url" {
             let text = editor.string as NSString
             let word = text.rangeOfCharacter(from: .alphanumerics)
+            guard word.location != NSNotFound else { return editorLog.error("paste hook: no word to select") }
             var end = word.location
             while end < text.length, CharacterSet.alphanumerics.contains(Unicode.Scalar(text.character(at: end)) ?? " ") { end += 1 }
             editor.setSelectedRange(NSRange(location: word.location, length: end - word.location))

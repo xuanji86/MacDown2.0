@@ -1,4 +1,3 @@
-import CoreServices
 import Foundation
 import Observation
 import OSLog
@@ -6,7 +5,8 @@ import OSLog
 private let log = Logger(subsystem: "io.github.xuanji86.MacDown2", category: "themes")
 
 /// Editor themes the user dropped into a folder (`~/Library/Application Support/MacDown2/Themes/`), in the same JSON format
-/// as the built-in ones (PLAN 4.5). The folder is read by `UserThemes.load`; `UserThemeStore` keeps the result current.
+/// as the built-in ones (PLAN 4.5). The folder is read by `UserThemes.load`; `UserThemeStore` keeps the result current (whoever
+/// watches the folder calls `rescan()`).
 public enum UserThemes {
     public static let suffix = " (User)"
     /// lazy: a theme file is a few KB; anything bigger than this is skipped unread instead of parsed (no streaming decoder).
@@ -28,14 +28,16 @@ public enum UserThemes {
         public var themes: [EditorTheme]
         /// Files that were not usable: unparseable, too big, unreadable, empty name.
         public var skipped: [Skipped]
+        /// Every file that took part (name and bytes) plus the skipped ones: equal fingerprints mean nothing a theme is made of changed.
+        var fingerprint = Data()
     }
 
-    /// Reads every `*.json` directly inside `directory` (not recursive, not hidden files). A missing or unreadable folder is an
-    /// empty listing. A file that fails is skipped with a log line and never stops the others. `builtIn` are the names a user
-    /// theme must not take over.
+    /// Reads every `*.json` directly inside `directory` (not recursive, not hidden files; a symlink to a file counts as that file).
+    /// A missing or unreadable folder is an empty listing. A file that fails is skipped with a log line and never stops the others.
+    /// `builtIn` are the names a user theme must not take over.
     public static func load(from directory: URL, builtIn: [EditorTheme] = ThemeLibrary.all) -> Listing {
         let fm = FileManager.default
-        guard let entries = try? fm.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey], options: [.skipsHiddenFiles]) else {
+        guard let entries = try? fm.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) else {
             return Listing(themes: [], skipped: [])
         }
         // Deterministic: the order of the listing is never the order of the picker.
@@ -45,60 +47,87 @@ public enum UserThemes {
         }
         var parsed: [EditorTheme] = []
         var skipped: [Skipped] = []
+        var fingerprint = Data()
         func skip(_ url: URL, _ reason: String) {
             log.error("user theme \(url.lastPathComponent, privacy: .public) skipped: \(reason, privacy: .public)")
             skipped.append(Skipped(file: url.lastPathComponent, reason: reason))
+            fingerprint.append(Data("\(url.lastPathComponent)\u{0}\(reason)\u{0}".utf8))
         }
         for url in files {
-            let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey])
+            let target = url.resolvingSymlinksInPath()  // a theme kept elsewhere and linked into the folder
+            let values = try? target.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey])
             guard values?.isRegularFile == true else { skip(url, "not a regular file"); continue }
             guard (values?.fileSize ?? 0) <= maxFileBytes else { skip(url, "larger than \(maxFileBytes / 1024) KB"); continue }
             do {
-                var theme = try EditorTheme(json: Data(contentsOf: url))
+                let data = try Data(contentsOf: target)
+                var theme = try EditorTheme(json: data)
                 theme.name = theme.name.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !theme.name.isEmpty else { skip(url, "empty theme name"); continue }
                 parsed.append(theme)
+                fingerprint.append(Data("\(url.lastPathComponent)\u{0}".utf8))
+                fingerprint.append(data)
             } catch {
-                skip(url, String(describing: error))
+                skip(url, describe(error))
             }
         }
-        return Listing(themes: resolveNames(parsed, builtIn: builtIn.map(\.name)), skipped: skipped)
+        return Listing(themes: resolveNames(parsed, builtIn: builtIn.map(\.name)), skipped: skipped, fingerprint: fingerprint)
+    }
+
+    /// One line a person can act on ("colors.background: colour must be #RRGGBB ...") instead of the decoder's whole dump.
+    static func describe(_ error: any Error) -> String {
+        guard let error = error as? DecodingError else { return error.localizedDescription }
+        func path(_ context: DecodingError.Context) -> String { context.codingPath.map(\.stringValue).joined(separator: ".") }
+        switch error {
+        case .keyNotFound(let key, let context): return "missing \"\((context.codingPath + [key]).map(\.stringValue).joined(separator: "."))\""
+        case .typeMismatch(_, let context), .valueNotFound(_, let context): return "\(path(context)): \(context.debugDescription)"
+        case .dataCorrupted(let context): return path(context).isEmpty ? "not valid JSON" : "\(path(context)): \(context.debugDescription)"
+        @unknown default: return String(describing: error)
+        }
     }
 
     /// A user theme named like a built-in (or like an earlier user theme) is shown as "<name> (User)"; if that is taken too,
     /// "<name> (User 2)", "(User 3)" ... Decided in the order given, so the same files always give the same names. Built-ins
-    /// never change name: a saved choice of "Solarized Dark" keeps meaning the built-in one.
+    /// never change name: a saved choice of "Solarized Dark" keeps meaning the built-in one. A `counterpart` that names a
+    /// sibling that had to be renamed follows the rename (the pair was written together), so "follow the system" still finds it;
+    /// one that names a built-in, or a sibling that kept its name, stays.
     static func resolveNames(_ themes: [EditorTheme], builtIn: [String]) -> [EditorTheme] {
         var taken = Set(builtIn)
-        return themes.map { theme in
+        var kept = Set<String>()
+        var renamed: [String: String] = [:]  // original name -> the first sibling's new name
+        var result = themes.map { theme -> EditorTheme in
             var theme = theme
-            var candidate = theme.name
+            let original = theme.name
+            var candidate = original
             var n = 1
             while taken.contains(candidate) {
                 n += 1
-                candidate = n == 2 ? theme.name + suffix : theme.name + " (User \(n - 1))"
+                candidate = n == 2 ? original + suffix : original + " (User \(n - 1))"
             }
             taken.insert(candidate)
             theme.name = candidate
+            if candidate == original { kept.insert(original) } else if renamed[original] == nil { renamed[original] = candidate }
             return theme
         }
+        for i in result.indices {
+            if let counterpart = result[i].counterpart, !kept.contains(counterpart), let new = renamed[counterpart] { result[i].counterpart = new }
+        }
+        return result
     }
 }
 
-/// The themes the pickers list: the built-ins, then the user's. Watches the user folder (FSEvents) and reloads on any change,
-/// so a theme file saved while the app runs shows up, edits take effect and a deleted theme disappears. Read `all` / `revision`
-/// from SwiftUI to be updated.
+/// The themes the pickers list: the built-ins, then the user's. `rescan()` re-reads the folder; whoever watches it (the app, with
+/// `FolderWatcher`) calls that on every change, so a theme file saved while the app runs shows up, edits take effect and a deleted
+/// theme disappears. Read `all` / `revision` from SwiftUI to be updated.
 @MainActor @Observable
 public final class UserThemeStore {
     public let directory: URL
     public private(set) var userThemes: [EditorTheme] = []
     public private(set) var skipped: [UserThemes.Skipped] = []
-    /// Counts reloads: a theme's name stays while its colours change, so views that cache a theme compare this.
+    /// Counts reloads that changed something. A theme's name stays while its colours change, so views that cache a theme compare this.
     public private(set) var revision = 0
 
     private let builtIn: [EditorTheme]
-    @ObservationIgnored private var stream: FSEventStreamRef?
-    @ObservationIgnored private var pending: Task<Void, Never>?
+    @ObservationIgnored private var fingerprint = Data()
 
     /// Built-ins first, in their own order, then the user's in file-name order.
     public var all: [EditorTheme] { builtIn + userThemes }
@@ -108,74 +137,24 @@ public final class UserThemeStore {
         self.builtIn = builtIn
     }
 
-    isolated deinit { stopWatching() }
-
-    /// Loads the folder now and starts watching it. Idempotent; call again after the folder was created.
-    public func start() {
-        reload()
-        startWatching()
-    }
-
-    public func reload() {
+    /// Reads the folder. Nothing is published, and `revision` stays, when the files say the same as last time (a `.DS_Store` written,
+    /// a file touched): every open editor would otherwise re-apply its theme and lay the whole document out again.
+    public func rescan() {
         let listing = UserThemes.load(from: directory, builtIn: builtIn)
+        guard listing.fingerprint != fingerprint else { return }
+        fingerprint = listing.fingerprint
         userThemes = listing.themes
         skipped = listing.skipped
         revision += 1
     }
 
-    /// Creates the folder if it is missing (the first "Reveal Themes Folder" click) and makes sure it is watched.
+    /// Creates the folder if it is missing (the first "Reveal Themes Folder" click).
     @discardableResult
     public func ensureDirectory() -> Bool {
         do { try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true) } catch {
             log.error("cannot create the themes folder: \(String(describing: error), privacy: .public)")
             return false
         }
-        startWatching()
         return true
-    }
-
-    // MARK: FSEvents
-
-    // lazy: events are coalesced for 0.3 s and every event reloads the whole folder (a handful of small files); no per-file diff
-    private func startWatching() {
-        guard stream == nil else { return }
-        var context = FSEventStreamContext(version: 0, info: Unmanaged.passUnretained(self).toOpaque(), retain: nil, release: nil, copyDescription: nil)
-        let callback: FSEventStreamCallback = { _, info, _, _, _, _ in
-            guard let info else { return }
-            let store = Unmanaged<UserThemeStore>.fromOpaque(info).takeUnretainedValue()
-            // The stream is scheduled on the main queue, so this runs on the main actor.
-            MainActor.assumeIsolated { store.scheduleReload() }
-        }
-        // The real path: FSEvents reports paths with /private/var resolved, and watches the folder, not what a symlink points at.
-        let path = directory.resolvingSymlinksInPath().path
-        guard let stream = FSEventStreamCreate(
-            nil, callback, &context, [path] as CFArray, FSEventStreamEventId(kFSEventStreamEventIdSinceNow), 0.3,
-            FSEventStreamCreateFlags(kFSEventStreamCreateFlagFileEvents | kFSEventStreamCreateFlagNoDefer | kFSEventStreamCreateFlagWatchRoot))
-        else {
-            log.error("cannot watch the themes folder")
-            return
-        }
-        FSEventStreamSetDispatchQueue(stream, .main)
-        FSEventStreamStart(stream)
-        self.stream = stream
-    }
-
-    private func stopWatching() {
-        pending?.cancel()
-        guard let stream else { return }
-        FSEventStreamStop(stream)
-        FSEventStreamInvalidate(stream)
-        FSEventStreamRelease(stream)
-        self.stream = nil
-    }
-
-    /// An editor saving a file writes a temp file, renames it, touches attributes: several events for one change.
-    private func scheduleReload() {
-        pending?.cancel()
-        pending = Task { [weak self] in
-            try? await Task.sleep(for: .milliseconds(100))
-            guard !Task.isCancelled else { return }
-            self?.reload()
-        }
     }
 }

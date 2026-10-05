@@ -2,6 +2,7 @@ import AppKit
 import EditorKit
 import Foundation
 import Observation
+import WorkspaceKit
 
 /// The app's one `UserThemeStore`: built-in themes plus the files in `~/Library/Application Support/MacDown2/Themes/`.
 /// An isolated launch (`Scripts/run-isolated.sh`) never reads the user's real folder: it looks in `.macdown2-themes` inside its
@@ -14,16 +15,26 @@ enum UserThemeFolder {
         return base.appending(path: ".macdown2-themes", directoryHint: .isDirectory)
     }()
 
-    /// Started (read and watched) on first use.
+    /// Read on first use and kept current by `watcher`.
     static let store: UserThemeStore = {
         let store = UserThemeStore(directory: directory)
-        store.start()
+        store.rescan()
+        startWatching()
         return store
     }()
+
+    // The watcher lives as long as the app. It reports the folder even before it exists (the root is watched), so creating it by
+    // hand, or with Reveal, and dropping a theme in is picked up.
+    private static let watcher = FolderWatcher(roots: [directory], debounce: 0.3, ignoreSelf: false, watchRoot: true) { _ in
+        Task { @MainActor in store.rescan() }
+    }
+
+    private static func startWatching() { watcher.start() }
 
     /// Settings ▸ Editor ▸ Reveal Themes Folder: creates the folder when it is not there yet, then shows it in Finder.
     static func reveal() {
         guard store.ensureDirectory() else { return }
+        startWatching()  // a stream that could not start for a folder that was missing gets another go
         NSWorkspace.shared.open(directory)
     }
 

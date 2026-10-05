@@ -38,6 +38,7 @@ struct EditorPane: NSViewRepresentable {
         textView.delegate = context.coordinator
         textView.behavior = settings.behavior
         context.coordinator.textView = textView
+        context.coordinator.themeRevision = UserThemeFolder.store.revision  // the theme above is current: no relayout on the first update
         context.coordinator.installPasteHooks(on: textView)
         context.coordinator.startSession(showing: document, in: textView)
         scrollSync.attach(editor: textView)
@@ -89,7 +90,7 @@ struct EditorPane: NSViewRepresentable {
         var status: EditorStatus?
         var editor: EditorHandle?
         var decoratedFlavor: FlavorID?
-        var themeRevision = -1
+        var themeRevision = 0
 
         private let scrollSync: ScrollSyncController
 

@@ -131,6 +131,16 @@
         }
       }
     },
+    "Skipped theme files:" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已跳过的主题文件："
+          }
+        }
+      }
+    },
     "%@ · %@ s · PATH has %lld entries" : {
       "localizations" : {
         "en" : {

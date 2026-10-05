@@ -27,6 +27,21 @@ final class EditorClipView: NSClipView {
     /// How far beyond the document the view may scroll.
     var extraScrollHeight: CGFloat { scrollsPastEnd ? (bounds.height / 2).rounded(.down) : 0 }
 
+    /// A click below the document (in the extra space) is a click below the last line: the text view puts the caret at the end
+    /// (and tracks the drag), as it would for a click in its own empty area.
+    override func mouseDown(with event: NSEvent) {
+        if let document = documentView, isInExtraSpace(convert(event.locationInWindow, from: nil)) {
+            document.mouseDown(with: event)
+        } else {
+            super.mouseDown(with: event)
+        }
+    }
+
+    func isInExtraSpace(_ point: NSPoint) -> Bool {
+        guard scrollsPastEnd, let document = documentView else { return false }
+        return point.y > document.frame.maxY
+    }
+
     override var documentRect: NSRect {
         var rect = super.documentRect
         rect.size.height += extraScrollHeight
@@ -380,6 +395,8 @@ public final class MarkdownTextView: NSTextView {
     public var pastePermits: (@MainActor (URL) -> Bool)?
     /// An image paste that could not happen. Nothing was written for the part that failed; the app tells the user.
     public var onPasteImageProblem: (@MainActor (PasteImageProblem) -> Void)?
+    /// What Paste reads and Edit > Paste validates against; tests give it a private pasteboard.
+    var pasteSource: NSPasteboard = .general
 
     public enum PasteImageProblem {
         case needsSavedDocument
@@ -387,53 +404,70 @@ public final class MarkdownTextView: NSTextView {
     }
 
     public override func paste(_ sender: Any?) {
-        if isEditable, !hasMarkedText(), pasteIfSmart(from: .general) { return }
+        if isEditable, !hasMarkedText(), pasteIfSmart(from: pasteSource) { return }
         super.paste(sender)
     }
 
-    /// An image on the pasteboard becomes files next to the document plus `![](images/…)`; a URL over a selection becomes a
+    /// NSTextView enables Paste only for the types it can read, and a screenshot or "Copy Image" has none of them: with image
+    /// support on, an image on the pasteboard enables it too (`paste` then saves it, or asks to save the document first).
+    private var canPasteImage: Bool { isEditable && documentURL != nil && PasteImage.offersImage(on: pasteSource) }
+
+    public override func validateUserInterfaceItem(_ item: any NSValidatedUserInterfaceItem) -> Bool {
+        if item.action == #selector(paste(_:)), canPasteImage { return true }
+        return super.validateUserInterfaceItem(item)
+    }
+
+    public override func validateMenuItem(_ item: NSMenuItem) -> Bool {
+        if item.action == #selector(paste(_:)), canPasteImage { return true }
+        return super.validateMenuItem(item)
+    }
+
+    /// An image on the pasteboard becomes files next to the document plus `![image](images/…)`; a URL over a selection becomes a
     /// link. True when handled here. The text insertion is one undo step of its own (`breakUndoCoalescing`), and undoing it
     /// leaves the image files in place: they may be referenced by now, and deleting user files on ⌘Z is the worse surprise.
     public func pasteIfSmart(from pasteboard: NSPasteboard) -> Bool {
         guard let storage = textStorage else { return false }
-        let permits = pastePermits ?? { _ in true }
-        if documentURL != nil {
-            let images: [PastedImage]
-            do {
-                guard let found = try PasteImage.images(on: pasteboard, permits: permits) else { return linkPaste(pasteboard, storage) }
-                images = found
-            } catch {
-                onPasteImageProblem?(.failed(error as? PasteImageError ?? .io(error)))
-                return true
-            }
-            guard let folder = documentURL?()?.deletingLastPathComponent() else {
-                onPasteImageProblem?(.needsSavedDocument)
-                return true
-            }
-            var paths: [String] = []
-            var problem: PasteImageError?
-            for image in images {
-                do { paths.append(try PasteImage.write(image, besideDocumentIn: folder, permits: permits)) } catch {
-                    problem = error as? PasteImageError ?? .io(error)
-                    break
-                }
-            }
-            if !paths.isEmpty {
-                breakUndoCoalescing()
-                applyEdit(PasteImage.edit(forPaths: paths, replacing: selectedRange()))
-                breakUndoCoalescing()
-            }
-            if let problem { onPasteImageProblem?(.failed(problem)) }
+        guard documentURL != nil, let candidates = PasteImage.candidates(on: pasteboard) else { return linkPaste(pasteboard, storage) }
+        // Before anything is read or decoded: an unsaved document has no folder to put the image in.
+        guard let folder = documentURL?()?.deletingLastPathComponent() else {
+            onPasteImageProblem?(.needsSavedDocument)
             return true
         }
-        return linkPaste(pasteboard, storage)
+        let permits = pastePermits ?? { _ in true }
+        let images: [PastedImage]
+        do {
+            // nil: image files that cannot be used; the normal paste (their names) runs.
+            guard let loaded = try PasteImage.load(candidates, permits: permits) else { return linkPaste(pasteboard, storage) }
+            images = loaded
+        } catch {
+            onPasteImageProblem?(.failed(error as? PasteImageError ?? .io(error)))
+            return true
+        }
+        var paths: [String] = []
+        var problem: PasteImageError?
+        for image in images {
+            do { paths.append(try PasteImage.write(image, besideDocumentIn: folder, permits: permits)) } catch {
+                problem = error as? PasteImageError ?? .io(error)
+                break
+            }
+        }
+        if !paths.isEmpty { applyAsOwnUndoStep(PasteImage.edit(forPaths: paths, replacing: selectedRange())) }
+        if let problem { onPasteImageProblem?(.failed(problem)) }
+        return true
     }
 
     private func linkPaste(_ pasteboard: NSPasteboard, _ storage: NSTextStorage) -> Bool {
-        guard let clipboard = pasteboard.string(forType: .string),
+        guard pasteboard.availableType(from: [.string]) != nil, let clipboard = pasteboard.string(forType: .string),
               let edit = SmartPaste.linkEdit(clipboard: clipboard, selection: selectedRange(), in: storage.mutableString) else { return false }
-        applyEdit(edit)
+        applyAsOwnUndoStep(edit)
         return true
+    }
+
+    /// Kept apart from the typing before and after it, so one ⌘Z takes back the paste and nothing else.
+    private func applyAsOwnUndoStep(_ edit: TextEdit) {
+        breakUndoCoalescing()
+        applyEdit(edit)
+        breakUndoCoalescing()
     }
 
     // MARK: Smart Home
@@ -593,8 +627,9 @@ public final class MarkdownTextView: NSTextView {
         let frame = fragment.layoutFragmentFrame
         let clip = scrollView.contentView
         let target = frame.minY + progress * frame.height + textContainerOrigin.y
-        let maxY = max(0, self.frame.height - clip.bounds.height + ((clip as? EditorClipView)?.extraScrollHeight ?? 0))
-        clip.scroll(to: NSPoint(x: clip.bounds.origin.x, y: min(max(target, 0), maxY)))
+        // The clip view knows the limits (document, content insets, scroll past end).
+        let wanted = NSRect(origin: NSPoint(x: clip.bounds.origin.x, y: max(target, 0)), size: clip.bounds.size)
+        clip.scroll(to: clip.constrainBoundsRect(wanted).origin)
         scrollView.reflectScrolledClipView(clip)
     }
 

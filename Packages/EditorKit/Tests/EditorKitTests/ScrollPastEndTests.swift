@@ -68,6 +68,17 @@ struct ScrollPastEndTests {
         }
     }
 
+    @Test func aClickInTheExtraSpaceBelongsToTheText() throws {
+        let (view, clip, _) = try make()
+        let below = NSPoint(x: 10, y: view.frame.maxY + 50)
+        #expect(!clip.isInExtraSpace(below), "off: nothing below the text")
+        var settings = EditorViewSettings()
+        settings.scrollsPastEnd = true
+        view.apply(settings: settings)
+        #expect(clip.isInExtraSpace(below))
+        #expect(!clip.isInExtraSpace(NSPoint(x: 10, y: view.frame.maxY - 5)), "a click on the text itself is the text view's own")
+    }
+
     @Test func aShortDocumentDoesNotScrollBeyondHalfAWindow() throws {
         let view = ViewTests.makeSizedView("a\nb\nc")
         let clip = try #require(view.enclosingScrollView?.contentView as? EditorClipView)
