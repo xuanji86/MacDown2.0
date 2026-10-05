@@ -11,6 +11,11 @@ let package = Package(
         .package(url: "https://github.com/ChimeHQ/SwiftTreeSitter", exact: "0.8.0"),
         .package(url: "https://github.com/ChimeHQ/Neon", exact: "0.6.0"),
         .package(url: "https://github.com/tree-sitter-grammars/tree-sitter-markdown", exact: "0.4.1"),
+        // Languages injected into fenced code (PLAN 4.3.2): Python and R are Quarto's two executable languages, YAML is front matter and
+        // yaml fences. All MIT, all ABI 14 (the newer tags emit ABI 15, which the runtime inside SwiftTreeSitter 0.8.0 refuses).
+        .package(url: "https://github.com/tree-sitter/tree-sitter-python", exact: "0.23.6"),
+        .package(url: "https://github.com/r-lib/tree-sitter-r", exact: "1.1.0"),
+        .package(url: "https://github.com/tree-sitter-grammars/tree-sitter-yaml", exact: "0.7.0"),
         .package(path: "../ExtensionAPI"),  // DecorationSpan: the overlay a document flavor (Quarto) adds to the highlighting
     ],
     targets: [
@@ -20,6 +25,9 @@ let package = Package(
                 .product(name: "SwiftTreeSitter", package: "SwiftTreeSitter"),
                 .product(name: "Neon", package: "Neon"),
                 .product(name: "TreeSitterMarkdown", package: "tree-sitter-markdown"),
+                .product(name: "TreeSitterPython", package: "tree-sitter-python"),
+                .product(name: "TreeSitterR", package: "tree-sitter-r"),
+                .product(name: "TreeSitterYAML", package: "tree-sitter-yaml"),
                 .product(name: "ExtensionAPI", package: "ExtensionAPI"),
             ],
             resources: [.copy("Resources")]

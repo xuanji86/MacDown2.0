@@ -23,6 +23,12 @@ final class WorkspaceRegistry: DocumentBackend {
     private var pendingURLs: [URL] = []
     /// `macdown2 --preview-only` & co. for the pending opens. lazy: one layout for all of them (the last flag wins), not one per file.
     private var pendingLayout: SplitMode?
+    /// `macdown2://open?…&line=N` for the pending opens: `fileKey` → 1-based line. Travels with `pendingURLs` and is used up (or dropped) by
+    /// the one `perform` that opens them; it is never kept for a later open of the same file.
+    private var pendingLines: [String: Int] = [:]
+    /// Refused `macdown2://` links still to be told to the user (`presentRefusals`), and the window the sheet being shown hangs from.
+    private var refusals: [String] = []
+    private var refusalHost: NSWindow?
     private var launchGraceOver = false
     private(set) var isTerminating = false
     /// Filled by the first window (`OpenWindowAction` only exists inside the view tree).
@@ -199,10 +205,7 @@ final class WorkspaceRegistry: DocumentBackend {
         let holders = ledger.holders(of: key)
         let window = sheetHost[key].flatMap { models[$0]?.window }
             ?? orderedModels().first { holders.contains($0.controller.id) && $0.window != nil }?.window
-        if let window {
-            if window.isMiniaturized { window.deminiaturize(nil) }
-            if !window.isVisible { window.orderFront(nil) }
-        }
+        if let window { Self.bringBack(window) }
         return window
     }
 
@@ -229,6 +232,7 @@ final class WorkspaceRegistry: DocumentBackend {
         DispatchQueue.main.async { [self] in
             if !restoreQueue.isEmpty { requestWindow() } else { drainPending(into: model) }
             blankWindowGetsUntitled(model, restored: restored != nil)
+            presentRefusals()
         }
     }
 
@@ -262,9 +266,11 @@ final class WorkspaceRegistry: DocumentBackend {
             MainActor.assumeIsolated { if let model { WorkspaceRegistry.shared.windowClosed(model) } }
         }
         sync(model)
+        DispatchQueue.main.async { [self] in presentRefusals() }
     }
 
     private func windowClosed(_ model: WindowModel) {
+        refusalHostClosed(model.window)
         model.sidebar.shutdown()
         model.controller.detach()
         model.windowController = nil
@@ -303,25 +309,96 @@ final class WorkspaceRegistry: DocumentBackend {
         let urls = urls.filter(AppDefaults.permitsOpening)
         if urls.isEmpty { return }
         // The command line's layout flag, left as a hint file by `macdown2` just before it asked LaunchServices to open these.
-        let layout = LayoutHints.take(for: urls.map(\.fileKey), in: Self.layoutHintDirectory)
+        openPermitted(urls, layout: LayoutHints.take(for: urls.map(\.fileKey), in: Self.layoutHintDirectory), lines: [:])
+    }
+
+    /// `urls` have passed `AppDefaults.permitsOpening`. `lines` (1-based, by `fileKey`) are a deep link's.
+    private func openPermitted(_ urls: [URL], layout: SplitMode?, lines: [String: Int]) {
         if models.isEmpty || !restoreQueue.isEmpty {  // launching: the windows are still coming
             pendingURLs += urls
             pendingLayout = layout ?? pendingLayout
+            pendingLines.merge(lines) { _, new in new }
             if launchGraceOver, models.isEmpty { requestWindow() }
             return
         }
-        route(urls, layout: layout)
+        route(urls, layout: layout, lines: lines)
+    }
+
+    /// A `macdown2://` link (`DeepLink` says what is accepted). It goes the same way as a Finder open: a file is a tab in the
+    /// frontmost window, a folder enters workspace mode; `line` selects that line once the editor shows the file (the last link
+    /// wins when several arrive together). A refused link is said so, never silently dropped.
+    func open(deepLink url: URL) {
+        switch DeepLink.parse(url) {
+        case .success(let link):
+            guard AppDefaults.permitsOpening(link.url) else {
+                return refuse(String(localized: "This copy of MacDown2 is a test instance and only opens files inside its own folder."))
+            }
+            // The link's own layout wins over a hint file, which then stays for whoever wrote it.
+            let layout = link.layout ?? LayoutHints.take(for: [link.url.fileKey], in: Self.layoutHintDirectory)
+            openPermitted([link.url], layout: layout, lines: link.line.map { [link.url.fileKey: $0] } ?? [:])
+        case .failure(let failure):
+            log.error("refused link: \(String(describing: failure), privacy: .public)")
+            refuse(Self.message(for: failure))
+        }
+    }
+
+    private func refuse(_ message: String) {
+        refusals.append(message)
+        if orderedModels().contains(where: { $0.window != nil }) { presentRefusals() } else if launchGraceOver, models.isEmpty { requestWindow() }
+    }
+
+    /// One sheet per refused link, one after the other, on the frontmost window (brought back first if minimized: with no usable
+    /// window AppKit would fall back to a modal alert). Before the first window exists (a link that launched the app) they wait for
+    /// it: a modal alert at launch would keep SwiftUI from ever creating that window.
+    private func presentRefusals() {
+        guard refusalHost == nil, !refusals.isEmpty, let window = orderedModels().first(where: { $0.window != nil })?.window else { return }
+        Self.bringBack(window)
+        refusalHost = window
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = String(localized: "Could not open the link")
+        alert.informativeText = refusals.removeFirst()
+        alert.beginSheetModal(for: window) { [self] _ in
+            if refusalHost === window { refusalHost = nil }
+            presentRefusals()
+        }
+    }
+
+    /// A window that is going away takes its sheet with it: the next refusal goes to another window.
+    private func refusalHostClosed(_ window: NSWindow?) {
+        guard let window, refusalHost === window else { return }
+        refusalHost = nil
+        DispatchQueue.main.async { [self] in presentRefusals() }
+    }
+
+    private static func message(for failure: DeepLink.Failure) -> String {
+        switch failure {
+        case .unsupportedLink: String(localized: "Only macdown2://open and macdown2://workspace links are supported.")
+        case .badParameter(let name): String(localized: "The link’s “\(name)” parameter is missing, repeated or not valid.")
+        case .unsafePath: String(localized: "The path in the link must be absolute, without “..” or control characters.")
+        case .notFound: String(localized: "The file or folder in the link does not exist.")
+        case .unsupportedFileType: String(localized: "Links open only folders and Markdown, Quarto or text files.")
+        }
+    }
+
+    private static func bringBack(_ window: NSWindow) {
+        if window.isMiniaturized { window.deminiaturize(nil) }
+        if !window.isVisible { window.orderFront(nil) }
     }
 
     private static var layoutHintDirectory: URL {
         LayoutHints.directory(home: FileManager.default.homeDirectoryForCurrentUser, suite: AppDefaults.isolation?.suiteName)
     }
 
-    private func route(_ urls: [URL], layout: SplitMode?) {
+    private func route(_ urls: [URL], layout: SplitMode?, lines: [String: Int]) {
         guard let plan = OpenRouter.plan(opening: urls, windows: orderedModels().map(\.snapshot)) else { return }
         switch plan.target {
-        case .window(let id): if let model = models[id] { perform(plan, in: model, layout: layout) }
-        case .newWindow: pendingURLs += urls; pendingLayout = layout ?? pendingLayout; requestWindow()
+        case .window(let id): if let model = models[id] { perform(plan, in: model, layout: layout, lines: lines) }
+        case .newWindow:
+            pendingURLs += urls
+            pendingLayout = layout ?? pendingLayout
+            pendingLines.merge(lines) { _, new in new }
+            requestWindow()
         }
     }
 
@@ -329,25 +406,28 @@ final class WorkspaceRegistry: DocumentBackend {
     /// rules, but when those say "new window" this fresh one is that window (asking for yet another would never end).
     private func drainPending(into model: WindowModel) {
         guard !pendingURLs.isEmpty, restoreQueue.isEmpty else { return }
-        let urls = pendingURLs, layout = pendingLayout
+        let urls = pendingURLs, layout = pendingLayout, lines = pendingLines
         pendingURLs = []
         pendingLayout = nil
+        pendingLines = [:]
         guard let plan = OpenRouter.plan(opening: urls, windows: orderedModels().map(\.snapshot)) else { return }
         switch plan.target {
-        case .window(let id): perform(plan, in: models[id] ?? model, layout: layout)
-        case .newWindow: perform(plan, in: model, layout: layout)
+        case .window(let id): perform(plan, in: models[id] ?? model, layout: layout, lines: lines)
+        case .newWindow: perform(plan, in: model, layout: layout, lines: lines)
         }
     }
 
     /// `layout` is the command line's flag. A blank window (new, or the front one with nothing in it) that a workspace folder opens in
     /// takes the layout that folder last had; the flag beats that, and applies to a window that already had files too.
-    private func perform(_ plan: OpenPlan, in model: WindowModel, layout: SplitMode?) {
+    private func perform(_ plan: OpenPlan, in model: WindowModel, layout: SplitMode?, lines: [String: Int]) {
         let blank = model.controller.openKeys.isEmpty && !model.sidebar.isWorkspace  // a pristine Untitled tab counts as blank (as in OpenRouter)
         if !plan.folders.isEmpty {
             model.sidebar.openFolders(plan.folders)
         }
         model.startLayout(cli: layout, workspace: blank ? plan.folders : [])
         perform(plan.urls, in: model)
+        // Only the file that ends up in front can show a line: the last one opened (a failed open has no tab and gets none).
+        if let url = plan.urls.last, let line = lines[url.fileKey], model.controller.holds(url) { model.lineRequest = LineRequest(key: url.fileKey, line: line) }
     }
 
     private func perform(_ urls: [URL], in model: WindowModel) {

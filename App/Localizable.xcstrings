@@ -1155,6 +1155,76 @@
         }
       }
     },
+    "Could not open the link" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法打开此链接"
+          }
+        }
+      }
+    },
+    "This copy of MacDown2 is a test instance and only opens files inside its own folder." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "这份 MacDown2 是测试实例，只能打开它自己文件夹里的文件。"
+          }
+        }
+      }
+    },
+    "Only macdown2://open and macdown2://workspace links are supported." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "只支持 macdown2://open 和 macdown2://workspace 链接。"
+          }
+        }
+      }
+    },
+    "The link’s “%@” parameter is missing, repeated or not valid." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "链接的“%@”参数缺失、重复或无效。"
+          }
+        }
+      }
+    },
+    "The path in the link must be absolute, without “..” or control characters." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "链接里的路径必须是绝对路径,且不能含“..”或控制字符。"
+          }
+        }
+      }
+    },
+    "The file or folder in the link does not exist." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "链接指向的文件或文件夹不存在。"
+          }
+        }
+      }
+    },
+    "Links open only folders and Markdown, Quarto or text files." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "链接只能打开文件夹以及 Markdown、Quarto 或文本文件。"
+          }
+        }
+      }
+    },
     "Could not print" : {
       "localizations" : {
         "zh-Hans" : {

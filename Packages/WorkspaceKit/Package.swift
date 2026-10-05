@@ -9,8 +9,9 @@ let package = Package(
     defaultLocalization: "en",
     platforms: [.macOS(.v26)],
     products: [.library(name: "WorkspaceKit", targets: ["WorkspaceKit"])],
+    dependencies: [.package(path: "../MarkdownCore")],  // the one list of document extensions (LinkPolicy.documentExtensions)
     targets: [
-        .target(name: "WorkspaceKit", resources: [.process("Resources")]),
+        .target(name: "WorkspaceKit", dependencies: ["MarkdownCore"], resources: [.process("Resources")]),
         .testTarget(name: "WorkspaceKitTests", dependencies: ["WorkspaceKit"]),
     ]
 )

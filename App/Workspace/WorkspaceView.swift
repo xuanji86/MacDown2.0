@@ -11,6 +11,8 @@ struct WorkspaceView: View {
     @State private var scrollSync = ScrollSyncController()
     @State private var editor = EditorHandle()
     @State private var status = EditorStatus()
+    /// A deep link's line the preview has still to scroll to (`lineRequest` is consumed by the editor at once).
+    @State private var pendingPreviewLine: LineRequest?
     @State private var titleGuard = HiddenTitleGuard()
     @State private var chrome = ToolbarStyleGuard()
     @AppStorage(ToolbarStyle.key) private var toolbarStyle = ToolbarStyle.default
@@ -76,6 +78,19 @@ struct WorkspaceView: View {
             IsolatedTestHooks.showSearch(in: model) { open(hit: $0, pinned: true) }
         }
         .onChange(of: model.state) { WorkspaceRegistry.shared.persist() }
+        .onChange(of: model.lineRequest) { _, request in
+            guard let request else { return }
+            model.lineRequest = nil
+            editor.reveal(key: request.key, line: request.line - 1, columns: nil, focus: model.layout.showsEditor)
+            pendingPreviewLine = request
+            // The preview still shows the previous page: it scrolls when the new document's render lands (`metadata`), or after a
+            // moment when that never changes (the same text as before).
+            Task {
+                try? await Task.sleep(for: .milliseconds(1500))
+                if pendingPreviewLine?.id == request.id { scrollPreviewToPendingLine(force: true) }
+            }
+        }
+        .onChange(of: preview.metadata) { scrollPreviewToPendingLine(force: false) }
         .onChange(of: model.controller.activeURL) { _, url in
             model.sidebar.follow(url)
             if url == nil { preview.clear() }  // no document: no outline or counts of the one that was closed
@@ -90,6 +105,13 @@ struct WorkspaceView: View {
         model.sidebar.open(hit.file, pinned: pinned)
         guard model.controller.holds(hit.file), let line = hit.line else { return }
         editor.reveal(key: hit.file.fileKey, line: line - 1, columns: hit.columns, focus: model.layout.showsEditor)
+    }
+
+    private func scrollPreviewToPendingLine(force: Bool) {
+        guard let request = pendingPreviewLine else { return }
+        let shown = model.controller.activeURL?.fileKey == request.key
+        if shown || force { pendingPreviewLine = nil }
+        if shown { preview.scroll(toLine: Double(request.line - 1)) }
     }
 
     /// Outline click: the caret and both panes go to the heading's line, whatever the scroll sync settings.

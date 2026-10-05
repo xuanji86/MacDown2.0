@@ -127,6 +127,9 @@ final class MarkdownHighlighter {
         pendingInvalidation.remove(integersIn: Int(edited.location)..<(edited.location + edited.length - delta))
         pendingInvalidation.shift(startingAt: edited.location + edited.length - delta, by: delta)
         pendingInvalidation.insert(range: paragraph(around: edited))
+        // The same for an injected region (a fenced cell, front matter): a `"""` opened in its first paragraph, or the language on its
+        // fence line changed, restyles every paragraph of it, blank lines or not.
+        for region in engine.injectionRegions { if let extent = extent(of: region, touchedBy: edited) { pendingInvalidation.insert(range: extent) } }
         scheduleFlush()
     }
 
@@ -152,6 +155,16 @@ final class MarkdownHighlighter {
         let lower = before.location == NSNotFound ? 0 : before.location
         let upper = after.location == NSNotFound ? text.length : NSMaxRange(after)
         return NSRange(location: lower, length: upper - lower)
+    }
+
+    /// The region with its fence lines (the line before and the one after) when `edit` touches that, else nil.
+    private func extent(of region: InjectionRegion, touchedBy edit: NSRange) -> NSRange? {
+        let text = storage.mutableString
+        guard NSMaxRange(region.range) <= text.length else { return nil }
+        let first = text.lineRange(for: NSRange(location: max(0, region.range.location - 1), length: 0))
+        let last = text.lineRange(for: NSRange(location: min(text.length, NSMaxRange(region.range)), length: 0))
+        let extent = NSUnionRange(first, last)
+        return edit.location <= NSMaxRange(extent) && NSMaxRange(edit) >= extent.location ? extent : nil
     }
 
     private func scheduleFlush() {

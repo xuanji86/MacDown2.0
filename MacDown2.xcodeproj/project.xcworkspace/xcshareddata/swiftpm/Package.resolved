@@ -1,5 +1,5 @@
 {
-  "originHash" : "4184dd3c69fe7b9bfc861a47719aba9ca36d2d657f62eb38e336b5475d6137a5",
+  "originHash" : "5350d2e485da9cf626cea181e0a920ec58f33fc87637a79d5709e1a6e41281a5",
   "pins" : [
     {
       "identity" : "neon",
@@ -44,6 +44,33 @@
       "state" : {
         "revision" : "413285231ce8fa8b11e7074bbe265b48aa7277f9",
         "version" : "0.4.1"
+      }
+    },
+    {
+      "identity" : "tree-sitter-python",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/tree-sitter/tree-sitter-python",
+      "state" : {
+        "revision" : "bffb65a8cfe4e46290331dfef0dbf0ef3679de11",
+        "version" : "0.23.6"
+      }
+    },
+    {
+      "identity" : "tree-sitter-r",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/r-lib/tree-sitter-r",
+      "state" : {
+        "revision" : "ac939363ced63a5fd39a8bd5e7891bbe06b5738d",
+        "version" : "1.1.0"
+      }
+    },
+    {
+      "identity" : "tree-sitter-yaml",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/tree-sitter-grammars/tree-sitter-yaml",
+      "state" : {
+        "revision" : "b733d3f5f5005890f324333dd57e1f0badec5c87",
+        "version" : "0.7.0"
       }
     }
   ],

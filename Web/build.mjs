@@ -1,6 +1,6 @@
 // Builds the vendored web assets: render.bundle.js, preview.bundle.js (+ preview.html, preview-styles/*.css + styles.json),
 // katex/ (CSS + woff2 fonts), hljs-themes/, flavors.json, quarto.chunk.js + quarto-approx.css, mermaid.chunk.js,
-// sanitize.chunk.js, print.css, THIRD_PARTY_LICENSES.txt.
+// sanitize.chunk.js, print.css, THIRD_PARTY_LICENSES.txt (npm packages in the bundles + src/swift-licenses/).
 // Usage: node build.mjs [outDir]   (default: the WebAssets package resources; drift check passes a temp dir)
 import { build } from 'esbuild';
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
@@ -164,4 +164,7 @@ const notices = [...packages.values()].sort().map((root) => {
 notices.push(readFileSync(join(here, 'src/render/katex-fonts-license.txt'), 'utf8').trim() + '\n');
 notices.push(readFileSync(join(here, 'src/quarto/vendored/LICENSE.txt'), 'utf8').trim() + '\n');
 notices.push(readFileSync(join(here, 'src/render/tomorrow-theme-license.txt'), 'utf8').trim() + '\n');
+// The Swift packages the app links (tree-sitter and its grammars, SwiftTreeSitter, Neon, Rearrange, Sparkle): their LICENSE files, copied from the
+// SPM checkouts into src/swift-licenses/ (first line = name, version, SPDX id). Update them with the pins in Package.resolved.
+for (const f of readdirSync(join(here, 'src/swift-licenses')).sort()) notices.push(readFileSync(join(here, 'src/swift-licenses', f), 'utf8').trim() + '\n');
 writeFileSync(join(outDir, 'THIRD_PARTY_LICENSES.txt'), notices.join(`\n${'-'.repeat(72)}\n\n`));

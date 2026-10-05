@@ -4,6 +4,13 @@ import Observation
 import SwiftUI
 import WorkspaceKit
 
+/// "Show line `line` (1-based) of the file `key`": a `macdown2://open?…&line=N` link. A new value (new `id`) is a new request.
+struct LineRequest: Equatable {
+    let key: String
+    let line: Int
+    let id = UUID()
+}
+
 /// Everything one workspace window keeps: its tabs (`WorkspaceController`), which sidebar page shows, and the
 /// editor/preview split. `state` is what a relaunch restores.
 @MainActor @Observable
@@ -24,6 +31,8 @@ final class WindowModel {
     /// The open Name / Tags / Where popover (hanging from a tab); nil when none is. Lives here, not in the popover's view, so it
     /// survives the "Other…" folder panel taking the key window and is put back afterwards.
     var renameDraft: RenameDraft?
+    /// A deep link's `line`: the view selects it once the editor shows the file (`WorkspaceView`).
+    var lineRequest: LineRequest?
 
     // AppKit side, filled in once the window exists.
     @ObservationIgnored weak var window: NSWindow?

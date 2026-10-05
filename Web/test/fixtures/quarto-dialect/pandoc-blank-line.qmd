@@ -1,0 +1,64 @@
+---
+title: Pandoc blank-line rules
+---
+
+A heading needs a blank line before it in Pandoc:
+# Not a heading, text of the paragraph above
+
+Same for a block quote:
+> Not a quote.
+
+and for a list:
+- not a list item
+- still the same paragraph
+
+and for an ordered list:
+1. neither is this
+
+With the blank line they are what they look like:
+
+# A heading
+
+> A quote.
+
+- an item
+- another item
+
+1. one
+2. two
+
+Inside a list item the next marker still starts an item, and nesting works:
+
+- outer
+  - nested
+- next
+  1. nested ordered
+  2. second
+
+A line after a list item that is not a marker is part of the item:
+
+- item text
+# not a heading either
+> nor a quote
+
+Known difference: Pandoc keeps these two lines in the quote as lazy text, here they end it:
+
+> a quote
+# lazy line, not a heading
+- lazy line, not an item
+
+> A nested quote needs its blank `>` line
+>
+> > like this
+
+Things that still end a paragraph:
+
+text before a fence
+```python
+print("fenced")
+```
+
+An underlined line is a setext heading
+==========================================
+
+#5 is not a heading in Pandoc either, nor is #hashtag.

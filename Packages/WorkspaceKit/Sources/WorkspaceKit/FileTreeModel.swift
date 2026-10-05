@@ -1,4 +1,5 @@
 import Foundation
+import MarkdownCore
 
 public struct FileNode: Sendable, Equatable, Identifiable {
     public let url: URL
@@ -18,6 +19,8 @@ public struct FileNode: Sendable, Equatable, Identifiable {
 /// What the tree shows. By default only folders and the Markdown family; `showAllFiles` lifts the extension filter
 /// (and shows dot files). The ignore rules apply in both modes: `node_modules` stays out even with "show all".
 public struct FileTreeOptions: Sendable, Equatable {
+    /// What opens in the app from the tree and from `macdown2://` links: the Markdown family (`LinkPolicy.documentExtensions`) and plain text.
+    public static let openableExtensions: Set<String> = LinkPolicy.documentExtensions.union(["txt", "text"])
     public var showAllFiles: Bool
     public var markdownExtensions: Set<String>
     public var ignore: IgnoreRules
@@ -26,7 +29,7 @@ public struct FileTreeOptions: Sendable, Equatable {
     public var detectsQuartoProjects: Bool
 
     public init(
-        showAllFiles: Bool = false, markdownExtensions: Set<String> = ["md", "markdown", "qmd", "txt"], ignore: IgnoreRules = .default,
+        showAllFiles: Bool = false, markdownExtensions: Set<String> = FileTreeOptions.openableExtensions, ignore: IgnoreRules = .default,
         detectsQuartoProjects: Bool = true
     ) {
         self.showAllFiles = showAllFiles

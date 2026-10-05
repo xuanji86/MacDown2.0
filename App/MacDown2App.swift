@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import WorkspaceKit
 
 @main
 struct MacDown2App: App {
@@ -61,8 +62,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         !MainActor.assumeIsolated { WorkspaceRegistry.shared.reopen() }
     }
 
+    /// Finder, the Dock and `macdown2 <path>` hand over file URLs; `macdown2://` links (`DeepLink`) come the same way. Any other URL is dropped.
     func application(_ application: NSApplication, open urls: [URL]) {
-        MainActor.assumeIsolated { WorkspaceRegistry.shared.open(urls) }
+        MainActor.assumeIsolated {
+            let registry = WorkspaceRegistry.shared
+            registry.open(urls.filter(\.isFileURL))
+            for url in urls where url.scheme?.lowercased() == DeepLink.scheme { registry.open(deepLink: url) }
+        }
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {

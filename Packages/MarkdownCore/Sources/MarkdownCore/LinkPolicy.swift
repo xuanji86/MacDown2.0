@@ -65,8 +65,9 @@ public struct LinkPolicy: Sendable {
 
     // MARK: Files
 
-    /// The extensions the app opens as documents (Info.plist, `net.daringfireball.markdown` and `org.quarto.qmd`).
-    static let documentExtensions: Set<String> = ["md", "markdown", "mdown", "mkd", "mkdn", "mdwn", "mdtxt", "mdtext", "qmd"]
+    /// The extensions the app opens as documents (Info.plist, `net.daringfireball.markdown` and `org.quarto.qmd`): the one list the
+    /// preview links, the file tree (`FileTreeOptions`) and `macdown2://` links (`DeepLink`) all use.
+    public static let documentExtensions: Set<String> = ["md", "markdown", "mdown", "mkd", "mkdn", "mdwn", "mdtxt", "mdtext", "qmd"]
 
     private func decideFile(_ url: URL) -> Decision {
         guard url.host(percentEncoded: false).map({ $0.isEmpty || $0 == "localhost" }) ?? true else { return .refuse(.remoteHost) }
