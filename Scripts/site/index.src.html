@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="@LANG@">
+<head>
+<!--@HEAD-->
+</head>
+<body>
+<a class="skip" href="#main"><span class="en">Skip to content</span><span class="zh">跳到正文</span></a>
+
+<header class="nav">
+  <div class="wrap navin">
+    <a class="brand" href="#top"><img src="images/icon.png" alt="" width="26" height="26"><span>MacDown2.0</span></a>
+    <nav class="links" aria-label="Sections">
+      <a href="#tech"><span class="en">Technology</span><span class="zh">技术</span></a>
+      <a href="#performance"><span class="en">Performance</span><span class="zh">性能</span></a>
+      <a href="#features"><span class="en">Features</span><span class="zh">功能</span></a>
+      <a href="#cli"><span class="en">Command line</span><span class="zh">命令行</span></a>
+      <a href="https://github.com/xuanji86/MacDown2.0">GitHub</a>
+    </nav>
+    <div class="right">
+      <!--@LANGTOGGLE-->
+      <a class="btn pri navdl" href="https://github.com/xuanji86/MacDown2.0/releases/latest/download/MacDown2.dmg"><span class="en">Download</span><span class="zh">下载</span></a>
+    </div>
+  </div>
+</header>
+
+<main id="main">
+  <section class="wrap hero" id="top">
+    <img class="icon" src="images/icon.png" alt="MacDown2.0 app icon" width="120" height="120">
+    <div class="eyebrow mono"><b>v@VERSION@</b> · Swift 6 · SwiftUI · TextKit 2</div>
+    <h1 class="t">
+      <span class="en">Markdown, native to the Mac.<br><span>Rebuilt from zero.</span></span>
+      <span class="zh">Markdown，回归 Mac 原生。<br><span>从零重写。</span></span>
+    </h1>
+    <p class="lead">
+      <span class="en">A free, open-source Markdown editor for macOS 26, written in Swift: a native MacDown alternative. Dark source on the left, live preview on the right, re-rendered in milliseconds as you type.</span>
+      <span class="zh">用 Swift 为 macOS 26 写成的免费开源 Markdown 编辑器，原生的 MacDown 替代品。左边是深色源码，右边是实时预览，边打字边在毫秒间刷新。</span>
+    </p>
+    <div class="ctas">
+      <a class="btn pri big" href="https://github.com/xuanji86/MacDown2.0/releases/latest/download/MacDown2.dmg"><span class="en">Download .dmg</span><span class="zh">下载 .dmg</span></a>
+      <div class="brew mono">
+        <code><i>$</i> brew install --cask xuanji86/tap/macdown2</code>
+        <button type="button" class="copy" data-copy="brew install --cask xuanji86/tap/macdown2"><span class="idle"><span class="en">Copy</span><span class="zh">复制</span></span><span class="ok"><span class="en">Copied</span><span class="zh">已复制</span></span><span class="vh en"> Homebrew command</span><span class="vh zh">安装命令</span></button>
+      </div>
+    </div>
+    <div class="meta">
+      <span>macOS 26+</span><span aria-hidden="true">·</span>
+      <span><span class="en">Apple Silicon &amp; Intel</span><span class="zh">Apple Silicon 与 Intel</span></span><span aria-hidden="true">·</span>
+      <span><span class="en">Free &amp; open source</span><span class="zh">免费开源</span></span>
+    </div>
+  </section>
+
+  <div class="heroshot">
+    <div class="shot">
+      <picture class="en">
+          <source type="image/webp" srcset="images/screenshot-1200.webp 1200w, images/screenshot.webp 2400w" sizes="(min-width: 1200px) 1120px, (min-width: 861px) calc(100vw - 80px), calc(100vw - 40px)">
+          <img src="images/screenshot.png" width="2400" height="1800" fetchpriority="high" alt="MacDown2.0 editing a Markdown document: source in a dark editor on the left, the live preview on the right with a GitHub alert, a task list, a table, highlighted Swift, KaTeX math and a Mermaid diagram">
+        </picture>
+      <picture class="zh">
+          <source type="image/webp" srcset="images/screenshot.zh-CN-1200.webp 1200w, images/screenshot.zh-CN.webp 2400w" sizes="(min-width: 1200px) 1120px, (min-width: 861px) calc(100vw - 80px), calc(100vw - 40px)">
+          <img src="images/screenshot.zh-CN.png" width="2400" height="1800" fetchpriority="high" alt="MacDown2.0 正在编辑一份 Markdown 文档：左边是深色编辑区里的源码，右边是实时预览，含 GitHub 提示块、任务列表、表格、Swift 代码高亮、KaTeX 公式和 Mermaid 图表">
+        </picture>
+    </div>
+  </div>
+
+  <div class="wrap">
+    <div class="metrics">
+      <div class="metric">
+        <div class="n">7.5<small> ms</small></div>
+        <div class="l"><span class="en">per keystroke on a 1 MB document. MacDown 0.7.3 takes 78.5 ms.</span><span class="zh">1 MB 文档单次按键的预览更新耗时。MacDown 0.7.3 需要 78.5 ms。</span></div>
+      </div>
+      <div class="metric">
+        <div class="n">4<small> ms <span class="en">vs</span><span class="zh">对</span> ~500 ms</small></div>
+        <div class="l"><span class="en">with 200 formulas on the page, against MacDown 0.7.3.</span><span class="zh">页面上有 200 个公式时，与 MacDown 0.7.3 的对比。</span></div>
+      </div>
+      <div class="metric">
+        <div class="n">0<small> <span class="en">page reloads</span><span class="zh">次整页重载</span></small></div>
+        <div class="l"><span class="en">Incremental: only the sections you changed re-render. No full-page reload.</span><span class="zh">增量渲染：只重新渲染改动过的部分，不重新载入整页。</span></div>
+      </div>
+    </div>
+  </div>
+
+  <section class="wrap sec" id="tech">
+    <div class="kicker"><span class="en">Technology</span><span class="zh">技术</span></div>
+    <h2 class="s"><span class="en">A native Markdown editor on the modern Mac stack.</span><span class="zh">建在现代 Mac 技术栈上的原生 Markdown 编辑器。</span></h2>
+    <p class="sub"><span class="en">MacDown2.0 shares an idea with MacDown, not its code. Every layer was chosen for the Mac of today.</span><span class="zh">MacDown2.0 与 MacDown 共享的是一种理念，而不是代码。每一层都是为今天的 Mac 选的。</span></p>
+    <div class="spec">
+      <div class="row"><div class="k">Swift 6 + SwiftUI</div><div class="d"><span class="en">Native app code in Swift 6 language mode with strict concurrency, an interface written in SwiftUI.</span><span class="zh">原生应用代码，使用 Swift 6 语言模式与严格并发检查，界面用 SwiftUI 编写。</span></div><div class="v mono"><span class="en">language · UI</span><span class="zh">语言 · 界面</span></div></div>
+      <div class="row"><div class="k">TextKit 2</div><div class="d"><span class="en">The editor runs on Apple’s current text engine.</span><span class="zh">编辑器运行在 Apple 当前的文本引擎上。</span></div><div class="v mono"><span class="en">editor</span><span class="zh">编辑器</span></div></div>
+      <div class="row"><div class="k">tree-sitter</div><div class="d"><span class="en">Incremental syntax highlighting: an edit re-parses only what it touched.</span><span class="zh">增量语法高亮：一次编辑只重新解析它碰到的部分。</span></div><div class="v mono"><span class="en">highlighting</span><span class="zh">高亮</span></div></div>
+      <div class="row"><div class="k">markdown-it, incremental</div><div class="d"><span class="en">The preview re-renders only the sections you changed and patches them into the page, never reloading it.</span><span class="zh">预览只重新渲染改动过的段落，直接修补到页面上，从不整页重载。</span></div><div class="v mono"><span class="en">renderer</span><span class="zh">渲染器</span></div></div>
+      <div class="row"><div class="k">macOS 26</div><div class="d"><span class="en">Made for the current release: Liquid Glass and five Dock icon styles.</span><span class="zh">为当前系统版本而做：Liquid Glass 与五种 Dock 图标样式。</span></div><div class="v mono"><span class="en">platform</span><span class="zh">平台</span></div></div>
+      <div class="row"><div class="k"><span class="en">Universal binary</span><span class="zh">通用二进制</span></div><div class="d"><span class="en">One download for Apple Silicon and Intel. Sparkle handles updates.</span><span class="zh">一个下载同时支持 Apple Silicon 与 Intel，更新由 Sparkle 负责。</span></div><div class="v mono"><span class="en">distribution</span><span class="zh">分发</span></div></div>
+    </div>
+  </section>
+
+  <section class="wrap sec" id="performance">
+    <div class="kicker"><span class="en">Performance</span><span class="zh">性能</span></div>
+    <h2 class="s"><span class="en">Live preview speed: measured, not promised.</span><span class="zh">实时预览的速度：实测，不是承诺。</span></h2>
+    <p class="sub"><span class="en">Time to update the preview after one edit, layout included, against MacDown 0.7.3. Lower is better.</span><span class="zh">一次编辑之后更新预览所需的时间（含布局），与 MacDown 0.7.3 对比，越低越好。</span></p>
+    <table class="perf">
+      <thead>
+        <tr>
+          <th scope="col"><span class="en">Test</span><span class="zh">场景</span></th>
+          <th scope="col">MacDown2.0</th>
+          <th scope="col">MacDown 0.7.3</th>
+          <th scope="col" class="x"><span class="en">Faster</span><span class="zh">快</span></th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><th scope="row"><span class="en">12.6 KB document</span><span class="zh">12.6 KB 文档</span></th><td class="new"><b>3.1 ms</b><i style="--w:36%" aria-hidden="true"></i></td><td class="old"><b>8.6 ms</b><i style="--w:100%" aria-hidden="true"></i></td><td class="x">2.8×</td></tr>
+        <tr><th scope="row"><span class="en">50 KB document</span><span class="zh">50 KB 文档</span></th><td class="new"><b>3.2 ms</b><i style="--w:30%" aria-hidden="true"></i></td><td class="old"><b>10.7 ms</b><i style="--w:100%" aria-hidden="true"></i></td><td class="x">3.3×</td></tr>
+        <tr><th scope="row"><span class="en">1 MB document</span><span class="zh">1 MB 文档</span></th><td class="new"><b>7.5 ms</b><i style="--w:9.6%" aria-hidden="true"></i></td><td class="old"><b>78.5 ms</b><i style="--w:100%" aria-hidden="true"></i></td><td class="x">10×</td></tr>
+        <tr><th scope="row"><span class="en">200 formulas</span><span class="zh">200 个公式</span></th><td class="new"><b>4.1 ms</b><i style="--w:1%" aria-hidden="true"></i></td><td class="old"><b>495.5 ms</b><i style="--w:100%" aria-hidden="true"></i></td><td class="x">121×</td></tr>
+        <tr><th scope="row"><span class="en">300 code blocks</span><span class="zh">300 个代码块</span></th><td class="new"><b>3.8 ms</b><i style="--w:7.9%" aria-hidden="true"></i></td><td class="old"><b>48.3 ms</b><i style="--w:100%" aria-hidden="true"></i></td><td class="x">13×</td></tr>
+      </tbody>
+    </table>
+    <p class="note foot-note">
+      <span class="en">Median per-edit preview update, including layout. Measured on an Apple M5 Pro running macOS 27.2, offscreen: the clock runs from the edit until the preview is laid out, and the preview paints on the next display frame. MacDown 0.7.3 reloads the whole page on every keystroke; MacDown2.0 re-renders only the sections that changed.</span>
+      <span class="zh">每次编辑后预览更新耗时的中位数，含布局。测试机器：Apple M5 Pro，macOS 27.2。离屏测量：从编辑发生到预览完成布局计时，预览在下一个显示帧绘制。MacDown 0.7.3 每次按键都会重新载入整页；MacDown2.0 只重新渲染改动过的部分。</span>
+    </p>
+  </section>
+
+  <section class="wrap sec" id="features">
+    <div class="kicker"><span class="en">Features</span><span class="zh">功能</span></div>
+    <h2 class="s"><span class="en">Write Markdown on the left. Read the live preview on the right.</span><span class="zh">左边写 Markdown，右边看实时预览。</span></h2>
+    <div class="grid">
+      <div class="cell"><div class="glyph" aria-hidden="true">[x]</div><h3><span class="en">Interactive preview</span><span class="zh">可交互的预览</span></h3><p><span class="en">Tick a task box in the preview and the Markdown source is edited to match. Scrolling stays in sync both ways.</span><span class="zh">在预览里勾选任务框，Markdown 源码随之改写。编辑区与预览双向同步滚动。</span></p></div>
+      <div class="cell"><div class="glyph" aria-hidden="true">&gt; [!TIP]</div><h3><span class="en">GitHub Markdown</span><span class="zh">GitHub 风格 Markdown</span></h3><p><span class="en">GFM tables, task lists, footnotes, GitHub alerts and ==highlight==.</span><span class="zh">GFM 表格、任务列表、脚注、GitHub 提示块和 ==高亮==。</span></p></div>
+      <div class="cell"><div class="glyph" aria-hidden="true">$$</div><h3><span class="en">Math, code, diagrams</span><span class="zh">公式、代码与图表</span></h3><p><span class="en">KaTeX math, highlight.js code blocks and Mermaid diagrams.</span><span class="zh">KaTeX 公式、highlight.js 代码高亮和 Mermaid 图表。</span></p></div>
+      <div class="cell"><div class="glyph" aria-hidden="true">+++</div><h3>Front matter</h3><p><span class="en">YAML or TOML front matter, hidden or shown as a table.</span><span class="zh">支持 YAML 或 TOML front matter，可隐藏或显示为表格。</span></p></div>
+      <div class="cell"><div class="glyph" aria-hidden="true">**「重点」**</div><h3><span class="en">CJK-aware emphasis</span><span class="zh">对中文友好的强调</span></h3><p><span class="en">Bold and italic work next to CJK punctuation.</span><span class="zh">加粗、斜体紧贴中文标点也能正确识别。</span></p></div>
+      <div class="cell"><div class="glyph" aria-hidden="true">⇧⌘F</div><h3><span class="en">Workspace</span><span class="zh">工作区</span></h3><p><span class="en">Finder-style file tree, tabs, full-text search across the folder and an outline.</span><span class="zh">Finder 风格的文件树、标签页、整个文件夹的全文搜索，以及大纲。</span></p></div>
+      <div class="cell"><div class="glyph" aria-hidden="true">GB18030</div><h3><span class="en">Encodings</span><span class="zh">文字编码</span></h3><p><span class="en">UTF-8, UTF-16, GB18030, Shift_JIS, Windows-1252, Mac Roman. Files changed elsewhere reload.</span><span class="zh">UTF-8、UTF-16、GB18030、Shift_JIS、Windows-1252、Mac Roman。别的程序改了文件会自动重新载入。</span></p></div>
+      <div class="cell"><div class="glyph" aria-hidden="true">.pdf</div><h3><span class="en">Safe export</span><span class="zh">安全导出</span></h3><p><span class="en">HTML, paginated PDF and print. Exported HTML is sanitized.</span><span class="zh">HTML、分页 PDF 和打印。导出的 HTML 经过净化。</span></p></div>
+      <div class="cell"><div class="glyph" aria-hidden="true">␣</div><h3>Quick Look</h3><p><span class="en">Press Space in Finder to see the rendered document.</span><span class="zh">在 Finder 里按空格，直接看到渲染后的效果。</span></p></div>
+      <div class="cell"><div class="glyph" aria-hidden="true">.qmd</div><h3>Quarto</h3><p><span class="en">Preview of callouts, divs and cross-references. Code cells are highlighted, never run.</span><span class="zh">近似预览 callout、分块和交叉引用。代码单元只高亮，不执行。</span></p></div>
+      <div class="cell"><div class="glyph" aria-hidden="true">7 + 8</div><h3><span class="en">Themes</span><span class="zh">主题</span></h3><p><span class="en">Seven editor and eight preview themes, chosen independently or following the system.</span><span class="zh">编辑器 7 套、预览 8 套，各自独立选择，也可以跟随系统深浅色。</span></p></div>
+      <div class="cell"><div class="glyph" aria-hidden="true">EN / 中</div><h3><span class="en">Two languages</span><span class="zh">双语界面</span></h3><p><span class="en">English and Simplified Chinese interface, set per app.</span><span class="zh">中英文界面，可按应用单独设置语言。</span></p></div>
+    </div>
+  </section>
+
+  <section class="wrap sec">
+    <div class="ws">
+      <div class="wshead">
+        <div>
+          <div class="kicker"><span class="en">Workspace</span><span class="zh">工作区</span></div>
+          <h2 class="s"><span class="en">Open a folder as a Markdown workspace. Work across every file.</span><span class="zh">把文件夹当作 Markdown 工作区，跨文件工作。</span></h2>
+        </div>
+        <div>
+          <p class="sub flush"><span class="en">A sidebar with Finder’s own icons, tabs above the editor, search over the whole folder with a regex switch, and an outline of the current document.</span><span class="zh">侧栏用的是 Finder 同款图标，编辑区上方是标签页，可对整个文件夹做全文搜索（可开正则），另有当前文档的大纲。</span></p>
+          <div class="keys"><span class="kbd"><span class="en">⇧⌘O open folder</span><span class="zh">⇧⌘O 打开文件夹</span></span><span class="kbd"><span class="en">⇧⌘F search</span><span class="zh">⇧⌘F 搜索</span></span><span class="kbd"><span class="en">⌘N new</span><span class="zh">⌘N 新建</span></span></div>
+        </div>
+      </div>
+      <div class="shot">
+        <picture class="en">
+          <source type="image/webp" srcset="images/workspace-1200.webp 1200w, images/workspace.webp 2400w" sizes="(min-width: 1200px) 1120px, (min-width: 861px) calc(100vw - 80px), calc(100vw - 40px)">
+          <img src="images/workspace.png" width="2400" height="1600" loading="lazy" alt="MacDown2.0 with a workspace folder open: the sidebar shows full-text search results across the folder's files, three tabs sit above the editor, and the preview is on the right">
+        </picture>
+        <picture class="zh">
+          <source type="image/webp" srcset="images/workspace.zh-CN-1200.webp 1200w, images/workspace.zh-CN.webp 2400w" sizes="(min-width: 1200px) 1120px, (min-width: 861px) calc(100vw - 80px), calc(100vw - 40px)">
+          <img src="images/workspace.zh-CN.png" width="2400" height="1600" loading="lazy" alt="MacDown2.0 打开了一个工作区文件夹：侧栏显示整个文件夹的全文搜索结果，编辑区上方有三个标签页，右边是预览">
+        </picture>
+      </div>
+    </div>
+  </section>
+
+  <section class="wrap sec" id="cli">
+    <div class="cli">
+      <div>
+        <div class="kicker"><span class="en">Command line</span><span class="zh">命令行</span></div>
+        <h2 class="s"><span class="en">macdown2: Markdown to HTML and PDF from the terminal.</span><span class="zh">macdown2：在终端里把 Markdown 渲染成 HTML 与 PDF。</span></h2>
+        <p class="sub"><span class="en">Open files and folders in the app, or render HTML and PDF headless, without a window or a Dock icon. The Homebrew cask installs it for you.</span><span class="zh">在应用里打开文件和文件夹，或者无头渲染 HTML 与 PDF，不需要窗口，也没有 Dock 图标。Homebrew cask 会帮你装好。</span></p>
+      </div>
+      <div class="term">
+        <div class="termbar mono"><span>zsh</span><button type="button" class="copy" data-copy="macdown2 notes.md docs/&#10;macdown2 .&#10;cat draft.md | macdown2&#10;macdown2 render a.md --standalone -o a.html&#10;macdown2 render a.md --export pdf -o a.pdf"><span class="idle"><span class="en">Copy</span><span class="zh">复制</span></span><span class="ok"><span class="en">Copied</span><span class="zh">已复制</span></span><span class="vh en"> commands</span><span class="vh zh">命令</span></button></div>
+        <div class="lines" tabindex="0" role="region" aria-label="macdown2 examples">
+          <div class="ln"><span><i class="p">$&nbsp;</i><i class="f">macdown2</i>&nbsp;notes.md docs/</span><span class="c"><span class="en"># a folder opens as a workspace</span><span class="zh"># 文件夹以工作区打开</span></span></div>
+          <div class="ln"><span><i class="p">$&nbsp;</i><i class="f">macdown2</i>&nbsp;.</span><span class="c"><span class="en"># this folder</span><span class="zh"># 当前文件夹</span></span></div>
+          <div class="ln"><span><i class="p">$&nbsp;</i>cat draft.md | <i class="f">macdown2</i></span><span class="c"><span class="en"># open piped text</span><span class="zh"># 打开管道输入</span></span></div>
+          <div class="ln"><span><i class="p">$&nbsp;</i><i class="f">macdown2</i>&nbsp;render a.md --standalone -o a.html</span><span class="c"><span class="en"># headless</span><span class="zh"># 无头渲染</span></span></div>
+          <div class="ln"><span><i class="p">$&nbsp;</i><i class="f">macdown2</i>&nbsp;render a.md --export pdf -o a.pdf</span><span class="c"><span class="en"># no window</span><span class="zh"># 无需窗口</span></span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="band" id="get">
+    <div class="wrap">
+      <h2><span class="en">Download MacDown2.0 for Mac</span><span class="zh">下载 MacDown2.0（Mac 版）</span></h2>
+      <div class="ctas">
+        <a class="btn pri big" href="https://github.com/xuanji86/MacDown2.0/releases/latest/download/MacDown2.dmg"><span class="en">Download .dmg</span><span class="zh">下载 .dmg</span></a>
+        <div class="brew mono">
+          <code><i>$</i> brew install --cask xuanji86/tap/macdown2</code>
+          <button type="button" class="copy" data-copy="brew install --cask xuanji86/tap/macdown2"><span class="idle"><span class="en">Copy</span><span class="zh">复制</span></span><span class="ok"><span class="en">Copied</span><span class="zh">已复制</span></span><span class="vh en"> Homebrew command</span><span class="vh zh">安装命令</span></button>
+        </div>
+      </div>
+      <p class="note">
+        <span class="en">Requires macOS 26 or later; one build for Apple Silicon and Intel. Free and open source. The app is not notarized: the first time you open a downloaded copy, go to System Settings › Privacy &amp; Security and click Open Anyway. The Homebrew cask clears the quarantine flag for you. <a class="u" href="https://github.com/xuanji86/MacDown2.0#install">Install notes in the README</a></span>
+        <span class="zh">需要 macOS 26 或更新版本；一个版本同时支持 Apple Silicon 与 Intel。免费开源。应用未经公证：手动下载的版本第一次打开时，请到「系统设置 › 隐私与安全性」点「仍要打开」。用 Homebrew cask 安装则会自动清除隔离标记。<a class="u" href="https://github.com/xuanji86/MacDown2.0/blob/main/README.zh-CN.md#%E5%AE%89%E8%A3%85">README 里的安装说明</a></span>
+      </p>
+    </div>
+  </section>
+</main>
+
+<footer class="foot">
+  <div class="wrap footin">
+    <div><span class="en">MacDown2.0 · GPL-3.0 · Not affiliated with MacDown or MacDown 3000.</span><span class="zh">MacDown2.0 · GPL-3.0 · 与 MacDown 和 MacDown 3000 没有隶属关系。</span></div>
+    <div class="fl"><a href="https://github.com/xuanji86/MacDown2.0">GitHub</a><a href="https://github.com/xuanji86/MacDown2.0/releases">Releases</a><a href="https://github.com/xuanji86/MacDown2.0/blob/main/LICENSE"><span class="en">License</span><span class="zh">许可</span></a></div>
+  </div>
+</footer>
+
+<span class="vh" id="live" role="status" aria-live="polite"></span>
+</body>
+</html>

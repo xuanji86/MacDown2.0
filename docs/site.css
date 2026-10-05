@@ -52,10 +52,6 @@ body {
   min-height: 100vh;
 }
 
-/* Language: both versions are in the page; the <html lang> picks one. */
-html:not([lang^="zh"]) .zh,
-html[lang^="zh"] .en { display: none !important; }
-
 a { color: var(--ink); text-decoration: none; }
 a:hover { color: var(--acc); }
 a.u { color: var(--acc); text-decoration: underline; text-underline-offset: 3px; white-space: nowrap; }
@@ -78,10 +74,10 @@ a.u { color: var(--acc); text-decoration: underline; text-underline-offset: 3px;
 .links a:hover { color: var(--ink); }
 .right { display: flex; align-items: center; gap: 12px; }
 .seg { display: flex; border: 1px solid var(--line); border-radius: 7px; overflow: hidden; }
-.seg button { appearance: none; border: 0; background: none; cursor: pointer; font: inherit; font-size: 12px; padding: 6px 11px; min-height: 30px; color: var(--ink2); }
-.seg button:hover { color: var(--ink); }
-.seg button[aria-pressed="true"] { background: var(--ink); color: var(--bg); }
-.seg button:focus-visible { outline-offset: -3px; }
+.seg a { display: flex; align-items: center; font-size: 12px; padding: 6px 11px; min-height: 30px; color: var(--ink2); }
+.seg a:hover { color: var(--ink); }
+.seg a[aria-current] { background: var(--ink); color: var(--bg); }
+.seg a:focus-visible { outline-offset: -3px; }
 
 .btn { display: inline-flex; align-items: center; gap: 8px; border-radius: 8px; font-weight: 500; font-size: 14px; padding: 0 16px; height: 36px; cursor: pointer; }
 .btn.pri { background: var(--acc); color: var(--acc-ink); }
@@ -94,7 +90,7 @@ a.u { color: var(--acc); text-decoration: underline; text-underline-offset: 3px;
 .eyebrow { font-size: 13px; color: var(--ink3); letter-spacing: 0.02em; margin-bottom: 20px; }
 .eyebrow b { color: var(--acc); font-weight: 500; }
 h1.t { font-size: 80px; line-height: 1; letter-spacing: -0.045em; font-weight: 700; margin: 0; text-wrap: balance; }
-h1.t span span { color: var(--ink3); }
+h1.t span { color: var(--ink3); }
 .lead { font-size: 20px; line-height: 1.5; color: var(--ink2); max-width: 640px; margin: 28px auto 0; text-wrap: pretty; }
 .ctas { display: flex; justify-content: center; align-items: center; gap: 12px; margin-top: 40px; flex-wrap: wrap; }
 .brew { display: flex; align-items: stretch; min-height: 48px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg2); font-size: 14px; overflow: hidden; text-align: left; }
@@ -109,6 +105,7 @@ h1.t span span { color: var(--ink3); }
 .meta { margin-top: 22px; font-size: 13px; color: var(--ink3); display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; }
 
 .shot { border: 1px solid var(--line); border-radius: 14px; overflow: hidden; background: var(--shot); }
+.shot picture { display: block; }
 .shot img { display: block; width: 100%; height: auto; }
 .heroshot { max-width: 1200px; margin: 0 auto; padding: 0 40px; }
 
