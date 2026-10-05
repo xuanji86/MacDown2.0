@@ -31,12 +31,14 @@ const OPTION_SETS = {
   odd: { ...base, extensions: ALL, headingAnchors: false, hardBreaks: true, allowRawHTML: false, sourceLines: false, codeHighlighting: false },
 };
 
-// Cuts: everywhere the scanner allows (every boundary gets exercised), a few, or the shipped defaults.
+// Cuts: everywhere the scanner allows (every boundary gets exercised), a few, or the shipped defaults. `adaptive: false`: no
+// falling back to a whole render for speed, so every text goes through the sections; DEFAULTS is what the app runs.
 const SECTIONS = {
-  every: { min: 0, max: 1e9, everyCandidate: true },
-  some: { min: 40, max: 400, everyCandidate: false },
-  shipped: { min: 1024, max: 16 * 1024, everyCandidate: false },
+  every: { min: 0, max: 1e9, everyCandidate: true, adaptive: false },
+  some: { min: 40, max: 400, everyCandidate: false, adaptive: false },
+  shipped: { min: 1024, max: 16 * 1024, everyCandidate: false, adaptive: false },
 };
+const DEFAULTS = { min: 1024, max: 16 * 1024, everyCandidate: false, adaptive: true };
 
 function check(src, options, where) {
   const want = renderResult(src, options);
@@ -228,12 +230,15 @@ const ADVERSARIAL = {
   'html block types 1-5 left open': [filler, [[0, 0, '<pre>\n'], [-1, 0, '\n</pre>\n'], [0, 0, '<script>\n'], [0, 0, '<?php\n'], [0, 0, '<![CDATA[\n']]],
   'setext underline after a cut': ['a\n\nb\n\nc\n', [[5, 0, '---\n'], [5, 0, '===\n']]],
   'footnote definition continued after a blank line': ['[^1]: a\n\n    b\n\nc[^1]\n', [[9, 4, ''], [9, 0, '\t']]],
+  // a later section must never be taken for the first one, whatever it starts with (the first section is cached apart)
+  'a section that is the first one behind a U+0001': ['a\n\nb\n\n\u0001a\n\nc\n', [[0, 0, 'x'], [0, 1, '']]],
+  'a section that is the first one, front matter and all, behind a U+0001': ['---\nx: 1\n---\n\nhello\n\n\u0001---\nx: 1\n---\n\nend\n', [[-1, 0, 'more\n'], [14, 0, '!']]],
 };
 
 test('adversarial edit sequences', () => {
   for (const [name, [start, edits]] of Object.entries(ADVERSARIAL)) {
     for (const [oname, options] of Object.entries(OPTION_SETS)) {
-      for (const sections of [SECTIONS.every, SECTIONS.some]) {
+      for (const sections of [SECTIONS.every, SECTIONS.some, DEFAULTS]) {
         incremental.configure({ sections });
         let src = start;
         check(src, options, `${name} (${oname}) start`);
@@ -248,13 +253,50 @@ test('adversarial edit sequences', () => {
   }
 });
 
+// Footnotes in every form the tail rule handles, densely: numbering by first reference, repeated references (sub ids,
+// back links), duplicate definitions (the last one wins), unreferenced and undefined ones, references inside definitions,
+// inline footnotes, multi-paragraph definitions, definitions inside lists and quotes.
+const FOOTNOTE_SNIPPETS = [
+  'Text[^a] and[^b] again[^a].\n', 'More[^c].\n', 'Inline^[an *inline* note] here.\n', 'Undefined[^zz].\n', 'Twice[^b][^b].\n',
+  '[^a]: Note a.\n', '[^b]: Note b with [^c] inside.\n', '[^c]: Note c\n\n    second paragraph.\n', '[^a]: A redefined.\n', '[^u]: Unreferenced.\n',
+  '- item[^a]\n\n  [^d]: in a list\n', '> quote[^d]\n>\n> [^e]: in a quote\n', 'See[^e] and[^d].\n', '# Heading[^a]\n', '[^f]:\n    ```\n    code\n    ```\n',
+  'f[^f]\n', 'Plain paragraph.\n', '| t[^b] |\n|---|\n| x |\n',
+];
+
+test('footnote-dense documents through both renderers (the footnote section is rebuilt here, see incremental.ts)', () => {
+  // The tail rule is re-implemented after @mdit/plugin-footnote 1.1.2; an upgrade must be re-checked against it.
+  const version = (name) => JSON.parse(readFileSync(join(here, '../node_modules', name, 'package.json'), 'utf8')).version;
+  assert.equal(version('@mdit/plugin-footnote'), '1.1.2', 're-check sectionFootnoteTail and assemble() against the new tail rule');
+  assert.equal(version('@mdit/plugin-alert'), '2.0.2', 're-check the silent-check state fix in core.ts');
+  assert.equal(version('markdown-it'), '15.0.2', 're-check the block rule wrappers and renderToken newline rule in incremental.ts');
+  const seeds = SEED === null ? [1, 2, 3, 4, 5, 6] : [SEED];
+  for (const seed of seeds) {
+    const r = rng(seed * 101);
+    const doc = Array.from({ length: 40 }, () => r.pick(FOOTNOTE_SNIPPETS)).join('\n');
+    for (const [oname, options] of Object.entries(OPTION_SETS)) {
+      const layout = [SECTIONS.every, SECTIONS.some][seed % 2];
+      let src = doc;
+      incremental.configure({ sections: layout });
+      check(src, options, `footnotes seed ${seed} ${oname}`);
+      for (let i = 0; i < Math.ceil(EDITS / 2); i++) {
+        const at = r.int(src.length + 1);
+        const lineStart = src.lastIndexOf('\n', at - 1) + 1;
+        src = r.int(3) ? edit(r, src) : src.slice(0, lineStart) + r.pick(FOOTNOTE_SNIPPETS) + '\n' + src.slice(lineStart);
+        if (src.length > 12000) src = src.slice(0, 8000);
+        check(src, options, `footnotes seed ${seed} ${oname} edit ${i + 1}`);
+        total.checks++;
+      }
+    }
+  }
+});
+
 test('a large document: typing in the middle re-renders one section', () => {
-  incremental.configure({ sections: SECTIONS.shipped });
+  incremental.configure({ sections: DEFAULTS });
   const r = rng(7);
   const doc = generate(r, 1500);
   const options = OPTION_SETS.app;
   check(doc, options, 'large initial');
-  const mid = doc.indexOf("\n\nA paragraph", doc.length >> 1) + 2 + 40; // past the characters a cut decision hashes
+  const mid = doc.indexOf('\n\nA paragraph', doc.length >> 1) + 2 + 40; // past the characters a cut decision hashes
   let src = doc;
   for (let i = 0; i < 20; i++) {
     src = src.slice(0, mid + i) + 'z' + src.slice(mid + i);
@@ -283,17 +325,20 @@ test('flavors other than Markdown and sanitized output render whole, with the sa
 
 test('the debug cross-check compares with a whole render and stays quiet when they agree', () => {
   const messages = [];
-  incremental.configure({ crossCheckEvery: 1, onMismatch: (m) => messages.push(m), sections: SECTIONS.every });
-  let src = filler;
-  for (let i = 0; i < 10; i++) {
-    src = src.replace(`Paragraph ${i}`, `Paragraph ${i} edited`);
-    check(src, OPTION_SETS.app, `cross-check ${i}`);
+  try {
+    incremental.configure({ crossCheckEvery: 1, onMismatch: (m) => messages.push(m), sections: SECTIONS.every });
+    let src = filler;
+    for (let i = 0; i < 10; i++) {
+      src = src.replace(`Paragraph ${i}`, `Paragraph ${i} edited`);
+      check(src, OPTION_SETS.app, `cross-check ${i}`);
+    }
+  } finally {
+    incremental.configure({ crossCheckEvery: 0, sections: DEFAULTS });
   }
-  incremental.configure({ crossCheckEvery: 0 });
   assert.deepEqual(messages, []);
 });
 
-test('the debug cross-check reports a difference and returns the whole render', () => {
+test('the debug cross-check reports a difference without the text, and returns the whole render', () => {
   // A renderer rule that counts its calls makes every render differ from every other one: the section renderer's output
   // cannot match a whole render's, which is what the check is there to catch.
   let n = 0;
@@ -303,23 +348,35 @@ test('the debug cross-check reports a difference and returns the whole render', 
   try {
     const messages = [];
     incremental.configure({ crossCheckEvery: 1, onMismatch: (m) => messages.push(m), sections: SECTIONS.every });
-    const result = renderIncremental('one\n\ntwo\n', OPTION_SETS.app);
+    const result = renderIncremental('secret one\n\nsecret two\n', OPTION_SETS.app);
     assert.equal(messages.length, 1);
-    assert.match(messages[0], /incremental render differs from a whole render/);
+    assert.match(messages[0], /incremental render differs from a whole render at JSON offset \d+/);
+    assert.doesNotMatch(messages[0], /secret/, 'the document text stays out of the log');
     assert.equal(result.segments, undefined); // the whole render's result
   } finally {
-    incremental.configure({ crossCheckEvery: 0 });
+    incremental.configure({ crossCheckEvery: 0, sections: DEFAULTS });
     flavors.register('markdown', () => {});
   }
   check('one\n\ntwo\n', OPTION_SETS.app, 'after restoring the flavor');
 });
 
-test('cuts land only before column-0 lines that follow a blank line, outside fences', () => {
-  incremental.configure({ sections: SECTIONS.every });
-  const src = 'a\n\nb\n\n  c\n\n- d\n\n```\n\ne\n\n```\n\nf\n\n1. g\n\n:h\n\n{i}\n\nj';
-  const lines = (cuts) => cuts.map((c) => src.slice(c, src.indexOf('\n', c) < 0 ? undefined : src.indexOf('\n', c)));
-  assert.deepEqual(lines(scanCuts(src, true)), ['b', '```', 'f', 'j']);
-  incremental.configure({ sections: SECTIONS.shipped });
+test('cuts land only before column-0 lines that follow a blank line, outside fences, $$ (math on) and raw HTML (on)', () => {
+  try {
+    incremental.configure({ sections: SECTIONS.every });
+    const lines = (src, cuts) => cuts.map((c) => src.slice(c, src.indexOf('\n', c) < 0 ? undefined : src.indexOf('\n', c)));
+    const on = { frontMatter: true, math: true, html: true };
+    const off = { frontMatter: true, math: false, html: false };
+    const src = 'a\n\nb\n\n  c\n\n- d\n\n```\n\ne\n\n```\n\nf\n\n1. g\n\n:h\n\n{i}\n\nj';
+    assert.deepEqual(lines(src, scanCuts(src, on)), ['b', '```', 'f', 'j']);
+    const math = '$$\nx\n\ny\n\n$$\n\nz\n\nw';
+    assert.deepEqual(lines(math, scanCuts(math, on)), ['z', 'w']);
+    assert.deepEqual(lines(math, scanCuts(math, off)), ['y', '$$', 'z', 'w']); // with math off `$$` is text
+    const html = '<!--\nc\n\nd\n\n-->\n\n<pre>\n```\n</pre>\n\ne\n\n```\nf\n\ng\n```\n\nh';
+    assert.deepEqual(lines(html, scanCuts(html, on)), ['<pre>', 'e', '```', 'h']);
+    assert.deepEqual(lines(html, scanCuts(html, off)).slice(0, 2), ['d', '<pre>']); // with raw HTML off `<!--` and `<pre>` are text
+  } finally {
+    incremental.configure({ sections: DEFAULTS });
+  }
 });
 
 test('LRU evicts the least recently used entries past its weight budget', () => {
@@ -334,6 +391,72 @@ test('LRU evicts the least recently used entries past its weight budget', () => 
   lru.set('huge', 4, 11); // never kept
   assert.equal(lru.get('huge'), undefined);
   assert.ok(lru.weight <= 10);
+  let computed = 0;
+  assert.equal(lru.getOrSet('k', () => (computed++, 'v'), () => 1), 'v');
+  assert.equal(lru.getOrSet('k', () => (computed++, 'w'), () => 1), 'v');
+  assert.equal(computed, 1);
+});
+
+// --- speed: never (much) slower than one whole render ------------------------------------------------------------------
+
+// Shapes where sections cannot help, or the scanner is fooled, or the footnote section is big: the incremental renderer must
+// fall back to (or stay within noise of) one whole render. Ratios, not milliseconds: the machine may be busy. [text, where
+// the typing happens (fraction of the text)]
+const paragraphs = (n, f) => Array.from({ length: n }, (_, i) => f(i)).join('\n');
+const fences = (n) => paragraphs(n, (i) => `\`\`\`\ncode ${i}\n\`\`\`\n\n# H ${i}\n\nPara ${i} *x*.\n`);
+const headed = (n) => paragraphs(n, (i) => `# H ${i}\n\nPara ${i} with *x*.\n`);
+const noMath = OPTION_SETS.app.extensions.filter((e) => e !== 'math');
+// name: [text, where the typing happens (fraction of the text), options over the app's]
+// name: [text, where the typing happens (fraction of the text), options over the app's, what the last render must have been:
+// 'full' where sections cannot help, 'sections' where they must, null where either may happen (backing off)]
+const SHAPES = {
+  'no blank line anywhere': [paragraphs(6000, (i) => `line ${i} with *emphasis* and \`code\` and [a link](http://x/${i})`), 0.5, {}, 'full'],
+  'one huge loose list': [paragraphs(3000, (i) => `- item ${i} with **strong** text\n`), 0.5, {}, 'full'],
+  'some text, then one huge loose list': [`${headed(60)}\n# The list\n\n${paragraphs(3000, (i) => `- item ${i} with **strong** text\n`)}`, 0.5, {}, 'full'],
+  'one long table': [`| a | b | c |\n|---|---|---|\n${paragraphs(5000, (i) => `| ${i} | *x${i}* | \`y\` |`)}`, 0.5, {}, 'full'],
+  'a fence inside <pre> (raw HTML on)': [`<pre>\n\`\`\`\n</pre>\n\n${fences(3000)}`, 0.5, {}, 'sections'],
+  'scanner fooled by a fence in a list item': [`- item\n  \`\`\`\n  code\n\npara\n\n${fences(3000)}`, 0.5, {}, null],
+  // the scanner pairs the fences the wrong way round: it sees the real (unclosed) one as a closer, and offers a cut at every
+  // paragraph inside it, none of which holds
+  'every cut inside an unclosed fence': [`- item\n  \`\`\`\n  x\n\npara\n\n\`\`\`\n${headed(20000)}`, 0.5, {}, 'full'],
+  'leading $$ with math off': [`$$\n\n${headed(3000)}`, 0.1, { extensions: noMath }, 'sections'],
+  'unclosed <!-- with raw HTML off': [`<!--\n\n${headed(3000)}`, 0.1, { allowRawHTML: false }, 'sections'],
+  '3000 footnotes, typing at the top': [`${paragraphs(3000, (i) => `# H ${i}\n\nClaim ${i}[^n${i}] and again[^n${(i * 7) % 3000}].\n`)}\n${paragraphs(3000, (i) => `[^n${i}]: Note ${i} with *x*.\n`)}`, 0.02, {}, 'sections'],
+};
+
+test('speed: on hostile shapes the incremental renderer stays within noise of a whole render', () => {
+  const results = [];
+  try {
+    incremental.configure({ sections: DEFAULTS });
+    for (const [name, [doc, at, over, mode]] of Object.entries(SHAPES)) {
+      const options = { ...OPTION_SETS.app, ...over };
+      const pos = Math.floor(doc.length * at);
+      const time = (fn) => {
+        const t = performance.now();
+        fn();
+        return performance.now() - t;
+      };
+      const whole = [];
+      const sections = [];
+      let src = doc;
+      for (let i = 0; i < 24; i++) {
+        src = src.slice(0, pos) + (i % 4 === 3 ? '\n' : 'x') + src.slice(pos); // typing, now and then a new line
+        // alternate which goes first, so neither always pays for the other's garbage
+        if (i % 2) whole.push(time(() => renderResult(src, options)));
+        sections.push(time(() => renderIncremental(src, options)));
+        if (i % 2 === 0) whole.push(time(() => renderResult(src, options)));
+      }
+      check(src, options, name);
+      if (mode) assert.equal(incremental.lastRun().mode, mode, `${name}: ${JSON.stringify(incremental.lastRun())}`);
+      // lower quartile after a warm-up: what the work costs, without the collector's pauses landing on one side
+      const typical = (xs) => xs.slice(4).sort((a, b) => a - b)[(xs.length - 4) >> 2];
+      results.push({ name, whole: typical(whole), incremental: typical(sections) });
+    }
+  } finally {
+    incremental.configure({ sections: DEFAULTS });
+  }
+  console.log(results.map((r) => `  ${r.name}: whole ${r.whole.toFixed(1)} ms, incremental ${r.incremental.toFixed(1)} ms (${(r.incremental / r.whole).toFixed(2)}x)`).join('\n'));
+  for (const r of results) assert.ok(r.incremental <= r.whole * 1.3 + 0.5, `${r.name}: incremental ${r.incremental.toFixed(1)} ms vs whole ${r.whole.toFixed(1)} ms`);
 });
 
 test(`totals (${EDITS} edits per sequence)`, () => {

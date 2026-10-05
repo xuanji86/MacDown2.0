@@ -22,6 +22,21 @@ export class LRU<V> {
     return hit.value;
   }
 
+  /** The value kept for `key`, else `compute()`'s, kept from now on. Memo caches over document text use this: key and value
+   *  (when a string) are stored as own copies (see ownCopy), so the cache never holds on to the text they were cut from. */
+  getOrSet(key: string, compute: () => V, weight: (value: V) => number): V {
+    const hit = this.get(key);
+    if (hit !== undefined) return hit;
+    let value = compute();
+    if (typeof value === 'string') value = ownCopy(value) as V;
+    this.set(ownCopy(key), value, weight(value));
+    return value;
+  }
+
+  has(key: string): boolean {
+    return this.map.has(key);
+  }
+
   set(key: string, value: V, weight: number): void {
     const old = this.map.get(key);
     if (old !== undefined) {

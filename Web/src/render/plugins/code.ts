@@ -40,7 +40,7 @@ import swift from 'highlight.js/lib/languages/swift';
 import typescript from 'highlight.js/lib/languages/typescript';
 import xml from 'highlight.js/lib/languages/xml';
 import yaml from 'highlight.js/lib/languages/yaml';
-import { LRU, ownCopy } from '../lru.ts';
+import { LRU } from '../lru.ts';
 
 // lazy: the common languages only (aliases such as js/ts/py/sh/html/objc/c++/toml come with them);
 // anything else renders as plain escaped text. Upgrade = add an import line here.
@@ -58,15 +58,8 @@ export interface CodeOptions { highlight: boolean; lineNumbers: boolean }
 // lazy: a fixed character budget shared by all documents; upgrade = per-document budgets if one big file evicts another.
 const highlighted = new LRU<string>(4 * 1024 * 1024);
 
-export function highlightCode(code: string, language: string): string {
-  const key = `${language}\n${code}`;
-  let html = highlighted.get(key);
-  if (html === undefined) {
-    html = ownCopy(hljs.highlight(code, { language, ignoreIllegals: true }).value);
-    highlighted.set(ownCopy(key), html, key.length + html.length);
-  }
-  return html;
-}
+export const highlightCode = (code: string, language: string): string =>
+  highlighted.getOrSet(`${language}\n${code}`, () => hljs.highlight(code, { language, ignoreIllegals: true }).value, (html) => code.length + html.length);
 
 // Wraps each line in <span class="line">, closing and reopening hljs spans that cross a line break.
 export function wrapLines(html: string): string {

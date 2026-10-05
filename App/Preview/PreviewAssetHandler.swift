@@ -94,9 +94,10 @@ struct PreviewAssetHandler: URLSchemeHandler {
     /// so only the tags in this file run (CSP only; the bundles themselves are not user-controlled).
     static func withNonce(_ html: Data, blockRemoteImages: Bool = false) -> Data {
         guard let text = String(data: html, encoding: .utf8) else { return html }
-        var page = RemoteContent.previewPage(text, blockingImages: blockRemoteImages)
         #if DEBUG
-        page = withRenderCrossCheck(page)
+        let page = withRenderCrossCheck(RemoteContent.previewPage(text, blockingImages: blockRemoteImages))
+        #else
+        let page = RemoteContent.previewPage(text, blockingImages: blockRemoteImages)
         #endif
         return Data(page.replacingOccurrences(of: nonceToken, with: UUID().uuidString).utf8)
     }
