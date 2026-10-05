@@ -12,10 +12,12 @@
 //     anything but a list or a footnote definition) would have gone on in the whole document;
 //   - a rule that looks ahead for a closing line and failed (`\[ ... \]`, TOML front matter) might have found it below;
 //   - the section ends in a hidden closing token: the renderer would put a newline before the next block;
-//   - the parse left the block state changed (a plugin bug: then the rest of the document is one section).
+//   - the parse left the block state changed (a plugin bug), or reached markdown-it's nesting limit (which swallows the rest of
+//     the document): then the rest of the document is one section.
 // A section that fails is merged with the next ones (1, 2, 4, ... at a time) until one passes; the last one needs no check.
-// Cuts are chosen content-defined (at headings, or where a hash of the line's start says so, at least SECTION.min apart), so
-// an edit moves only the cuts next to it.
+// Cuts are content-defined: a candidate is a cut when a hash of its line's first characters says so, whatever lies before it,
+// so an edit moves only the cuts next to it (only a run of SECTION.max characters without one forces a cut, which the next
+// hash cut resynchronises).
 //
 // What crosses sections, collected after every section's block phase and applied to the inline phase (a change re-renders
 // every section): reference definitions (first one wins), footnote labels. What only the whole document decides is left as a
@@ -28,8 +30,8 @@
 // divs, attributes, captions, includes), CR or NUL in the text, TeX that defines global macros (they reach later formulas),
 // headings / tasks / [TOC] inside footnote definitions, footnote references inside inline footnotes, sanitized output, any
 // rule this file does not know; and, because it would be slower than one whole render: a text with a single section, an edit
-// that leaves most of the text to parse again, or more re-parsing than the text is long (then the next renders are whole
-// too, for a while: backing off).
+// inside a section that is most of the text, a change to the definitions that most sections would render again for, or more
+// re-parsing than the text is long (then the next renders are whole too, for a while: backing off).
 import type { MarkdownIt, RendererRule, StateBlock, StateCore, Token } from 'markdown-it';
 import { alignSegments, hashRange, splitBlocks, type Segment } from '../preview/split-html.ts';
 import {
@@ -49,9 +51,9 @@ import {
   type RenderResult,
   type TaskItem,
 } from './core.ts';
-import { tocList } from './plugins/toc.ts';
+import { TOC, tocList } from './plugins/toc.ts';
 import { LRU, ownCopy } from './lru.ts';
-import { dedupeSlug, slugBase, textStats, type TextStats } from './text.ts';
+import { dedupeSlug, hash53, slugBase, textStats, type TextStats } from './text.ts';
 
 export type IncrementalResult = RenderResult & { segments?: Segment[] | null };
 
@@ -85,14 +87,16 @@ const LOOKAHEAD: Record<string, (state: StateBlock, line: number) => boolean> = 
   front_matter_toml: (s, line) => line === 0 && s.tShift[0] === 0 && s.src.slice(0, s.eMarks[0]).trimEnd() === '+++',
 };
 
-// lazy: section sizes are fixed heuristics (a 1-16 KB section re-parses in well under a millisecond); upgrade = tune per
-// document size if typing in very large sections shows up. Tests change them, and turn `adaptive` off so every text goes
-// through the sections (no falling back to a whole render for speed, no backing off).
-const SECTION = { min: 1024, max: 16 * 1024, everyCandidate: false, adaptive: true };
+// lazy: one candidate in `every` becomes a cut (about 1-2 KB with paragraph-sized blocks), at most `max` characters apart; in
+// texts under 8 KB every candidate, and 2, 4, 8 ... up to `every` as the text doubles (a text growing past such a size cuts
+// differently once); fixed heuristics, upgrade = tune per document if typing in very large sections shows up. Tests change them, and turn `adaptive` off so every text goes through the sections (no falling back to a
+// whole render for speed, no backing off).
+const SECTION = { every: 16, max: 16 * 1024, everyCandidate: false, adaptive: true };
 // lazy: characters of source + HTML (and a share for objects) kept per option set, room for a few versions of the document
 // (an entry weighs about 5x its text), 16M-64M; upgrade = measure the page's memory instead if large documents need more.
 const cacheBudget = (chars: number): number => Math.min(64, Math.max(16, Math.ceil((chars * 16) / 2 ** 20))) * 2 ** 20;
 const GROUP = 'md2_footnote_group';
+const TASK = /^\[[ xX\u00a0]\][ \u00a0]/; // @mdit/plugin-tasklist's box: `[ ]`, `[x]`, `[X]` (or NBSP inside), then a space or NBSP
 
 type Reference = { title: string; href: string };
 interface Heading { level: number; text: string; base: string | null; explicit: string | null; line: number }
@@ -179,6 +183,8 @@ interface Mode {
   toc: string;
   tail: Tail | null;
   context: { carriers: Entry[]; ctx: Context } | null;
+  lastCtx: string | null; // the context key of the last render that got that far
+  hugeMiss: string | null; // length:hash of the huge section the last CHEAP_HUGE fallback skipped
   skip: number; // whole renders still to do before trying sections again
   backoff: number;
 }
@@ -188,6 +194,8 @@ interface Placed { entry: Entry; line: number; state: StateCore | null }
 // gets here, so no other section's text can look like its key.
 const keyOf = (text: string, first: boolean): string => (first ? `\0${text}` : text);
 // The cache budget counts characters; an entry also holds objects (tokens, metadata), counted at a rough per-item rate.
+// lazy: guessed rates (48 per metadata item, 128 per kept token, 256 per entry), not measured; upgrade = measure the page's
+// heap with large documents if the budget turns out too loose or too tight.
 function weightOf(e: Entry): number {
   let w = 256 + e.text.length;
   const r = e.r;
@@ -218,6 +226,7 @@ const TOO_MUCH = 'more re-parsing than the text is long';
 // Decided before any work, so no reason to back off.
 const CHEAP_SINGLE = 'a single section';
 const CHEAP_HUGE = 'an edit inside a section that is most of the text';
+const CHEAP_CONTEXT = 'the definitions changed, most sections would render again';
 // lazy: back off for 8, 16, ... 64 renders after sectioned work that ended in a whole render (the same text shape fails
 // again on the next keystroke); upgrade = remember which shape failed and retry when it changes.
 const BACKOFF_FIRST = 8;
@@ -339,6 +348,14 @@ function makeMode(o: RenderOptions): Mode {
   // markdown-it's own block rule (core `block` + ParserBlock.parse), keeping hold of the block state to look at it after the
   // parse: a rule that leaves it changed changes how everything after it parses, in the whole document as well (as
   // @mdit/plugin-alert did, see core.ts).
+  // markdown-it gives up at maxNesting levels and sets the line to the end of the text: in the whole document that swallows
+  // everything after it, in a section only the rest of the section.
+  const tokenize = md.block.tokenize.bind(md.block);
+  md.block.tokenize = (state, start, end) => {
+    const sec = (state.env as Partial<SectionEnv>).md2;
+    if (sec && state.level >= md.options.maxNesting) sec.leaks = true;
+    tokenize(state, start, end);
+  };
   const block = md.core.ruler.__rules__.find((r) => r.name === 'block')?.fn;
   if (block) {
     md.core.ruler.at('block', (state) => {
@@ -376,6 +393,8 @@ function makeMode(o: RenderOptions): Mode {
     toc: '',
     tail: null,
     context: null,
+    lastCtx: null,
+    hugeMiss: null,
     skip: 0,
     backoff: 0,
   };
@@ -486,8 +505,9 @@ function unsupportedFootnote(tokens: Token[]): string | null {
     } else if (t.type === 'footnote_reference_close') depth--;
     else if (depth) {
       if (t.type === 'heading_open') return 'heading in a footnote';
-      if (t.type === 'inline' && /^\[[ xX]\][ \u00a0]/.test(t.content) && tokens[i - 2]?.type === 'list_item_open') return 'task in a footnote';
-      if (t.type === 'inline' && /^\[toc\]$/i.test(t.content.trim())) return '[TOC] in a footnote';
+      // as @mdit/plugin-tasklist and plugins/toc.ts decide
+      if (t.type === 'inline' && TASK.test(t.content) && tokens[i - 1]?.type === 'paragraph_open' && tokens[i - 2]?.type === 'list_item_open') return 'task in a footnote';
+      if (t.type === 'inline' && tokens[i - 1]?.type === 'paragraph_open' && TOC.test(t.content.trim())) return '[TOC] in a footnote';
     }
   }
   return null;
@@ -507,6 +527,7 @@ function entryFor(mode: Mode, text: string, first: boolean, hit: Entry | undefin
 
 function renderSection(mode: Mode, placed: Placed, ctx: Context): Rendered {
   const { entry } = placed;
+  if (!placed.state) work.parsed += entry.text.length; // a context change: parsed again
   const state = placed.state ?? parseA(mode, entry.text, entry.first).state;
   placed.state = null; // the phase below consumes it
   const env = state.env as SectionEnv;
@@ -624,9 +645,17 @@ function renderSections(mode: Mode, source: string): IncrementalResult | string 
     // lazy: 0.75 of the text is a guess at where re-parsing one section stops paying off against the assembly's overhead;
     // upgrade = measure the overhead per document and decide on that.
     if (starts.length === 1) return CHEAP_SINGLE;
-    let largestMiss = 0;
-    for (let i = 0; i < texts.length; i++) if (!hits[i]) largestMiss = Math.max(largestMiss, texts[i].length);
-    if (hits.some(Boolean) && largestMiss > 0.75 * source.length) return CHEAP_HUGE;
+    let huge = -1;
+    for (let i = 0; i < texts.length; i++) if (!hits[i] && (huge < 0 || texts[i].length > texts[huge].length)) huge = i;
+    if (huge >= 0 && hits.some(Boolean) && texts[huge].length > 0.75 * source.length) {
+      // The same huge text as at the last fallback: the edit is elsewhere, and it only missed because a whole render never
+      // caches it. Parse it now (once), or every later edit would render whole too.
+      const sig = `${texts[huge].length}:${hash53(texts[huge])}`;
+      if (mode.hugeMiss !== sig) {
+        mode.hugeMiss = sig;
+        return CHEAP_HUGE;
+      }
+    }
   }
   // lazy: re-parsing more than the text is long (merges re-parse from the same start) costs more than one whole render;
   // upgrade = merge without re-parsing what was parsed already (keep the longer parse's tokens and verify cuts inside it).
@@ -654,6 +683,14 @@ function renderSections(mode: Mode, source: string): IncrementalResult | string 
   work.sections = placed.length;
 
   const ctx = contextOf(mode, placed);
+  if (SECTION.adaptive && mode.lastCtx !== null && ctx.key !== mode.lastCtx) {
+    // The definitions just changed (typing in a reference definition or footnote label): most sections would be rendered
+    // again, and the next keystroke likely changes them again. Render whole until they hold still for one render.
+    // lazy: "most" = more than half the sections; upgrade = weigh by the sections' sizes.
+    mode.lastCtx = ctx.key;
+    if (placed.filter((p) => !p.entry.r || p.entry.ctx !== ctx.key).length > placed.length / 2) return CHEAP_CONTEXT;
+  }
+  mode.lastCtx = ctx.key;
   for (const p of placed) {
     const e = p.entry;
     if (!e.r || e.ctx !== ctx.key) {
@@ -747,7 +784,7 @@ function assemble(mode: Mode, placed: Placed[]): IncrementalResult | string {
     const { entry, line } = placed[s];
     const r = entry.r!;
     // everything the holes are filled with, apart from the line offset
-    let rest = `${taskBase}|${ids ? 1 : 0}|${slugs[s].join('\u0001')}`;
+    let rest = `${r.taskCount ? taskBase : ''}|${ids ? 1 : 0}|${slugs[s].join('\u0001')}`;
     for (let k = 0; k < r.refs.length; k += 2) {
       const sub = r.refs[k + 1];
       rest += sub < 0 ? `|${local[s][r.refs[k]]}` : `|${local[s][r.refs[k]]}:${base[s][r.refs[k]] + sub}`;
@@ -882,7 +919,8 @@ function assemble(mode: Mode, placed: Placed[]): IncrementalResult | string {
   const fm = placed[0]?.entry.r!.frontMatter;
   if (fm !== undefined) result.frontMatter = fm;
   result.segments = segments;
-  if (o.extensions.includes('math')) mode.md.render('', { outline: [] }); // as renderResult: KaTeX's macro reset
+  // No KaTeX macro reset as in renderResult: a text that defines global macros never gets here (renderIncremental), so the
+  // section renderer's macro table stays empty.
   return result;
 }
 
@@ -907,15 +945,19 @@ export function renderIncremental(source: string, options: RenderOptions): Incre
   let result: IncrementalResult | string;
   try {
     result = renderSections(mode, source);
-  } catch {
+  } catch (e) {
     // whatever went wrong, start over: the first time with an empty cache, while backing off with what is there
     if (!mode.backoff) mode.cache.clear();
+    // where, not what: the stack's frames (function names and bundle positions), never the message (it may quote the text)
+    const name = e instanceof Error ? e.name : typeof e;
+    const stack = e instanceof Error ? String(e.stack ?? '').split('\n').filter((l) => !l.startsWith(name)).slice(0, 4) : [];
+    onMismatch?.(`incremental renderer threw ${name}: ${stack.map((l) => l.trim()).join(' | ')} (${JSON.stringify(work)})`);
     mode.tail = null;
     mode.context = null;
     result = 'exception';
   }
   if (typeof result === 'string') {
-    if (SECTION.adaptive && result !== CHEAP_SINGLE && result !== CHEAP_HUGE) {
+    if (SECTION.adaptive && result !== CHEAP_SINGLE && result !== CHEAP_HUGE && result !== CHEAP_CONTEXT) {
       // sectioned work that ended in a whole render: the next keystrokes would most likely do the same
       mode.backoff = Math.min(BACKOFF_MAX, mode.backoff ? mode.backoff * 2 : BACKOFF_FIRST);
       mode.skip = mode.backoff;
@@ -948,7 +990,8 @@ export function renderIncremental(source: string, options: RenderOptions): Incre
 
 export const incremental = {
   /** Debug: every `crossCheckEvery`-th incremental render is compared with a whole render; a difference goes to `onMismatch`
-   *  and the whole render is returned. 0 (the default) = off. */
+   *  and the whole render is returned. 0 (the default) = off. `onMismatch` also hears about exceptions in the section
+   *  renderer (which then renders whole). Neither report carries the document's text. */
   configure(settings: {
     crossCheckEvery?: number;
     onMismatch?: (message: string) => void;
@@ -1026,19 +1069,19 @@ function closes(s: string, a: number, b: number, open: Open): boolean {
   return q - p >= open.len && isBlank(s, q, b);
 }
 
-// Content-defined: a cut after at least SECTION.min characters lands on a heading, or on a line whose first characters hash
-// to 0 mod 8; after SECTION.max any candidate will do.
-function selected(s: string, a: number, b: number): boolean {
-  if (s.charCodeAt(a) === 35) return true;
+// Content-defined: a candidate is a cut when its line's first characters hash to 0 mod `every`, whatever came before.
+function selected(s: string, a: number, b: number, every: number): boolean {
+  if (every <= 1) return true;
   let h = 0x811c9dc5;
   for (let i = a; i < b && i < a + 24; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619);
-  return (h >>> 0) % 8 === 0;
+  return (h >>> 0) % every === 0;
 }
 
 /** Character offsets where sections start (0 excluded), candidates for the verification described at the top of the file. */
 export function scanCuts(s: string, o: ScanOptions): number[] {
   const cuts: number[] = [];
   const n = s.length;
+  const every = Math.min(SECTION.every, 2 ** Math.max(0, Math.floor(Math.log2(n / 8192))));
   let pos = 0;
   if (o.frontMatter && (s.startsWith('---') || s.startsWith('+++'))) {
     // front matter runs to its closing line; without one there is nothing to cut (it may run to the end)
@@ -1066,7 +1109,7 @@ export function scanCuts(s: string, o: ScanOptions): number[] {
     } else {
       if (prevBlank && !blank && pos > 0 && startsSection(s.charCodeAt(pos))) {
         const size = pos - since;
-        if (size >= SECTION.max || (size >= SECTION.min && (SECTION.everyCandidate || selected(s, pos, end)))) {
+        if (SECTION.everyCandidate || selected(s, pos, end, every) || size >= SECTION.max) {
           cuts.push(pos);
           since = pos;
         }

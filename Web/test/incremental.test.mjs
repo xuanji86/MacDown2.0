@@ -34,11 +34,11 @@ const OPTION_SETS = {
 // Cuts: everywhere the scanner allows (every boundary gets exercised), a few, or the shipped defaults. `adaptive: false`: no
 // falling back to a whole render for speed, so every text goes through the sections; DEFAULTS is what the app runs.
 const SECTIONS = {
-  every: { min: 0, max: 1e9, everyCandidate: true, adaptive: false },
-  some: { min: 40, max: 400, everyCandidate: false, adaptive: false },
-  shipped: { min: 1024, max: 16 * 1024, everyCandidate: false, adaptive: false },
+  every: { every: 1, max: 1e9, everyCandidate: true, adaptive: false },
+  some: { every: 2, max: 400, everyCandidate: false, adaptive: false },
+  shipped: { every: 16, max: 16 * 1024, everyCandidate: false, adaptive: false },
 };
-const DEFAULTS = { min: 1024, max: 16 * 1024, everyCandidate: false, adaptive: true };
+const DEFAULTS = { every: 16, max: 16 * 1024, everyCandidate: false, adaptive: true };
 
 function check(src, options, where) {
   const want = renderResult(src, options);
@@ -233,6 +233,10 @@ const ADVERSARIAL = {
   // a later section must never be taken for the first one, whatever it starts with (the first section is cached apart)
   'a section that is the first one behind a U+0001': ['a\n\nb\n\n\u0001a\n\nc\n', [[0, 0, 'x'], [0, 1, '']]],
   'a section that is the first one, front matter and all, behind a U+0001': ['---\nx: 1\n---\n\nhello\n\n\u0001---\nx: 1\n---\n\nend\n', [[-1, 0, 'more\n'], [14, 0, '!']]],
+  // markdown-it gives up at 100 nesting levels and takes the rest of the document (not just the section) into the block
+  'nesting past markdown-it\'s limit in a list': [`${'- '.repeat(60)}x\n\n# After\n\ntext\n`, [[-1, 0, '\nmore\n'], [0, 0, 'a\n\n']]],
+  'nesting past the limit in a quote': [`${'> '.repeat(120)}x\n\n# After\n\ntext\n`, [[-1, 0, '\nmore\n']]],
+  'nesting past the limit in a footnote definition': [`ref[^a]\n\n[^a]: ${'- '.repeat(60)}x\n\n# After\n\ntext\n`, [[-1, 0, '\nmore\n'], [0, 0, 'a\n\n']]],
 };
 
 test('adversarial edit sequences', () => {
@@ -536,6 +540,91 @@ test('NULs the renderer makes (KaTeX \\char0, front matter escapes) are never ta
         }
       }
     }
+  } finally {
+    incremental.configure({ sections: DEFAULTS });
+  }
+});
+
+// Cuts are local: typing anywhere moves at most the cuts next to the edit, never the ones after it.
+const notes = (n) => paragraphs(n, (i) => `## Note ${i}\n\nSome text for note ${i}, a sentence or two of it.\n`);
+
+test('cuts are content-defined: an edit at the top moves no cut further down', () => {
+  try {
+    incremental.configure({ sections: DEFAULTS });
+    incremental.reset();
+    let doc = notes(4000);
+    const options = OPTION_SETS.app;
+    renderIncremental(doc, options);
+    const scan = { frontMatter: true, math: true, html: true };
+    const at = doc.indexOf('note 3,') + 4;
+    let before = scanCuts(doc, scan);
+    let worst = 0;
+    for (let i = 0; i < 200; i++) {
+      doc = doc.slice(0, at + i) + 'z' + doc.slice(at + i);
+      const after = scanCuts(doc, scan);
+      // every cut behind the edit stays, shifted by the one character
+      const moved = before.filter((c) => c > at + i + 1 && !after.includes(c + 1)).length;
+      assert.ok(moved <= 1, `edit ${i}: ${moved} cuts behind the edit moved`);
+      before = after;
+      renderIncremental(doc, options);
+      const run = incremental.lastRun();
+      assert.equal(run.mode, 'sections', `edit ${i}: ${JSON.stringify(run)}`);
+      worst = Math.max(worst, run.rendered);
+    }
+    assert.ok(worst <= 3, `an edit re-rendered ${worst} sections`);
+    check(doc, options, 'notes after the edits');
+  } finally {
+    incremental.configure({ sections: DEFAULTS });
+  }
+});
+
+test('a huge section skipped while it was edited is parsed once the edit moves elsewhere', () => {
+  try {
+    incremental.configure({ sections: DEFAULTS });
+    incremental.reset();
+    let doc = `${headed(60)}\n# The list\n\n${paragraphs(3000, (i) => `- item ${i} with **strong** text\n`)}\n# Tail\n\n${headed(60)}`;
+    const options = OPTION_SETS.app;
+    renderIncremental(doc, options); // cold: everything parsed once
+    const listAt = doc.indexOf('- item 1500') + 7;
+    doc = doc.slice(0, listAt) + 'x' + doc.slice(listAt);
+    renderIncremental(doc, options);
+    assert.equal(incremental.lastRun().reason, 'an edit inside a section that is most of the text');
+    const runs = [];
+    for (let i = 0; i < 5; i++) {
+      const at = doc.indexOf('Para 10 ') + 5;
+      doc = doc.slice(0, at) + 'y' + doc.slice(at);
+      runs.push(check(doc, options, `edit in a small section ${i}`));
+    }
+    assert.ok(runs.every((r) => r.mode === 'sections'), JSON.stringify(runs));
+    assert.ok(runs[0].parsed > 0.75 * doc.length && runs.slice(1).every((r) => r.parsed < 4096), JSON.stringify(runs));
+  } finally {
+    incremental.configure({ sections: DEFAULTS });
+  }
+});
+
+test('typing in a reference definition renders whole while it changes, sections once it holds still', () => {
+  try {
+    incremental.configure({ sections: DEFAULTS });
+    incremental.reset();
+    let doc = `[r]: http://example.com/\n\n${paragraphs(4000, (i) => `# H ${i}\n\nPara ${i} with *x* and [link][r] and \`code\`.\n`)}`;
+    const options = OPTION_SETS.app;
+    renderIncremental(doc, options);
+    const at = doc.indexOf('/\n');
+    for (let i = 0; i < 3; i++) {
+      doc = doc.slice(0, at + i) + 'a' + doc.slice(at + i);
+      const run = check(doc, options, `definition edit ${i}`);
+      assert.equal(run.reason, 'the definitions changed, most sections would render again', JSON.stringify(run));
+    }
+    const p = doc.indexOf('Para 2000 ') + 5;
+    const runs = [];
+    for (let i = 0; i < 4; i++) {
+      doc = doc.slice(0, p + i) + 'b' + doc.slice(p + i);
+      runs.push(check(doc, options, `paragraph edit ${i}`));
+    }
+    // the first one renders every section again for the new definitions (and counts the parsing), the next ones one section
+    assert.ok(runs.every((r) => r.mode === 'sections'), JSON.stringify(runs));
+    assert.ok(runs[0].parsed > 0.9 * doc.length, JSON.stringify(runs[0]));
+    assert.ok(runs.slice(1).every((r) => r.rendered <= 2), JSON.stringify(runs));
   } finally {
     incremental.configure({ sections: DEFAULTS });
   }

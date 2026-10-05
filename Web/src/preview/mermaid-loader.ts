@@ -5,7 +5,13 @@
 import { errorText, post } from './bridge.ts';
 import { loadChunk } from './chunk-loader.ts';
 
-declare const MacDown2Mermaid: { renderAll(root: ParentNode, dark: boolean): Promise<void> };
+declare const MacDown2Mermaid: { renderAll(root: ParentNode, dark: boolean, style: string): Promise<void> };
+
+// The preview style in use (main.ts setStyle): diagrams are laid out in its fonts, so the chunk's cache keeps them apart.
+let style = '';
+export function setMermaidStyle(key: string): void {
+  style = key;
+}
 
 // Every dark preview style sets `color-scheme: dark` on :root (a user style would too, for native dark controls), so it
 // doubles as the "this style is dark" flag and covers follow-system pairs without a registry lookup.
@@ -17,7 +23,7 @@ export function renderMermaid(root: ParentNode): void {
   const stale = root.querySelectorAll<HTMLElement>(`pre.mermaid-source:not([data-mermaid-theme="${dark ? 'dark' : 'default'}"])`);
   if (!stale.length) return;
   loadChunk('mermaid.chunk.js').then(
-    () => MacDown2Mermaid.renderAll(root, dark),
+    () => MacDown2Mermaid.renderAll(root, dark, style),
     (e: unknown) => {
       post({ type: 'error', stage: 'script', message: errorText(e) });
       for (const pre of stale) {

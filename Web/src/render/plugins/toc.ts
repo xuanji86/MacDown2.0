@@ -3,7 +3,7 @@
 import type { MarkdownIt, Token } from 'markdown-it';
 import type { OutlineItem } from '../core.ts';
 
-const TOC = /^\[toc\]$/i;
+export const TOC = /^\[toc\]$/i; // a paragraph's trimmed content
 
 export function toc(md: MarkdownIt): void {
   md.core.ruler.after('inline', 'macdown2_toc', (state) => {

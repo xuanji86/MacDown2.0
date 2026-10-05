@@ -10,7 +10,7 @@ import { loadChunk } from './chunk-loader.ts';
 import { planPatch } from './dom-patch.ts';
 import { rewriteImages } from './images.ts';
 import { rewriteLinks, startAnchorScrolling, stripActiveContent } from './links.ts';
-import { renderMermaid } from './mermaid-loader.ts';
+import { renderMermaid, setMermaidStyle } from './mermaid-loader.ts';
 import { pageYToLine, recordAnchor, scrollToLine as scrollBlocksToLine, startAnchoring, startScrollReporting, type BlockHandle } from './scroll.ts';
 import { alignSegments, splitBlocks, type Segment } from './split-html.ts';
 import { DEFAULT_STYLE, styleLinks } from './styles.ts';
@@ -280,6 +280,7 @@ export function setStyle(light: string, dark: string | null): void {
   const key = JSON.stringify(links);
   if (key === appliedStyle) return;
   appliedStyle = key;
+  setMermaidStyle(key);
   const old = Array.from(document.head.querySelectorAll('link[data-md2-style]'));
   let pending = links.length;
   const loaded = (): void => {

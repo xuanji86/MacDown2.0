@@ -46,6 +46,16 @@ test('textStats: the plain-ASCII shortcut counts exactly what the grapheme segme
   }
 });
 
+test('KaTeX output is memoised only while no formula has defined a global macro', () => {
+  const math = { ...defaults, extensions: ['math'] };
+  const undefinedFoo = renderResult('$$\\foo$$\n', math).html; // memoised: an unknown macro
+  assert.match(undefinedFoo, /#cc0000/); // KaTeX shows an unknown macro in red
+  const defined = renderResult('$$\\gdef\\foo{x}$$\n\n$$\\foo$$\n', math).html;
+  const [, second] = defined.split('</p>\n');
+  assert.match(second, /<mi>x<\/mi>/, 'after \\gdef the formula renders with the macro, not from the memo');
+  assert.equal(renderResult('$$\\foo$$\n', math).html, undefinedFoo, 'the next render starts without the macro again');
+});
+
 test('an alert checked as a terminator leaves the block state alone: no hang, later source lines intact', () => {
   const all = ['tables', 'strikethrough', 'autolink', 'mark', 'footnotes', 'taskLists', 'math', 'toc', 'frontMatter', 'cjkEmphasis'];
   // this one used to loop until the page ran out of memory

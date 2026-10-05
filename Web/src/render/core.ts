@@ -169,14 +169,12 @@ export function optionsKey(o: RenderOptions): string {
   ])}`;
 }
 
-// KaTeX output is a pure function of (formula, display mode) as long as no formula defines a global macro (`\gdef`,
-// `\xdef`, `\global...`): those persist into the formulas after it within one render. A render whose text has one skips the
-// memo (and the incremental renderer renders it whole). lazy: a fixed character budget; upgrade = per-document budgets.
+// KaTeX output is a pure function of (formula, display mode) while the instance's macro table is empty: only a formula with a
+// global definition (`\gdef`, `\xdef`, `\global...`) fills it, and it stays filled for the formulas after it until the
+// plugin's reset (md.render). Formulas rendered while it may be filled skip the memo. lazy: a fixed character budget;
+// upgrade = per-document budgets.
 const GLOBAL_TEX = /\\(?:gdef|xdef|global)/;
 const typeset = new LRU<string>(4 * 1024 * 1024);
-let typesetMemo = true;
-const memoTeX = (kind: string, tex: string, render: () => string): string =>
-  typesetMemo ? typeset.getOrSet(kind + tex, render, (html) => tex.length + html.length) : render();
 export function definesTeXMacros(source: string, options: RenderOptions): boolean {
   if (!options.extensions.includes('math')) return false;
   return GLOBAL_TEX.test(source) || Object.values(options.files ?? {}).some((text) => GLOBAL_TEX.test(text));
@@ -204,6 +202,19 @@ export function build(o: RenderOptions, hooks: (state: StateCore) => AnnotateHoo
     });
     // The plugin has no `$$`-only mode, so drop its inline `$…$` rule ("$5 and $10" is not a formula).
     if (!o.inlineDollarMath) md.inline.ruler.disable('math_inline_dollar');
+    let macros = false; // a formula since the last reset may have defined global macros
+    const memoTeX = (kind: string, tex: string, render: () => string): string => {
+      if (macros || (macros = GLOBAL_TEX.test(tex))) return render();
+      return typeset.getOrSet(kind + tex, render, (html) => tex.length + html.length);
+    };
+    const reset = md.render.bind(md); // the plugin's wrapper, which empties the macro table when it is done
+    md.render = (src, env) => {
+      try {
+        return reset(src, env);
+      } finally {
+        macros = false;
+      }
+    };
     const mathInline = md.renderer.rules.math_inline!;
     md.renderer.rules.math_inline = (tokens, idx, opts, env, slf) =>
       memoTeX('i', tokens[idx].content, () => mathInline(tokens, idx, opts, env, slf));
@@ -292,7 +303,6 @@ export function renderResult(source: string, options: RenderOptions): RenderResu
   const env: Env = { outline: [], files: options.files };
   let tokens: Token[];
   let html: string;
-  typesetMemo = !definesTeXMacros(source, options);
   try {
     tokens = md.parse(source, env);
     html = md.renderer.render(tokens, md.options, env);
@@ -300,7 +310,6 @@ export function renderResult(source: string, options: RenderOptions): RenderResu
     // The KaTeX plugin clears macros defined with \gdef when `md.render` finishes, but we call parse and
     // renderer.render ourselves, so run an empty render to get the same reset.
     if (options.extensions.includes('math')) md.render('', { outline: [] });
-    typesetMemo = true;
   }
   const lines = source.split('\n');
   const blocks = blocksOf(tokens, lines);
