@@ -548,7 +548,17 @@ public final class MarkdownTextView: NSTextView {
         breakUndoCoalescing()
         highlighter?.stop()  // it must not look at the storage it painted any more: that one may be edited off screen
         highlighter = nil
+        // The layout manager is off the content storage while the storage changes, so it starts over on the new text as on a first
+        // attach. A storage swapped under it leaves it the old text's vertical bookkeeping (observed on macOS 27: the new text's
+        // paragraphs are placed where the old text's laid-out part ended, below an empty band), and a fragment lookup at a point,
+        // which the highlighter and the gutter make for the visible rect, then finds nothing there or lays out forever. Replacing
+        // the characters of one storage does not do this.
+        let layout = textLayoutManager
+        let primary = content.primaryTextLayoutManager
+        if let layout { content.removeTextLayoutManager(layout) }
         content.textStorage = storage
+        if let layout { content.addTextLayoutManager(layout) }
+        content.primaryTextLayoutManager = primary
         setSelectedRange(NSRange(location: 0, length: 0))
         observeStorage()
         applyStorageTheme()
