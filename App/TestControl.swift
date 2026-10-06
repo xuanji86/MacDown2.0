@@ -37,6 +37,7 @@ import WorkspaceKit
 ///   ax [depth=40]                      the window's accessibility tree, flattened (role, label, id, value, frame)
 ///   press id=.. | label=..             accessibilityPerformPress on the first element with that identifier / label
 ///   defaults key=.. [value=..]         read, or write, a preference in this launch's own suite
+///   autosave delay=<secs>              the system's autosave interval (long: only an explicit save writes the file)
 ///   activate                           bring the app to the front (takes focus from the user: only when a test needs it)
 ///   quit                               terminate through the normal Cmd-Q path
 @MainActor
@@ -231,6 +232,11 @@ enum TestControl {
         case "activate":
             NSApp.activate(ignoringOtherApps: true)  // deprecated, but the plain activate() is refused while another app is in front
             try window(args).makeKeyAndOrderFront(nil)  // only the window commands act on: the others keep their order
+            return nil
+        case "autosave":
+            // seconds; a test that checks what an explicit save wrote sets it long, so the system's autosave cannot do it first
+            guard let delay = number(args, "delay"), delay.isFinite, delay >= 0 else { throw Failure(message: "autosave needs delay=<seconds>") }
+            NSDocumentController.shared.autosavingDelay = delay
             return nil
         case "quit":
             DispatchQueue.main.async { NSApp.terminate(nil) }  // after this reply is written

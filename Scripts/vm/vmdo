@@ -1,0 +1,62 @@
+#!/bin/bash
+# Real input into the test VM (Scripts/vm/vm.sh up) through its VNC server: what a person at the VM's keyboard and mouse would do.
+# Commands run in order:
+#   Scripts/vm/vmdo key cmd-b                   a key press; modifiers cmd, option, ctrl, shift (cmd-shift-z, cmd-- ); names: return tab
+#                                               space escape delete left right up down home end pgup pgdn f1..f12, or one character
+#   Scripts/vm/vmdo type "Hello, World!"        type text, a key at a time (US layout; capitals and symbols with shift)
+#   Scripts/vm/vmdo click 400 600               a left click at that VM screen pixel (the screen is 2x: points * 2)
+#   Scripts/vm/vmdo capture shot.png            a screenshot of the VM's screen (never the host's)
+#   Scripts/vm/vmdo pause 0.5                   wait
+# vncdotool (MIT) lives in build/vm-venv, created on first use; it is a test tool only, nothing ships with the app.
+set -euo pipefail
+ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
+VENV="$ROOT_DIR/build/vm-venv"
+[ -x "$VENV/bin/vncdo" ] || { python3 -m venv "$VENV" && "$VENV/bin/pip" install -q vncdotool==1.4.2; }
+VNC="$ROOT_DIR/build/vm/${MD2_VM:-md2-test}/vnc"
+[ -f "$VNC" ] || { echo "vmdo: the VM is not up (Scripts/vm/vm.sh up)" >&2; exit 1; }
+PYTHONWARNINGS=ignore exec "$VENV/bin/python" - "$VNC" "$@" <<'EOF'
+import sys, time
+from vncdotool import api
+
+# Virtualization.framework's VNC server maps X11 Alt to Command and Meta to Option (Super does nothing); a keysym is turned
+# into a key without its shift state, so capitals and symbols need an explicit shift. A click needs the button held a moment.
+MODIFIERS = {"cmd": "alt", "command": "alt", "option": "meta", "opt": "meta", "ctrl": "ctrl", "control": "ctrl", "shift": "shift"}
+NAMES = {"return": "enter", "pgup": "pgup", "pgdn": "pgdn", "escape": "esc", "delete": "bsp", "forwarddelete": "delete"}
+SHIFTED = dict(zip('~!@#$%^&*()_+{}|:"<>?', "`1234567890-=[]\\;',./"))
+
+url = open(sys.argv[1]).read().strip()                     # vnc://:<password>@<host>:<port>
+password, hostport = url[len("vnc://:"):].split("@")
+# A timeout, or a stale address (the VM restarted) would wait forever: vncdotool's default is none.
+client = api.connect(hostport.rsplit(":", 1)[0] + "::" + hostport.rsplit(":", 1)[1], password=password, timeout=10)
+
+def press(spec):
+    *mods, key = spec.split("-")
+    if spec.endswith("--"): mods, key = mods[:-1], "-"   # cmd-- is Command-minus
+    keys = [MODIFIERS[m] for m in mods]
+    if len(key) == 1 and (key.isupper() or key in SHIFTED):
+        keys.append("shift")
+        key = SHIFTED.get(key, key.lower())
+    for k in keys: client.keyDown(k)
+    client.keyPress(NAMES.get(key, key))
+    for k in reversed(keys): client.keyUp(k)
+    time.sleep(0.03)
+
+args = sys.argv[2:]
+i = 0
+try:
+    while i < len(args):
+        cmd = args[i]; i += 1
+        if cmd == "key": press(args[i]); i += 1
+        elif cmd == "type":
+            for c in args[i]: press({" ": "space", "\n": "return", "\t": "tab"}.get(c, c))
+            i += 1
+        elif cmd == "click":
+            client.mouseMove(int(args[i]), int(args[i + 1])); i += 2
+            time.sleep(0.15); client.mouseDown(1); time.sleep(0.15); client.mouseUp(1); time.sleep(0.15)
+        elif cmd == "capture": client.captureScreen(args[i]); i += 1
+        elif cmd == "pause": time.sleep(float(args[i])); i += 1
+        else: sys.exit(f"vmdo: unknown command {cmd}")
+finally:
+    client.disconnect()
+    api.shutdown()
+EOF
