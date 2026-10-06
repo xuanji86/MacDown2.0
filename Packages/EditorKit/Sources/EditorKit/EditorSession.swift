@@ -172,7 +172,7 @@ public final class EditorSession {
     // lazy: a window opened and closed over and over on one document leaves a storage (a copy of the text) each time, until the
     // document closes; a document whose undo history is empty keeps none (released below, and on the next close)
     public func close() {
-        textView?.attach(storage: NSTextStorage())  // the dying view lets go of the storage it showed
+        textView?.detachStorage()  // the dying view lets go of the storage it showed
         for buffer in buffers.values {
             buffer.session = nil
             guard let document = buffer.document else { buffer.stopObserving(); continue }

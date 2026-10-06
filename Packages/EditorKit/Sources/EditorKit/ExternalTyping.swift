@@ -69,15 +69,31 @@ extension MarkdownTextView {
     /// `typeExternally` is running: the selection and text changes the view reports now are the preview's edit, not the user's.
     public var isTypingExternally: Bool { externalTypist === self }
 
+    /// Every check NSTextView asks for carries the storage it is about (`storageGeneration`): it runs in the background, and its results
+    /// can arrive after the view has switched to another text.
+    public override func checkText(in range: NSRange, types checkingTypes: NSTextCheckingTypes, options: [NSSpellChecker.OptionKey: Any] = [:]) {
+        var options = options
+        options[Self.generationKey] = storageGeneration
+        super.checkText(in: range, types: checkingTypes, options: options)
+    }
+
     /// Text checking results that would change the text the preview typed are dropped (see `typeExternally`); the rest (a misspelling
-    /// underlined, grammar) still applies.
+    /// underlined, grammar) still applies. Results about a text that is not on screen any more are dropped whole: their ranges are
+    /// that text's, and a correction would land in this one.
     public override func handleTextCheckingResults(
         _ results: [NSTextCheckingResult], forRange range: NSRange, types checkingTypes: NSTextCheckingTypes,
         options: [NSSpellChecker.OptionKey: Any] = [:], orthography: NSOrthography, wordCount: Int
     ) {
+        if let generation = options[Self.generationKey] as? Int, generation != storageGeneration { return }
         super.handleTextCheckingResults(
             automaticChangesToApply(results), forRange: range, types: checkingTypes, options: options, orthography: orthography, wordCount: wordCount)
     }
+
+    private static let generationKey = NSSpellChecker.OptionKey(rawValue: "io.github.xuanji86.MacDown2.storageGeneration")
+
+    /// Another text is on screen (`attach`): what the preview typed is in the one that left, and checks still on their way about it
+    /// are dropped by generation, so this text gets the system's automatic changes again.
+    func forgetPreviewTyping() { typedByPreview.remove(self) }
 
     /// `results` without those that would change text the preview typed (all of them, until the user types here again).
     func automaticChangesToApply(_ results: [NSTextCheckingResult]) -> [NSTextCheckingResult] {
