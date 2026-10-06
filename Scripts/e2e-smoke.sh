@@ -28,7 +28,10 @@ check() {  # check <name> <command...>: the command must succeed
   C shot "$OUT/$file.png" >/dev/null 2>&1 || true
 }
 step=0
-text_has() { C editor | grep -qF -- "$1"; }
+text_has() {  # the editor's text has it, within 5 s (an edit made in the preview reaches the source asynchronously)
+  for _ in $(seq 1 25); do C editor | grep -qF -- "$1" && return 0; sleep 0.2; done
+  return 1
+}
 page() { C wait "$1" timeout=5; }
 
 page "document.querySelector('#doc h1')" >/dev/null  # the preview has rendered

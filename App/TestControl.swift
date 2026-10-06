@@ -85,25 +85,35 @@ enum TestControl {
         while true {
             let client = accept(fd, nil, nil)
             guard client >= 0 else { continue }
-            var request = Data()
-            var chunk = [UInt8](repeating: 0, count: 65536)
-            while !request.contains(0x0A), request.count < 64 << 20 {
-                let n = read(client, &chunk, chunk.count)
-                if n <= 0 { break }
-                request.append(contentsOf: chunk[0..<n])
-            }
-            Task { @MainActor in
-                let reply = await respond(to: request)
-                reply.withUnsafeBytes { buffer in
-                    var offset = 0
-                    while offset < buffer.count {
-                        let n = write(client, buffer.baseAddress! + offset, buffer.count - offset)
-                        if n <= 0 { break }
-                        offset += n
-                    }
+            // A client gone before its reply (a timeout, Ctrl-C) must not kill the app with SIGPIPE.
+            var on: Int32 = 1
+            setsockopt(client, SOL_SOCKET, SO_NOSIGPIPE, &on, socklen_t(MemoryLayout<Int32>.size))
+            Thread.detachNewThread { serve(client) }  // a client that never sends its line holds up only itself
+        }
+    }
+
+    nonisolated private static func serve(_ client: Int32) {
+        var request = Data()
+        var chunk = [UInt8](repeating: 0, count: 65536)
+        // lazy: one request line of at most 64 MiB per connection, which is all md2ctl sends
+        while request.count < 64 << 20 {
+            let n = read(client, &chunk, chunk.count)
+            if n <= 0 { break }
+            request.append(contentsOf: chunk[0..<n])
+            if chunk[0..<n].contains(0x0A) { break }
+        }
+        let received = request
+        Task { @MainActor in
+            let reply = await respond(to: received)
+            reply.withUnsafeBytes { buffer in
+                var offset = 0
+                while offset < buffer.count {
+                    let n = write(client, buffer.baseAddress! + offset, buffer.count - offset)
+                    if n <= 0 { break }
+                    offset += n
                 }
-                close(client)
             }
+            close(client)
         }
     }
 
@@ -143,11 +153,21 @@ enum TestControl {
         case "tab":
             let model = try workspace(args)
             let path = try string(args, "path")
-            guard let tab = model.controller.session.tabs.first(where: { describe($0.url) == path || $0.url.lastPathComponent == path }) else { throw Failure(message: "no tab \(path)") }
+            let tabs = model.controller.session.tabs
+            let full = URL(filePath: path, relativeTo: AppDefaults.isolation?.allowedRoot).absoluteURL.resolvingSymlinksInPath().path
+            let named = tabs.filter { $0.url.lastPathComponent == path }
+            // a path (absolute, or relative to the isolated root), else a file name that only one tab has
+            guard let tab = tabs.first(where: { describe($0.url) == path || $0.url.resolvingSymlinksInPath().path == full }) ?? (named.count == 1 ? named.first : nil) else {
+                throw Failure(message: named.count > 1 ? "several tabs are called \(path): give its path" : "no tab \(path)")
+            }
             model.controller.activate(tab.url)
             return nil
-        case "menu": return try performMenu(try string(args, "path"))
-        case "menus": return menuTitles()
+        case "menu":
+            _ = try window(args)  // the stand-in key window first: SwiftUI's commands act on the focused scene
+            return try performMenu(try string(args, "path"))
+        case "menus":
+            _ = try window(args)
+            return menuTitles()
         case "focus":
             let window = try window(args)
             guard window.makeFirstResponder(try target(args, in: window, required: true)) else { throw Failure(message: "refused first responder") }
@@ -157,14 +177,14 @@ enum TestControl {
             let view = try target(args, in: window)
             let delay = int(args, "delay") ?? 20
             for c in try string(args, "text") {
-                send(view, "insertText:replacementRange:", String(c) as NSString, NSRange(location: NSNotFound, length: 0))
+                try send(view, "insertText:replacementRange:", String(c) as NSString, NSRange(location: NSNotFound, length: 0))
                 if delay > 0 { try? await Task.sleep(for: .milliseconds(delay)) }
             }
             return nil
         case "mark":
             let window = try window(args)
             let text = try string(args, "text") as NSString
-            send(try target(args, in: window), "setMarkedText:selectedRange:replacementRange:", text, NSRange(location: text.length, length: 0), NSRange(location: NSNotFound, length: 0))
+            try send(try target(args, in: window), "setMarkedText:selectedRange:replacementRange:", text, NSRange(location: text.length, length: 0), NSRange(location: NSNotFound, length: 0))
             return nil
         case "unmark":
             let window = try window(args)
@@ -190,7 +210,7 @@ enum TestControl {
             return ["text": editor.string, "selection": [selection.location, selection.length], "marked": editor.hasMarkedText()]
         case "select":
             let editor = try self.editor(in: try window(args))
-            guard let from = int(args, "from"), let to = int(args, "to"), from <= to, to <= (editor.string as NSString).length else { throw Failure(message: "select needs 0 <= from <= to <= length") }
+            guard let from = int(args, "from"), let to = int(args, "to"), 0 <= from, from <= to, to <= (editor.string as NSString).length else { throw Failure(message: "select needs 0 <= from <= to <= length") }
             editor.setSelectedRange(NSRange(location: from, length: to - from))
             editor.scrollRangeToVisible(editor.selectedRange())
             return nil
@@ -203,12 +223,14 @@ enum TestControl {
             let key = try string(args, "key")
             if args.keys.contains("value") {
                 let value = args["value"]
-                if value is NSNull { AppDefaults.store.removeObject(forKey: key) } else { AppDefaults.store.set(value, forKey: key) }
+                if value is NSNull { AppDefaults.store.removeObject(forKey: key) }
+                else if let value, PropertyListSerialization.propertyList(value, isValidFor: .binary) { AppDefaults.store.set(value, forKey: key) }
+                else { throw Failure(message: "value is not a property list (a null inside it?)") }
             }
             return AppDefaults.store.object(forKey: key)
         case "activate":
             NSApp.activate(ignoringOtherApps: true)  // deprecated, but the plain activate() is refused while another app is in front
-            for window in NSApp.windows where window.isVisible && window.canBecomeKey { window.makeKeyAndOrderFront(nil) }
+            try window(args).makeKeyAndOrderFront(nil)  // only the window commands act on: the others keep their order
             return nil
         case "quit":
             DispatchQueue.main.async { NSApp.terminate(nil) }  // after this reply is written
@@ -227,7 +249,9 @@ enum TestControl {
         (args[name] as? NSNumber)?.doubleValue ?? (args[name] as? String).flatMap(Double.init)
     }
 
-    private static func int(_ args: [String: Any], _ name: String) -> Int? { number(args, name).map { Int($0) } }
+    /// nil for anything that is not a whole number in range (NaN, inf, 1e300 would trap in Int(_:)); `Int32` likewise.
+    private static func int(_ args: [String: Any], _ name: String) -> Int? { number(args, name).flatMap { Int(exactly: $0.rounded()) } }
+    private static func int32(_ args: [String: Any], _ name: String) -> Int32? { number(args, name).flatMap { Int32(exactly: $0.rounded()) } }
 
     private static func describe(_ url: URL) -> String { url.isFileURL ? url.path : url.absoluteString }
 
@@ -296,7 +320,13 @@ enum TestControl {
         swap(NSWindow.self, #selector(getter: NSWindow.isMainWindow), #selector(getter: NSWindow.ctl_isMainWindow))
         swap(NSApplication.self, #selector(getter: NSApplication.mainWindow), #selector(getter: NSApplication.ctl_mainWindow))
         NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { _ in
-            MainActor.assumeIsolated { TestControl.standIn = nil }
+            MainActor.assumeIsolated {
+                // AppKit never made the stand-in key: undo by hand what was done by hand, then AppKit's own key window rules.
+                let previous = TestControl.standIn
+                TestControl.standIn = nil
+                if let previous, !previous.isKeyWindow { previous.resignKey() }
+                if let previous, !previous.isMainWindow { previous.resignMain() }
+            }
         }
     }
 
@@ -334,9 +364,9 @@ enum TestControl {
     }
 
     /// Text input methods called directly, as AppKit calls them for a key press or an input method (WKWebView's are not public API).
-    private static func send(_ view: NSResponder, _ name: String, _ text: NSString, _ ranges: NSRange...) {
+    private static func send(_ view: NSResponder, _ name: String, _ text: NSString, _ ranges: NSRange...) throws {
         let selector = NSSelectorFromString(name)
-        guard view.responds(to: selector) else { return log.error("\(type(of: view), privacy: .public) has no \(name, privacy: .public)") }
+        guard view.responds(to: selector) else { throw Failure(message: "\(type(of: view)) (the first responder?) has no \(name); focus target=editor|preview first") }
         if ranges.count == 1 {
             typealias Fn = @convention(c) (AnyObject, Selector, AnyObject, NSRange) -> Void
             unsafeBitCast(view.method(for: selector), to: Fn.self)(view, selector, text, ranges[0])
@@ -363,18 +393,18 @@ enum TestControl {
                 entry["roots"] = model.sidebar.folders.roots.map(\.path)
                 entry["tabs"] = session.tabs.map { ["path": describe($0.url), "active": $0.id == session.activeID, "dirty": registry.isDirty($0.url)] }
             }
-            if let editor = try? editor(in: window) {
-                let selection = editor.selectedRange()
-                entry["editor"] = ["length": (editor.string as NSString).length, "selection": [selection.location, selection.length], "focused": window.firstResponder === editor]
-            }
             // Where the panes are, in the window points `click` takes: a preview DOM rect (getBoundingClientRect) plus this origin.
             func frame(_ view: NSView?) -> Any {
                 guard let view, !view.isHiddenOrHasHiddenAncestor, view.window === window else { return NSNull() }
                 let r = view.convert(view.bounds, to: nil)
                 return [r.minX, window.frame.height - r.maxY, r.width, r.height]
             }
+            if let editor = try? editor(in: window) {
+                let selection = editor.selectedRange()
+                entry["editor"] = ["length": (editor.string as NSString).length, "selection": [selection.location, selection.length],
+                                   "focused": window.firstResponder === editor, "frame": frame(editor.enclosingScrollView)]
+            }
             entry["preview"] = frame(webView(in: window))
-            if let editor = try? editor(in: window) { (entry["editor"] as? [String: Any]).map { var e = $0; e["frame"] = frame(editor.enclosingScrollView); entry["editor"] = e } }
             return entry
         }
         return [
@@ -412,6 +442,7 @@ enum TestControl {
             }
             let item = current.items[at]
             if index == parts.count - 1 {
+                guard item.isEnabled else { throw Failure(message: "\(path) is disabled") }  // up to date: `open` just refreshed it
                 current.performActionForItem(at: at)
                 return nil
             }
@@ -437,7 +468,7 @@ enum TestControl {
 
     // MARK: Events
 
-    /// ANSI key codes 0 ... 50, by position (`·` = no key on a US layout).
+    /// ANSI key codes 0 ... 50, by position (`·` = no key on a US layout). lazy: US layout only; others need UCKeyTranslate.
     private static let keyCodes = Array("asdfhgzxcv·bqweryt123465=97-80]ou[ip\rlj'k;\\,/nm.\t `")
     private static let specialKeys: [String: (code: UInt16, chars: String)] = [
         "return": (36, "\r"), "tab": (48, "\t"), "space": (49, " "), "escape": (53, "\u{1B}"), "delete": (51, "\u{7F}"),
@@ -447,6 +478,9 @@ enum TestControl {
         "home": (115, String(UnicodeScalar(NSHomeFunctionKey)!)), "end": (119, String(UnicodeScalar(NSEndFunctionKey)!)),
         "pageup": (116, String(UnicodeScalar(NSPageUpFunctionKey)!)), "pagedown": (121, String(UnicodeScalar(NSPageDownFunctionKey)!)),
     ]
+
+    // lazy: US layout only, like `keyCodes`
+    private static let shifted: [String: String] = Dictionary(uniqueKeysWithValues: zip("1234567890-=[]\\;',./`".map(String.init), "!@#$%^&*()_+{}|:\"<>?~".map(String.init)))
 
     private static func key(_ args: [String: Any]) throws -> Any? {
         let window = try window(args)
@@ -467,7 +501,7 @@ enum TestControl {
         } else {
             throw Failure(message: "unknown key \(name)")
         }
-        let chars = flags.contains(.shift) ? plain.uppercased() : plain
+        let chars = flags.contains(.shift) ? (shifted[plain] ?? plain.uppercased()) : plain
         func event(_ type: NSEvent.EventType) -> NSEvent? {
             NSEvent.keyEvent(with: type, location: .zero, modifierFlags: flags, timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
                              context: nil, characters: chars, charactersIgnoringModifiers: plain, isARepeat: false, keyCode: code)
@@ -475,8 +509,9 @@ enum TestControl {
         guard let down = event(.keyDown), let up = event(.keyUp) else { throw Failure(message: "could not make the key event") }
         if !flags.intersection([.command, .control]).isEmpty {
             for menu in NSApp.mainMenu?.items.compactMap(\.submenu) ?? [] { open(menu) }  // as menuTitles: items current before matching
-            if NSApp.mainMenu?.performKeyEquivalent(with: down) == true { return "menu" }
+            // AppKit's order: the key window's views, then the menu bar.
             if window.performKeyEquivalent(with: down) { return "window" }
+            if NSApp.mainMenu?.performKeyEquivalent(with: down) == true { return "menu" }
         }
         window.sendEvent(down)
         window.sendEvent(up)
@@ -502,6 +537,9 @@ enum TestControl {
             // mouse up waits there (this app's own queue) before the mouse down is sent.
             NSApp.postEvent(up, atStart: false)
             window.sendEvent(down)
+            // A view that does not track (WKWebView forwards and returns) left it queued: send it now, so a double click goes
+            // down, up, down, up.
+            if let queued = NSApp.nextEvent(matching: .leftMouseUp, until: .distantPast, inMode: .default, dequeue: true) { window.sendEvent(queued) }
         }
         return window.contentView?.hitTest(at).map { String(describing: type(of: $0)) }
     }
@@ -509,12 +547,14 @@ enum TestControl {
     private static func scroll(_ args: [String: Any]) throws -> Any? {
         let window = try window(args)
         let at = try point(args, in: window)
-        let dy = Int32(number(args, "dy") ?? 0), dx = Int32(number(args, "dx") ?? 0)
+        guard let dy = int32(args, "dy") ?? (args["dy"] == nil ? 0 : nil), let dx = int32(args, "dx") ?? (args["dx"] == nil ? 0 : nil) else { throw Failure(message: "dy= dx= must be whole numbers") }
         guard let cg = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2, wheel1: dy, wheel2: dx, wheel3: 0) else { throw Failure(message: "could not make the scroll event") }
-        // Global display coordinates are top-left based.
-        let screen = window.convertPoint(toScreen: at)
-        cg.location = CGPoint(x: screen.x, y: (NSScreen.screens.first?.frame.maxY ?? 0) - screen.y)
-        guard let event = NSEvent(cgEvent: cg), let view = window.contentView?.hitTest(at) else { throw Failure(message: "nothing to scroll there") }
+        // An event made from a CGEvent belongs to no window, and then its locationInWindow is its screen location: placed so
+        // that the two agree, the view under the point (and WebKit's own hit test) see the right spot. Global display
+        // coordinates are top-left based.
+        cg.location = CGPoint(x: at.x, y: (NSScreen.screens.first?.frame.maxY ?? 0) - at.y)
+        guard let event = NSEvent(cgEvent: cg), abs(event.locationInWindow.x - at.x) < 1, abs(event.locationInWindow.y - at.y) < 1,
+              let view = window.contentView?.hitTest(at) else { throw Failure(message: "could not aim the scroll event at that point") }
         view.scrollWheel(with: event)
         return String(describing: type(of: view))
     }
@@ -530,7 +570,7 @@ enum TestControl {
         var out: [Node] = []
         func walk(_ element: NSAccessibilityProtocol, _ depth: Int) {
             out.append(Node(element: element, depth: depth))
-            guard depth < limit, out.count < 5000 else { return }
+            guard depth < limit, out.count < 5000 else { return }  // lazy: 5000 elements, more than any window here has
             for child in element.accessibilityChildren() ?? [] {
                 if let child = child as? NSAccessibilityProtocol { walk(child, depth + 1) }
             }

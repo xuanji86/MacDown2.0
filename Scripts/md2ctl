@@ -96,15 +96,17 @@ def main(argv):
                 sys.exit("md2ctl: wait '<js expression>' [timeout=10]")
             args = parse(argv[4:])
             deadline = time.time() + float(args.pop("timeout", 10))
+            last = None
             while True:
                 try:
                     if call(pid, "js", script=f"return !!({argv[3]})", **args):
                         print("true")
                         return
-                except RuntimeError:
-                    pass  # no preview yet
+                    last = None
+                except RuntimeError as error:
+                    last = error  # no preview yet, or the expression itself fails: said below if it never comes true
                 if time.time() > deadline:
-                    print("md2ctl: timed out waiting for " + argv[3], file=sys.stderr)
+                    print("md2ctl: timed out waiting for " + argv[3] + (f" (last error: {last})" if last else ""), file=sys.stderr)
                     sys.exit(1)
                 time.sleep(0.2)
         result = call(pid, cmd, **parse(argv[3:]))
