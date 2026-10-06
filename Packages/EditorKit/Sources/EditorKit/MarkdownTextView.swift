@@ -255,8 +255,10 @@ public final class MarkdownTextView: NSTextView {
         font = theme.font
         typingAttributes = theme.baseAttributes
         defaultParagraphStyle = theme.paragraphStyle
+        guard let storage = textStorage else { return }
+        noteBaseStyle(of: storage, theme)
         // The highlighter styles the visible chunks; the rest must not keep the old line spacing meanwhile (scroll extent).
-        if let storage = textStorage, storage.length > 0 {
+        if storage.length > 0 {
             storage.addAttribute(.paragraphStyle, value: theme.paragraphStyle, range: NSRange(location: 0, length: storage.length))
             if let layout = textLayoutManager { layout.invalidateLayout(for: layout.documentRange) }
         }
@@ -529,33 +531,127 @@ public final class MarkdownTextView: NSTextView {
 
     /// A storage holding `text`, in the view's current theme, to show with `attach(storage:)` (or to keep for later).
     public func makeStorage(text: String) -> NSTextStorage {
-        NSTextStorage(string: text, attributes: styledTheme.baseAttributes)
+        let theme = styledTheme
+        let storage = NSTextStorage(string: text, attributes: theme.baseAttributes)
+        noteBaseStyle(of: storage, theme)
+        return storage
     }
 
     /// Replaces everything in a storage that is not on screen (one made by `makeStorage`) without touching its undo history.
     public func replaceContents(of storage: NSTextStorage, with text: String) {
-        storage.setAttributedString(NSAttributedString(string: text, attributes: styledTheme.baseAttributes))
+        let theme = styledTheme
+        storage.setAttributedString(NSAttributedString(string: text, attributes: theme.baseAttributes))
+        noteBaseStyle(of: storage, theme)
     }
 
-    /// Shows `storage` instead of the current one: its text, selection reset to the start, and highlighting. The view keeps
-    /// no reference to the storage it left, so one that is kept (a tab that is not in front) can still be edited and undone
-    /// while off screen. That is the point: NSTextView records an undo step against the storage the edit happened in, and an
-    /// undo manager cannot be told to retarget one, so a single storage shared by every document would let one document's
-    /// undo change another's text. Give each document its own storage and swap it in.
+    /// The base font and line spacing each storage was last given (made, its contents replaced, a theme applied while on screen).
+    /// Weak keys compared by identity: an attributed string's `isEqual` compares contents.
+    private let baseStyles = NSMapTable<NSTextStorage, BaseStyle>(keyOptions: [.weakMemory, .objectPointerPersonality], valueOptions: .strongMemory)
+
+    private final class BaseStyle {
+        let font: NSFont
+        let lineSpacing: CGFloat
+        init(_ theme: EditorTheme) { (font, lineSpacing) = (theme.font, theme.lineSpacing) }
+        func matches(_ theme: EditorTheme) -> Bool { font.isEqual(theme.font) && lineSpacing == theme.lineSpacing }
+    }
+
+    private func noteBaseStyle(of storage: NSTextStorage, _ theme: EditorTheme) { baseStyles.setObject(BaseStyle(theme), forKey: storage) }
+
+    /// Bumped whenever the view shows another storage: text checking still on its way is about the text that left (ExternalTyping).
+    private(set) var storageGeneration = 0
+
+    /// Shows `storage` instead of the current one: its text, from the top with the selection at the start, and highlighting. The
+    /// view keeps no reference to the storage it left, so one that is kept (a tab that is not in front) can still be edited and
+    /// undone while off screen. That is the point: NSTextView records an undo step against the storage the edit happened in, and an
+    /// undo manager cannot be told to retarget one, so a single storage shared by every document would let one document's undo
+    /// change another's text. Give each document its own storage and swap it in.
     public func attach(storage: NSTextStorage) {
-        guard let content = textContentStorage, content.textStorage !== storage else { return }
-        endComposition()
-        breakUndoCoalescing()
-        highlighter?.stop()  // it must not look at the storage it painted any more: that one may be edited off screen
-        highlighter = nil
-        content.textStorage = storage
-        setSelectedRange(NSRange(location: 0, length: 0))
+        guard let layout = textLayoutManager, let content = textContentStorage, content.textStorage !== storage else { return }
+        leaveStorage()
+        // The theme's font and line spacing go into the storage before it is swapped in, where no layout manager sees the edit, and
+        // only when it does not have them yet (the theme changed while it was off screen): one that comes back as it left keeps the
+        // attributes the highlighter gave it, heading sizes included, so the heights of what is not repainted yet stay right.
+        let theme = styledTheme
+        if baseStyles.object(forKey: storage)?.matches(theme) != true {
+            let all = NSRange(location: 0, length: storage.length)
+            storage.beginEditing()
+            storage.addAttribute(.font, value: theme.font, range: all)
+            storage.addAttribute(.paragraphStyle, value: theme.paragraphStyle, range: all)
+            storage.endEditing()
+            noteBaseStyle(of: storage, theme)
+        }
+        replaceStorage(with: storage, in: content, layout: layout)
+        typingAttributes = theme.baseAttributes
+        defaultParagraphStyle = theme.paragraphStyle
+        // At the top, where the selection is: the highlighter's first visible range, the gutter and the line scroll sync hears are
+        // the new text's, not wherever the old one was scrolled to (the caller then shows the selection it restores). The range
+        // scrolled to as well: NSTextView scrolls to a requested range only once it is laid out, and a request the old text left
+        // pending (a scroll to its caret) would otherwise move the new text there on the next layout; the latest request wins.
+        if let scrollView = enclosingScrollView {
+            let clip = scrollView.contentView
+            let top = clip.constrainBoundsRect(NSRect(origin: NSPoint(x: clip.bounds.origin.x, y: 0), size: clip.bounds.size)).origin
+            if clip.bounds.origin != top {
+                clip.scroll(to: top)
+                scrollView.reflectScrolledClipView(clip)
+            }
+            scrollRangeToVisible(NSRange(location: 0, length: 0))
+        }
         observeStorage()
-        applyStorageTheme()
         installHighlighter()
         gutter?.updateThickness()
         gutter?.needsDisplay = true
         needsDisplay = true
+        NSAccessibility.post(element: self, notification: .valueChanged)  // VoiceOver reads the new text, not the one it had
+    }
+
+    /// Lets go of the storage on screen without showing another text: for a view that is going away (`EditorSession.close`). The
+    /// view is left with an empty storage and no highlighter.
+    public func detachStorage() {
+        guard let layout = textLayoutManager, let content = textContentStorage else { return }
+        leaveStorage()
+        replaceStorage(with: NSTextStorage(), in: content, layout: layout)
+        storageObservers.forEach(NotificationCenter.default.removeObserver)
+        storageObservers = []
+    }
+
+    /// What belongs to the text on screen and must not carry over to the next one.
+    private func leaveStorage() {
+        endComposition()
+        breakUndoCoalescing()
+        highlighter?.stop()  // it must not look at the storage it painted any more: that one may be edited off screen
+        highlighter = nil
+        // The text finder caches the matches of the text it searched (a storage swap does not reach it): Replace All in the find bar
+        // then edited the next text at the old ranges and raised NSRangeException past its end. Hiding the bar ends that search;
+        // the next ⌘F searches the text on screen.
+        if enclosingScrollView?.isFindBarVisible == true {
+            let hide = NSMenuItem()
+            hide.tag = NSTextFinder.Action.hideFindInterface.rawValue
+            performTextFinderAction(hide)
+        }
+        storageGeneration += 1
+        forgetPreviewTyping()
+    }
+
+    /// Swaps the storage so that the layout manager starts over on the new text, as on a first attach. A storage swapped under it
+    /// leaves it the old text's geometry (observed on macOS 26 and 27: the new text's paragraphs are placed where the old text's
+    /// laid-out part ended, below an empty band, and the old text's height is kept), and a fragment lookup at a point, which the
+    /// highlighter and the gutter make for the visible rect, then finds nothing there or lays out forever. Replacing the characters
+    /// of one storage does not do this. Neither of the two steps here is enough alone (measured on texts of 40 to 1000 lines): taken
+    /// off the content storage, the layout manager hears nothing of the swap, but keeps its geometry (all of it, from 200 lines
+    /// on) until its text container is set again; resetting the container with the layout manager attached puts the frame of the
+    /// view out of step with the text. `NSTextLayoutManager.replace(_:)` with a new content storage keeps the geometry too. None of
+    /// this is documented, so the assertion checks that the layout manager has no geometry left (the unit tests run it).
+    private func replaceStorage(with storage: NSTextStorage, in content: NSTextContentStorage, layout: NSTextLayoutManager) {
+        let primary = content.primaryTextLayoutManager
+        let container = layout.textContainer
+        content.removeTextLayoutManager(layout)
+        content.textStorage = storage
+        layout.textContainer = nil
+        layout.textContainer = container
+        content.addTextLayoutManager(layout)
+        content.primaryTextLayoutManager = primary
+        assert(layout.usageBoundsForTextContainer == .zero, "the layout manager kept geometry of the text before: \(layout.usageBoundsForTextContainer)")
+        setSelectedRange(NSRange(location: 0, length: 0))
     }
 
     // MARK: Scroll sync (lines are 0-based source lines, fractional = progress through the line)

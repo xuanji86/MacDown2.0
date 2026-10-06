@@ -13,7 +13,8 @@ export MD2CTL_TIMEOUT=20
 
 work="$(mktemp -d)"
 printf '# Hello\n\nSome *text* here.\n\n- [ ] task one\n' > "$work/notes.md"
-launch="$(MACDOWN2_BACKGROUND=1 MACDOWN2_LANGUAGE=en MACDOWN2_TEST_WINDOW_FRAME="100 100 1100 750" Scripts/run-isolated.sh "$work/notes.md")"
+for i in $(seq 1 40); do echo "- line $i"; done > "$work/long.md"  # longer than the window: the tab-switch step at the end
+launch="$(MACDOWN2_BACKGROUND=1 MACDOWN2_LANGUAGE=en MACDOWN2_TEST_WINDOW_FRAME="100 100 1100 750" Scripts/run-isolated.sh "$work/long.md" "$work/notes.md")"
 rm -rf "$work"
 pid="$(sed -n 's/^PID=//p' <<<"$launch")"
 trap 'Scripts/run-isolated.sh --stop "$pid" >/dev/null' EXIT
@@ -74,6 +75,16 @@ C mark target=preview text="nih"
 check "an input method composes in the preview" page "document.querySelector('#doc [contenteditable]')?.textContent.endsWith('morenih')"
 C type target=preview text="你好"
 check "typing and IME in the preview reach the source" text_has 'here. more你好'
+
+# Tab switches between a text longer than the window and a short one, both directions, each scrolled first (this used to hang
+# the app in the highlighter's first visible-range lookup).
+tabs_switch() {
+  for _ in 1 2 3; do
+    C tab path=long.md >/dev/null && C select from=380 to=380 >/dev/null && text_has '- line 40' || return 1
+    C tab path=notes.md >/dev/null && C select from=0 to=0 >/dev/null && text_has 'task one' || return 1
+  done
+}
+check "switching tabs between a long and a short text" tabs_switch
 
 echo
 if [ "$failures" -eq 0 ]; then echo "e2e smoke: all passed (screenshots in $OUT/)"; else echo "e2e smoke: $failures failed (screenshots in $OUT/)"; exit 1; fi
