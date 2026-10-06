@@ -67,6 +67,9 @@ final class WorkspaceRegistry: DocumentBackend {
         IsolatedTestHooks.scheduleEdit()
         IsolatedTestHooks.scheduleSettings()
         IsolatedTestHooks.scheduleCloses()
+        #if DEBUG
+        TestControl.start()
+        #endif
         Task {
             try? await Task.sleep(for: Self.launchGrace)
             launchGraceOver = true
