@@ -20,6 +20,9 @@
 # Deep link: MACDOWN2_DEEPLINK='macdown2://open?path={ROOT}/notes.md&line=3' also hands that URL to the new instance (LaunchServices, as a
 # browser would); {ROOT} is replaced by the temp dir. `open -n -a "$APP"` names this one bundle, so no other MacDown2 gets the link.
 #
+# Background: MACDOWN2_BACKGROUND=1 launches without bringing the app to the front (`open -g`), so the user's focus stays where it is.
+# Driving it: Scripts/md2ctl <pid> ... (the control socket <ROOT>/.ctl, App/TestControl.swift).
+#
 # Language: MACDOWN2_LANGUAGE=en or zh-Hans launches the instance in that language whatever the system's is.
 #
 # Screenshot just that window (never the whole screen):  screencapture -x -l <window id> shot.png
@@ -123,7 +126,9 @@ lang=()
 [ -z "${MACDOWN2_LANGUAGE:-}" ] || lang=(--args -AppleLanguages "($MACDOWN2_LANGUAGE)")
 link=()
 [ -z "${MACDOWN2_DEEPLINK:-}" ] || link=("${MACDOWN2_DEEPLINK//\{ROOT\}/$root}")
-open -n -a "$APP" --env "MACDOWN2_DEFAULTS_SUITE=$suite" --env "MACDOWN2_ALLOWED_ROOT=$root" ${extra[@]+"${extra[@]}"} ${copies[@]+"${copies[@]}"} ${link[@]+"${link[@]}"} ${lang[@]+"${lang[@]}"}
+bg=()
+[ "${MACDOWN2_BACKGROUND:-}" != "1" ] || bg=(-g)
+open -n ${bg[@]+"${bg[@]}"} -a "$APP" --env "MACDOWN2_DEFAULTS_SUITE=$suite" --env "MACDOWN2_ALLOWED_ROOT=$root" ${extra[@]+"${extra[@]}"} ${copies[@]+"${copies[@]}"} ${link[@]+"${link[@]}"} ${lang[@]+"${lang[@]}"}
 
 pid=""
 for _ in $(seq 1 100); do

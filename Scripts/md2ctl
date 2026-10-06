@@ -1,0 +1,124 @@
+#!/usr/bin/env python3
+"""Drive an isolated MacDown2 launch through its control socket (App/TestControl.swift lists the commands).
+
+  Scripts/md2ctl <pid> <cmd> [name=value ...]   one command: name=value sends a string (numbers are read as numbers where one is
+                                                wanted), name:=value sends JSON ([1,2], {"a":1}, true). Prints the result as JSON;
+                                                exit 1 on an error. Example: md2ctl 123 key key=b modifiers=cmd
+  Scripts/md2ctl <pid> shot <out.png> [window=<n>]   a window-only screenshot (screencapture -o -l), no shadow; points = pixels / scale
+  Scripts/md2ctl <pid> wait '<js expression>' [timeout=10]   polls the preview until the expression is truthy
+
+<pid> is what Scripts/run-isolated.sh printed: the socket is <ROOT>/.ctl of that launch, so only instances this script started answer.
+"""
+import json
+import os
+import socket
+import subprocess
+import sys
+import time
+
+STATE_DIR = os.path.join(os.environ.get("TMPDIR", "/tmp"), "macdown2-isolated-state")
+
+
+def root_of(pid):
+    try:
+        with open(os.path.join(STATE_DIR, pid)) as f:
+            for line in f:
+                if line.startswith("ROOT="):
+                    return line[5:].strip()
+    except OSError:
+        pass
+    sys.exit(f"md2ctl: no isolated instance recorded for pid {pid} (start it with Scripts/run-isolated.sh)")
+
+
+def call(pid, cmd, **args):
+    path = os.path.join(root_of(pid), ".ctl")
+    deadline = time.time() + 10
+    while True:  # the socket appears once the app has finished launching
+        try:
+            s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            s.connect(path)
+            break
+        except OSError:
+            s.close()
+            if time.time() > deadline:
+                sys.exit(f"md2ctl: nothing listening on {path}")
+            time.sleep(0.2)
+    with s:
+        s.settimeout(float(os.environ.get("MD2CTL_TIMEOUT", "60")))  # a hung main thread answers nothing
+        s.sendall((json.dumps({"cmd": cmd, **args}) + "\n").encode())
+        data = b""
+        while not data.endswith(b"\n"):
+            chunk = s.recv(1 << 16)
+            if not chunk:
+                break
+            data += chunk
+    if not data:
+        raise RuntimeError("no reply (did the app crash? see ~/Library/Logs/DiagnosticReports)")
+    reply = json.loads(data)
+    if not reply.get("ok"):
+        raise RuntimeError(reply.get("error"))
+    return reply.get("result")
+
+
+def parse(pairs):
+    args = {}
+    for pair in pairs:
+        name, sep, value = pair.partition("=")
+        if not sep:
+            sys.exit(f"md2ctl: expected name=value or name:=json, got {pair!r}")
+        if name.endswith(":"):
+            args[name[:-1]] = json.loads(value)
+        else:
+            args[name] = value
+    return args
+
+
+def main(argv):
+    if len(argv) < 3 or argv[1] in ("-h", "--help"):
+        sys.exit(__doc__)
+    pid, cmd = argv[1], argv[2]
+    try:
+        if cmd == "shot":
+            if len(argv) < 4:
+                sys.exit("md2ctl: shot <out.png> [window=<n>]")
+            args = parse(argv[4:])
+            number = args.get("window")
+            if number is None:
+                windows = [w for w in call(pid, "state")["windows"] if "tabs" in w]
+                if not windows:
+                    sys.exit("md2ctl: no workspace window")
+                number = windows[0]["window"]
+            subprocess.run(["screencapture", "-x", "-o", "-l", str(number), argv[3]], check=True)
+            print(argv[3])
+            return
+        if cmd == "wait":
+            if len(argv) < 4:
+                sys.exit("md2ctl: wait '<js expression>' [timeout=10]")
+            args = parse(argv[4:])
+            deadline = time.time() + float(args.pop("timeout", 10))
+            last = None
+            while True:
+                try:
+                    if call(pid, "js", script=f"return !!({argv[3]})", **args):
+                        print("true")
+                        return
+                    last = None
+                except RuntimeError as error:
+                    last = error  # no preview yet, or the expression itself fails: said below if it never comes true
+                if time.time() > deadline:
+                    print("md2ctl: timed out waiting for " + argv[3] + (f" (last error: {last})" if last else ""), file=sys.stderr)
+                    sys.exit(1)
+                time.sleep(0.2)
+        result = call(pid, cmd, **parse(argv[3:]))
+    except socket.timeout:
+        print(f"md2ctl: {cmd}: no reply within MD2CTL_TIMEOUT (the app's main thread is busy or hung)", file=sys.stderr)
+        sys.exit(1)
+    except RuntimeError as error:
+        print(f"md2ctl: {cmd}: {error}", file=sys.stderr)
+        sys.exit(1)
+    if result is not None:
+        print(json.dumps(result, ensure_ascii=False, indent=1))
+
+
+if __name__ == "__main__":
+    main(sys.argv)

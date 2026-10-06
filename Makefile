@@ -1,7 +1,7 @@
 # CLT's swift-testing macro plugin isn't on the default path; full Xcode doesn't need this.
 SWIFT_TEST_FLAGS := $(if $(findstring CommandLineTools,$(shell xcode-select -p)),-Xswiftc -plugin-path -Xswiftc /Library/Developer/CommandLineTools/usr/lib/swift/host/plugins/testing)
 
-.PHONY: web site test perf app
+.PHONY: web site test perf app e2e
 
 # Full Xcode is required for xcodebuild; use it even when xcode-select still points at the Command Line Tools.
 XCODE_DEV := $(if $(findstring CommandLineTools,$(shell xcode-select -p)),/Applications/Xcode.app/Contents/Developer,$(shell xcode-select -p))
@@ -32,3 +32,7 @@ perf:
 
 app:
 	DEVELOPER_DIR="$(XCODE_DEV)" xcodebuild -project MacDown2.xcodeproj -scheme MacDown2 -configuration Debug -derivedDataPath build/DerivedData build
+
+# Drives an isolated Debug instance in the background through its control socket (Scripts/md2ctl): keys, menus, clicks, IME.
+e2e:
+	Scripts/e2e-smoke.sh
