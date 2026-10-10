@@ -77,8 +77,10 @@ C type target=preview text="你好"
 check "typing and IME in the preview reach the source" text_has 'here. more你好'
 
 # Tab switches between a text longer than the window and a short one, both directions, each scrolled first (this used to hang
-# the app in the highlighter's first visible-range lookup).
+# the app in the highlighter's first visible-range lookup). The editor is first responder, as when typing: the layout manager then
+# lays out the new text's caret line as soon as it is attached (a Debug assertion in the storage swap once tripped on that).
 tabs_switch() {
+  C focus target=editor >/dev/null || return 1
   for _ in 1 2 3; do
     C tab path=long.md >/dev/null && C select from=380 to=380 >/dev/null && text_has '- line 40' || return 1
     C tab path=notes.md >/dev/null && C select from=0 to=0 >/dev/null && text_has 'task one' || return 1

@@ -25,6 +25,14 @@ private final class CheckedRanges: NSObject, NSTextViewDelegate {
     }
 }
 
+/// A window that counts as the key window although the test process is not the active app (a test run must not take the focus
+/// of the desktop it runs on): all NSTextView asks of it is `isKeyWindow`, to show an insertion point and lay out the line it is on.
+@MainActor
+private final class KeyWindow: NSWindow {
+    override var isKeyWindow: Bool { true }
+    override var canBecomeKey: Bool { true }
+}
+
 /// One short turn of the main run loop (not callable from an async function itself).
 @MainActor
 private func turnRunLoop() { RunLoop.current.run(until: Date().addingTimeInterval(0.01)) }
@@ -206,6 +214,29 @@ struct AttachStorageTests {
             window.displayIfNeeded()
             let range = try #require(view.visibleCharacterRange)
             #expect(range.location == 0 && NSMaxRange(range) >= view.offsetOfLine(min(lines, 20)), "\(lines) lines: \(range)")
+        }
+    }
+
+    /// With the editor focused (first responder of a key window), putting the layout manager back lays out the new text's caret
+    /// line at once, before `attach` has done anything else: geometry of the new text, so the storage swap must not take it for a
+    /// remnant of the old one (its Debug assertion did, and every tab switch with the editor focused crashed a Debug build). The
+    /// assertion traps, so a failure here ends the test process. Without the focus this path is not taken, which is why the other
+    /// tests, whose view is never first responder, did not see it.
+    @Test(.timeLimit(.minutes(1))) func switchingTabsWithTheEditorFocusedKeepsNoGeometryOfTheTextBefore() async throws {
+        let dog = watchdog(#function)
+        defer { dog.cancel() }
+        let long = list(200)
+        let short = "# A\n\nalpha\n"
+        for (from, to) in [(long, short), (short, long)] {
+            let view = makeView(from)
+            let window = KeyWindow(contentRect: NSRect(x: 0, y: 0, width: 550, height: 682), styleMask: [.titled], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            defer { window.close() }
+            window.contentView = try #require(view.enclosingScrollView)
+            window.displayIfNeeded()
+            try #require(window.makeFirstResponder(view) && window.firstResponder === view)
+            view.attach(storage: view.makeStorage(text: to))
+            #expect(laidOutText(view) == to)
         }
     }
 
