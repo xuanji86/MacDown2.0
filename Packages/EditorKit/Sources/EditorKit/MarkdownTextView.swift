@@ -640,7 +640,11 @@ public final class MarkdownTextView: NSTextView {
     /// off the content storage, the layout manager hears nothing of the swap, but keeps its geometry (all of it, from 200 lines
     /// on) until its text container is set again; resetting the container with the layout manager attached puts the frame of the
     /// view out of step with the text. `NSTextLayoutManager.replace(_:)` with a new content storage keeps the geometry too. None of
-    /// this is documented, so the assertion checks that the layout manager has no geometry left (the unit tests run it).
+    /// this is documented, so the assertion checks that the layout manager has no geometry left (the unit tests run it). It sits
+    /// right after the container is reset, before the layout manager is added back: adding it to the content storage of a view that
+    /// is first responder in a key window lays out the new text's caret line at once (`addTextLayoutManager:` →
+    /// `-[NSTextView setTextContainer:]` → `updateInsertionPointStateAndRestartTimer:` → `ensureLayoutForRange:`), which is the new
+    /// text's own geometry and not a remnant of the old one.
     private func replaceStorage(with storage: NSTextStorage, in content: NSTextContentStorage, layout: NSTextLayoutManager) {
         let primary = content.primaryTextLayoutManager
         let container = layout.textContainer
@@ -648,9 +652,9 @@ public final class MarkdownTextView: NSTextView {
         content.textStorage = storage
         layout.textContainer = nil
         layout.textContainer = container
+        assert(layout.usageBoundsForTextContainer == .zero, "the layout manager kept geometry of the text before: \(layout.usageBoundsForTextContainer)")
         content.addTextLayoutManager(layout)
         content.primaryTextLayoutManager = primary
-        assert(layout.usageBoundsForTextContainer == .zero, "the layout manager kept geometry of the text before: \(layout.usageBoundsForTextContainer)")
         setSelectedRange(NSRange(location: 0, length: 0))
     }
 
