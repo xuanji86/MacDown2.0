@@ -280,7 +280,8 @@ final class PreviewModel {
                 statsRenderer = renderer
                 let stats = try await renderer.render(markdown, options: resolved).stats
                 guard !Task.isCancelled, epoch == clearEpoch, metadata != nil, metadata?.stats != stats else { return }
-                metadata?.stats = stats            } catch {
+                metadata?.stats = stats
+            } catch {
                 log.error("preview stats failed: \(String(describing: error), privacy: .public)")
             }
         }
