@@ -111,6 +111,16 @@
         }
       }
     },
+    "Off: the preview keeps showing the last render while you type. View ▸ Render Preview (⌘R) brings it up to date." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "关闭后，输入时预览保持上一次渲染的内容；用 显示 ▸ 渲染预览（⌘R）手动更新。"
+          }
+        }
+      }
+    },
     "OK" : {
       "localizations" : {
         "zh-Hans" : {
@@ -137,6 +147,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "把主题文件（.json，格式与内置主题相同）放进这个文件夹，它们会立即出现在列表里。无法读取的文件会被跳过；与内置主题同名的主题会在名称后加上“(User)”。"
+          }
+        }
+      }
+    },
+    "Render Preview" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "渲染预览"
           }
         }
       }
@@ -3643,6 +3663,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "无序列表标记"
+          }
+        }
+      }
+    },
+    "Update preview automatically" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自动更新预览"
           }
         }
       }

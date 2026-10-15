@@ -69,6 +69,9 @@ struct FormatCommands: Commands {
             let statusBarTitle: LocalizedStringKey = showsStatusBar ? "Hide Status Bar" : "Show Status Bar"
             Button(statusBarTitle) { showsStatusBar.toggle() }
             Divider()
+            Button("Render Preview") { actions?.renderPreview() }
+                .keyboardShortcut("r")
+                .disabled(actions == nil)
             // One level for the editor font and the preview (global). "+" is ⌘⇧= on a US keyboard; ⌘= zooms in as well (`ZoomInAlias`).
             Button("Zoom In") { zoomPercent = ViewZoom.zoomedIn(from: zoomPercent) }
                 .keyboardShortcut("+")
