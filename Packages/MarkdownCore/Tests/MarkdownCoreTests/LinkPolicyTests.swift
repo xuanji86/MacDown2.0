@@ -46,7 +46,7 @@ struct PolicyTree {
     }
 
     func remove() { try? FileManager.default.removeItem(at: sandbox) }
-    func policy(roots: [URL]? = nil) -> LinkPolicy { LinkPolicy(pageURL: page, roots: roots ?? [doc]) }
+    func policy(roots: [URL]? = nil, createIn: URL? = nil) -> LinkPolicy { LinkPolicy(pageURL: page, roots: roots ?? [doc], createIn: createIn) }
     func fileURL(_ path: String) -> URL { URL(filePath: sandbox.path + "/" + path) }
 }
 
@@ -116,6 +116,66 @@ private func decide(_ policy: LinkPolicy, _ url: String, click: Bool = true) -> 
 @Test func aSymlinkNamedLikeANoteThatPointsAtABinaryIsRefused() throws {
     let t = try PolicyTree(); defer { t.remove() }
     #expect(decide(t.policy(), t.fileURL("doc/link-to-sh.md").absoluteString) == .refuse(.executable))
+}
+
+// MARK: 2b. A link to a Markdown file that is not there: offer to create it, inside the document's folder only
+
+/// The link as the page hands it over (`file://<sandbox>/<path>`): `path` goes in as written, percent-escapes and `..` included.
+private func link(_ t: PolicyTree, _ path: String) -> String { "file://" + t.sandbox.path + "/" + path }
+
+/// Where `doc/<path>` would be created: the folder resolved (the sandbox lives under /var -> /private/var), the name as written.
+private func creation(_ t: PolicyTree, _ path: String) -> LinkPolicy.Decision {
+    .offerToCreate(t.doc.resolvingSymlinksInPath().appending(path: path))
+}
+
+@Test func aMissingMarkdownFileInTheDocumentFolderIsOffered() throws {
+    let t = try PolicyTree(); defer { t.remove() }
+    let p = t.policy(createIn: t.doc)
+    for path in ["fresh.md", "fresh.markdown", "Fresh.QMD", "notes/fresh.md"] {
+        #expect(decide(p, link(t, "doc/" + path)) == creation(t, path), "\(path)")
+    }
+    #expect(decide(p, link(t, "doc/new%20note.md")) == creation(t, "new note.md"), "percent-encoded space")
+    #expect(decide(p, link(t, "doc/fresh.md#section")) == creation(t, "fresh.md"), "a fragment is not part of the name")
+    #expect(decide(p, link(t, "doc/notes/../fresh.md")) == creation(t, "fresh.md"), "a `..` that stays inside")
+    #expect(decide(p, t.fileURL("doc/a.md").absoluteString) == .openInApp(t.fileURL("doc/a.md").resolvingSymlinksInPath()), "an existing note still opens")
+}
+
+@Test func nothingIsOfferedForAnUntitledDocumentOrOutsideItsFolder() throws {
+    let t = try PolicyTree(); defer { t.remove() }
+    #expect(decide(t.policy(), t.fileURL("doc/fresh.md").absoluteString) == .refuse(.missing), "an untitled document has no folder")
+    let p = t.policy(roots: [t.doc, t.workspace], createIn: t.doc)
+    for path in ["workspace/fresh.md", "other/fresh.md", "fresh.md"] {  // the workspace is not the document's folder
+        #expect(decide(p, link(t, path)) == .refuse(.missing), "\(path)")
+    }
+}
+
+@Test func creatingNeverLeavesTheDocumentFolder() throws {
+    let t = try PolicyTree(); defer { t.remove() }
+    try FileManager.default.createSymbolicLink(at: t.doc.appending(path: "out-dir"), withDestinationURL: t.sandbox.appending(path: "other"))
+    try FileManager.default.createSymbolicLink(at: t.doc.appending(path: "dangling.md"), withDestinationURL: t.sandbox.appending(path: "other/ghost.md"))
+    try FileManager.default.createSymbolicLink(at: t.doc.appending(path: "in-dir"), withDestinationURL: t.doc.appending(path: "notes"))
+    let p = t.policy(createIn: t.doc)
+    let refused = [
+        "doc/../other/fresh.md",  // `..` out of the folder
+        "doc/notes/../../other/fresh.md",
+        "doc/%2E%2E/other/fresh.md",  // percent-encoded dots
+        "doc/..%2Fother%2Ffresh.md",  // percent-encoded separators
+        "doc/%2e%2E%2Fother/fresh.md",
+        "doc/out-dir/fresh.md",  // a folder that is a symlink out of it
+        "doc/dangling.md",  // a symlink already has that name: creating would write through it
+        "doc/nodir/fresh.md",  // folders are not made
+        "doc/fresh.txt", "doc/fresh", "doc/fresh.md.bak",  // only Markdown
+        "doc/fresh.md/",  // a folder
+    ]
+    for path in refused { #expect(decide(p, link(t, path)) == .refuse(.missing), "\(path)") }
+    #expect(!FileManager.default.fileExists(atPath: t.sandbox.appending(path: "other/fresh.md").path))
+    #expect(decide(p, link(t, "doc/in-dir/fresh.md")) == creation(t, "notes/fresh.md"), "a symlinked folder that stays inside is fine, and resolved")
+}
+
+@Test func offeringCreatesNothing() throws {
+    let t = try PolicyTree(); defer { t.remove() }
+    _ = decide(t.policy(createIn: t.doc), t.fileURL("doc/fresh.md").absoluteString)
+    #expect(!FileManager.default.fileExists(atPath: t.doc.appending(path: "fresh.md").path))
 }
 
 // MARK: 3. Other files: confirm, then the system; executables never
