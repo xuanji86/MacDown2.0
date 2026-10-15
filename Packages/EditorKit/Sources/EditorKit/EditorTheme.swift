@@ -73,10 +73,11 @@ public struct EditorTheme: @unchecked Sendable {
     }
 
     /// The theme with the user's font choice: `name` empty or unknown = the system monospaced font. Sizes are clamped
-    /// to what the editor can lay out sensibly.
+    /// to what the editor can lay out sensibly (4...216 pt); the app limits the configured size to 8...72 and multiplies
+    /// it by the View > Zoom level before it gets here.
     public func withFont(name: String, size: CGFloat) -> EditorTheme {
         var copy = self
-        let size = min(max(size, 8), 72)
+        let size = min(max(size, 4), 216)
         copy.font = (name.isEmpty ? nil : NSFont(name: name, size: size)) ?? .monospacedSystemFont(ofSize: size, weight: .regular)
         return copy
     }

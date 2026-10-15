@@ -1,4 +1,5 @@
 import EditorKit
+import MarkdownCore
 import SwiftUI
 
 /// `@AppStorage` keys of the Editor page. Defaults are the original MacDown's (`EditorBehavior()`, `EditorViewSettings()`,
@@ -73,5 +74,8 @@ struct EditorSettings: DynamicProperty {
         return v
     }
 
-    func apply(to theme: EditorTheme) -> EditorTheme { theme.withFont(name: fontName, size: fontSize) }
+    /// The configured font at the View ▸ Zoom level (`ViewZoom`: a multiplier on the configured size).
+    func apply(to theme: EditorTheme, zoomPercent: Int = ViewZoom.actualSize) -> EditorTheme {
+        theme.withFont(name: fontName, size: ViewZoom.editorFontSize(base: fontSize, percent: zoomPercent))
+    }
 }

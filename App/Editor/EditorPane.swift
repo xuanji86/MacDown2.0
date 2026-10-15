@@ -16,11 +16,12 @@ struct EditorPane: NSViewRepresentable {
     // chrome is forced to the theme's appearance, so it does not feed back.
     @AppStorage(AppearanceKey.editorTheme) private var themeName = AppearanceDefault.editorTheme
     @AppStorage(AppearanceKey.editorThemeFollowsSystem) private var followsSystem = false
+    @AppStorage(ViewZoom.key) private var zoomPercent = ViewZoom.actualSize  // View ▸ Zoom, shared with the preview
     @Environment(\.colorScheme) private var colorScheme
     private var settings = EditorSettings()
 
     private var theme: EditorTheme {
-        settings.apply(to: UserThemeFolder.resolve(name: themeName, followSystem: followsSystem, systemIsDark: colorScheme == .dark))
+        settings.apply(to: UserThemeFolder.resolve(name: themeName, followSystem: followsSystem, systemIsDark: colorScheme == .dark), zoomPercent: zoomPercent)
     }
     /// Lets the toolbar and menus reach the text view this pane creates.
     var editor: EditorHandle?

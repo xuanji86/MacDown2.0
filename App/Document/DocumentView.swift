@@ -49,7 +49,8 @@ struct DocumentView: View {
             exportHTML: { [document, fileURL] in Task { await DocumentExport.html(of: document.text, fileURL: fileURL) } },
             exportPDF: { [document, fileURL] in Task { await DocumentExport.pdf(of: document.text, fileURL: fileURL) } },
             printDocument: { [document, fileURL] in Task { await DocumentExport.print(document.text, fileURL: fileURL) } },
-            showOutline: { model.showOutline() }
+            showOutline: { model.showOutline() },
+            renderPreview: { [document, preview] in preview.renderNow(document.text) }
         )
         GeometryReader { geometry in
             let total = geometry.size.width, height = geometry.size.height

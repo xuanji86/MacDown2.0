@@ -10,6 +10,7 @@ struct WindowActions {
     let exportPDF: () -> Void
     let printDocument: () -> Void
     let showOutline: () -> Void
+    let renderPreview: () -> Void
 
     var editorEnabled: Bool { layout.showsEditor }
     func cycleLayout() { setLayout(layout.cycled) }

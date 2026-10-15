@@ -70,6 +70,11 @@ enum PreviewEditingKey {
     static let enabled = "previewEditing"
 }
 
+/// Settings ▸ Rendering ▸ "Update preview automatically" (default on). Off: only View ▸ Render Preview (⌘R) re-renders after an edit.
+enum PreviewRenderKey {
+    static let auto = "previewAutoRender"
+}
+
 /// `userContentController.add` retains its handler, so this object only holds a closure that points back weakly.
 @MainActor
 private final class PreviewMessageHandler: NSObject, WKScriptMessageHandler {
@@ -142,6 +147,7 @@ final class PreviewModel {
     private func dropText() {
         clearEpoch += 1
         debounce?.cancel()
+        statsTask?.cancel()
         pending = nil
         lastMarkdown = nil
         editChain.reset()
@@ -183,6 +189,11 @@ final class PreviewModel {
     // Preview style as last chosen; (re)applied once the page has loaded and on every change.
     private var style: (light: String, dark: String?) = PreviewStyles.resolve(id: PreviewStyles.defaultID, followSystem: false)
     private var pageLoaded = false
+    private var zoomPercent = ViewZoom.actualSize
+    private var autoRender = true
+    /// The counts while the preview is paused (`scheduleStats`), and the renderer that makes them (created on first use).
+    private var statsTask: Task<Void, Never>?
+    private var statsRenderer: JSCRenderer?
     /// The Block remote images setting the current page was loaded with (it is part of the page's CSP); nil before the first load.
     private var loadedBlockingImages: Bool?
     /// Bumped by `clear()`: a render that started before it must not publish its metadata.
@@ -242,8 +253,61 @@ final class PreviewModel {
     /// The document's text as the editor has it now. Text the page already shows or is about to (a task checkbox click renders its
     /// own result at once, and the edit then reaches here too) is not rendered a second time; `schedule` always renders.
     func textChanged(_ markdown: String) {
+        // With "Update preview automatically" off only a document's first text gets here (`renderNow` does the rest); `lastMarkdown` is then
+        // the text the page shows, so every re-render for another reason (a setting, the style, the folder) keeps showing that text.
+        guard PreviewRefresh.rendersOnEdit(autoRender: autoRender, hasRendered: lastMarkdown != nil) else {
+            scheduleStats(markdown)  // the status bar's counts are the document's, not the page's
+            return
+        }
         // UTF-16 identity, not Swift's canonical `==`: a change from "é" to "e\u{301}" must reach the page, whose offsets are units.
         if !(lastMarkdown.map { markdown.isIdentical(to: $0) } ?? false) { schedule(markdown) }
+    }
+
+    /// With "Update preview automatically" off the page keeps its render, but the word and character counts in the status bar must follow
+    /// the text. They come from a render of it in a private JavaScriptCore context (`JSCRenderer`, the same renderer and options, so the
+    /// numbers are what the page would report), off the main thread, once the typing pauses; a newer text, a render or a document switch
+    /// drops the one in flight.
+    // lazy: a whole-document render per typing pause while paused; `TextStats(counting:)` is cheaper but counts the Markdown source, not the rendered text
+    private func scheduleStats(_ markdown: String) {
+        statsTask?.cancel()
+        let epoch = clearEpoch
+        statsTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(300))
+            guard !Task.isCancelled, let self else { return }
+            let resolved = options.rendering(as: flavor, markdown: markdown, readFile: QuartoIncludes.fileReader(directory: documentDirectory))
+            do {
+                // Made off the main actor: a JSContext created on the main thread puts its timers on the main run loop, which then waits on
+                // the VM lock while a large render holds it.
+                let renderer: JSCRenderer
+                if let statsRenderer { renderer = statsRenderer } else { renderer = try await Task.detached { try JSCRenderer() }.value }
+                statsRenderer = renderer
+                let stats = try await renderer.render(markdown, options: resolved).stats
+                guard !Task.isCancelled, epoch == clearEpoch, metadata != nil, metadata?.stats != stats else { return }
+                metadata?.stats = stats
+            } catch {
+                log.error("preview stats failed: \(String(describing: error), privacy: .public)")
+            }
+        }
+    }
+
+    /// Settings ▸ Rendering ▸ Update preview automatically. Turning it on catches up with the edits made while it was off.
+    func setAutoRender(_ on: Bool, text: String) {
+        guard on != autoRender else { return }
+        autoRender = on
+        if on { textChanged(text) }
+    }
+
+    /// View ▸ Render Preview (⌘R), in either mode: renders `markdown` now (no frame of delay) and nothing else; no cache is cleared. An image
+    /// of the document's folder that changed on disk is picked up the way a folder event picks it up (the page loads afresh, then renders).
+    func renderNow(_ markdown: String) {
+        lastMarkdown = markdown
+        debounce?.cancel()
+        statsTask?.cancel()
+        if !documentRoot.changedServedFiles().isEmpty {
+            refreshChangedResources()
+        } else {
+            Task { [weak self] in await self?.push(markdown) }
+        }
     }
 
     /// Renders on the next display frame: changes within one frame (a paste, key repeat) collapse into one render, which is cheap
@@ -251,6 +315,7 @@ final class PreviewModel {
     func schedule(_ markdown: String) {
         lastMarkdown = markdown
         debounce?.cancel()
+        statsTask?.cancel()  // this render brings its own counts
         let frame = Self.frameInterval
         debounce = Task { [weak self] in
             try? await Task.sleep(for: frame)
@@ -336,6 +401,22 @@ final class PreviewModel {
     func setStyle(id: String, followSystem: Bool) {
         style = PreviewStyles.resolve(id: id, followSystem: followSystem)
         if pageLoaded { Task { await applyStyle() } }
+    }
+
+    /// View ▸ Zoom: the page is scaled in place (no render, no reload; the page keeps the line at its top). Applied again after every load.
+    func setZoom(percent: Int) {
+        let clamped = ViewZoom.clamped(percent)
+        guard clamped != zoomPercent else { return }
+        zoomPercent = clamped
+        if pageLoaded { Task { await applyZoom() } }
+    }
+
+    private func applyZoom() async {
+        do {
+            _ = try await page.callJavaScript("MacDown2Preview.setZoom(factor)", arguments: ["factor": ViewZoom.factor(zoomPercent)])
+        } catch {
+            log.error("preview zoom failed: \(String(describing: error), privacy: .public)")
+        }
     }
 
     // Always sends the latest choice, so overlapping calls end on the last one (WebKit runs them in the order sent).
@@ -505,6 +586,7 @@ final class PreviewModel {
     private func styleAfterLoad() async {
         pageLoaded = true
         await applyStyle()
+        if zoomPercent != ViewZoom.actualSize { await applyZoom() }
     }
 
     /// A fresh token per load; the page keeps task checkboxes disabled (and editing off) until it has one.
@@ -594,6 +676,8 @@ struct PreviewPane: View {
     @AppStorage(AppearanceKey.previewStyleFollowsSystem) private var followsSystem = false
     @AppStorage(RemoteContent.blockImagesKey) private var blockRemoteImages = false
     @AppStorage(PreviewEditingKey.enabled) private var previewEditing = true
+    @AppStorage(ViewZoom.key) private var zoomPercent = ViewZoom.actualSize
+    @AppStorage(PreviewRenderKey.auto) private var autoRender = true
     private let renderSettings = RenderSettings.shared
 
     var body: some View {
@@ -606,6 +690,8 @@ struct PreviewPane: View {
             .onChange(of: flavor?.id, initial: true) { model.setFlavor(flavor) }
             .onChange(of: blockRemoteImages, initial: true) { model.reloadForPolicyChange() }
             .onChange(of: previewEditing, initial: true) { _, on in model.setEditing(enabled: on) }
+            .onChange(of: zoomPercent, initial: true) { _, percent in model.setZoom(percent: percent) }
+            .onChange(of: autoRender, initial: true) { _, on in model.setAutoRender(on, text: document.text) }
             // Restarts with the document: the page stays, the text it renders is the active tab's.
             .task(id: ObjectIdentifier(document)) {
                 model.show(document: ObjectIdentifier(document), directory: documentURL?.deletingLastPathComponent(), flavor: flavor)

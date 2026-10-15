@@ -336,6 +336,7 @@ private struct RenderingPage: View {
     @AppStorage(AppearanceKey.previewStyleFollowsSystem) private var styleFollows = false
     @AppStorage(RemoteContent.blockImagesKey) private var blockRemoteImages = false
     @AppStorage(PreviewEditingKey.enabled) private var previewEditing = true
+    @AppStorage(PreviewRenderKey.auto) private var autoRender = true
     @Bindable private var render = RenderSettings.shared
 
     var body: some View {
@@ -345,6 +346,11 @@ private struct RenderingPage: View {
                     ForEach(PreviewStyles.all) { Text($0.name).tag($0.id) }
                 }
                 Toggle("Follow System", isOn: $styleFollows)
+            }
+            Section {
+                Toggle("Update preview automatically", isOn: $autoRender)
+            } footer: {
+                Text("Off: the preview keeps showing the last render while you type. View ▸ Render Preview (⌘R) brings it up to date.")
             }
             Section {
                 Toggle("Edit in preview", isOn: $previewEditing)

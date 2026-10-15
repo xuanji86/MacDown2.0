@@ -288,6 +288,14 @@ export function visibleTopLine(): number {
   return pageYToLine(state?.blocks ?? [], scrollY);
 }
 
+// View > Zoom: scale the whole page like a browser's page zoom (text, code, images, spacing; `1` = off). No render, no reload; the
+// line at the top of the viewport stays at the top, whatever the new scale does to the heights above it.
+export function setZoom(factor: number): void {
+  const line = visibleTopLine();
+  document.documentElement.style.zoom = factor === 1 ? '' : String(factor);
+  scrollToLine(line);
+}
+
 // Swap the preview style (and its highlight.js theme) without reloading the page: the new <link>s go in after the old
 // ones, which are dropped once every new one has loaded (or failed), so there is never an unstyled frame. `dark` null
 // = fixed style; otherwise `light` applies under prefers-color-scheme: light and `dark` under dark.

@@ -18,6 +18,9 @@ public struct LinkPolicy: Sendable {
         case openInApp(URL)
         /// Any other existing file or folder: ask first, then hand it to the system. Never an executable (`.refuse(.executable)`).
         case confirmOpenWithSystem(URL)
+        /// A Markdown file that does not exist, directly inside the document's folder or a folder below it (already there): ask, then
+        /// create it empty and open it in the app. The URL is the resolved path to create; nothing has been created yet.
+        case offerToCreate(URL)
         /// `http`, `https`, `mailto`: the system's browser / mail app.
         case openExternally(URL)
         case refuse(Reason)
@@ -25,7 +28,7 @@ public struct LinkPolicy: Sendable {
 
     public enum Reason: Equatable, Sendable {
         case executable  // an app, script, installer, disk image, binary...: never opened from a document
-        case missing  // a link to a file that is not there; nothing is created
+        case missing  // a link to a file that is not there and may not be created (`createIn`); nothing is created
         case remoteHost  // `file://server/share/...`
         case unsupportedScheme  // `javascript:`, `data:`, `blob:`, custom app schemes, ...
         case notALink  // a navigation no click caused (script, meta refresh, form), or a click on our own scheme that is not an anchor
@@ -35,10 +38,14 @@ public struct LinkPolicy: Sendable {
     public let pageURL: URL
     /// The document's folder and the open workspace folders: `.md`/`.qmd` files under these open in the app.
     public let roots: [URL]
+    /// The current document's own folder; nil for a document that was never saved. A link to a Markdown file that does not exist
+    /// offers to create it only here (`.offerToCreate`); nil: such a link is just refused (`.missing`).
+    public let createIn: URL?
 
-    public init(pageURL: URL, roots: [URL]) {
+    public init(pageURL: URL, roots: [URL], createIn: URL? = nil) {
         self.pageURL = pageURL
         self.roots = roots
+        self.createIn = createIn
     }
 
     public func decide(_ url: URL, isLinkActivation: Bool) -> Decision {
@@ -74,12 +81,34 @@ public struct LinkPolicy: Sendable {
         // Standardize and resolve symlinks first, judge the real target: `notes.md -> /bin/sh` is a binary, not a note.
         let file = URL(fileURLWithPath: url.path(percentEncoded: false)).standardizedFileURL.resolvingSymlinksInPath()
         var isDirectory: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: file.path, isDirectory: &isDirectory) else { return .refuse(.missing) }
+        guard FileManager.default.fileExists(atPath: file.path, isDirectory: &isDirectory) else {
+            return creatableTarget(url).map { .offerToCreate($0) } ?? .refuse(.missing)
+        }
         if !isDirectory.boolValue, Self.documentExtensions.contains(file.pathExtension.lowercased()), isInsideRoots(file) {
             return .openInApp(file)  // whatever its permission bits say (sync folders set the execute bit on everything)
         }
         if Self.isExecutable(file, isDirectory: isDirectory.boolValue) { return .refuse(.executable) }
         return .confirmOpenWithSystem(file)
+    }
+
+    /// Where a missing link may be created: a Markdown file name, in a folder that exists and, once its symlinks are resolved, lies inside
+    /// `createIn` (also resolved). The path is judged as the link says it after percent-decoding and removing `.` / `..` (`..%2F..%2Fx.md`
+    /// and `sub/../../x.md` both leave the folder), and the name is the last component as written: a dangling symlink already
+    /// there is not a free name, so a file is never created through one.
+    private func creatableTarget(_ url: URL) -> URL? {
+        guard let createIn else { return nil }
+        let decoded = url.path(percentEncoded: false)
+        let requested = URL(fileURLWithPath: decoded).standardizedFileURL
+        let name = requested.lastPathComponent
+        guard !decoded.hasSuffix("/"), Self.documentExtensions.contains(requested.pathExtension.lowercased()), !name.contains("\0") else { return nil }
+        let parent = requested.deletingLastPathComponent().resolvingSymlinksInPath()
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: parent.path, isDirectory: &isDirectory), isDirectory.boolValue else { return nil }
+        let base = createIn.standardizedFileURL.resolvingSymlinksInPath().path
+        guard parent.path == base || parent.path.hasPrefix(base.hasSuffix("/") ? base : base + "/") else { return nil }
+        let target = parent.appending(path: name, directoryHint: .notDirectory)
+        guard (try? FileManager.default.destinationOfSymbolicLink(atPath: target.path)) == nil else { return nil }
+        return target
     }
 
     private func isInsideRoots(_ file: URL) -> Bool {
