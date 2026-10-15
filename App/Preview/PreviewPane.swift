@@ -276,7 +276,10 @@ final class PreviewModel {
             guard !Task.isCancelled, let self else { return }
             let resolved = options.rendering(as: flavor, markdown: markdown, readFile: QuartoIncludes.fileReader(directory: documentDirectory))
             do {
-                let renderer = try statsRenderer ?? JSCRenderer()
+                // Made off the main actor: a JSContext created on the main thread puts its timers on the main run loop, which then waits on
+                // the VM lock while a large render holds it.
+                let renderer: JSCRenderer
+                if let statsRenderer { renderer = statsRenderer } else { renderer = try await Task.detached { try JSCRenderer() }.value }
                 statsRenderer = renderer
                 let stats = try await renderer.render(markdown, options: resolved).stats
                 guard !Task.isCancelled, epoch == clearEpoch, metadata != nil, metadata?.stats != stats else { return }
