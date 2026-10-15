@@ -46,6 +46,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSWindow.allowsAutomaticWindowTabbing = false  // tabs are ours; the system's "Show Tab Bar" must not appear
         MainActor.assumeIsolated {
             IconStyle.start()
+            ZoomInAlias.install()
             WorkspaceRegistry.shared.prepareLaunch()
         }
     }

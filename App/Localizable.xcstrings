@@ -61,6 +61,16 @@
         }
       }
     },
+    "Actual Size" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "实际大小"
+          }
+        }
+      }
+    },
     "Click into a paragraph, heading, list or table in the preview to type, delete or use an input method there; the change goes into the source and undoes like typing in the editor. Line breaks, formatting and anything the preview cannot map to the source stay in the editor. A selection in either pane is highlighted in the other." : {
       "localizations" : {
         "zh-Hans" : {
@@ -3763,6 +3773,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "毫米"
+          }
+        }
+      }
+    },
+    "Zoom In" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "放大"
+          }
+        }
+      }
+    },
+    "Zoom Out" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "缩小"
           }
         }
       }

@@ -183,6 +183,7 @@ final class PreviewModel {
     // Preview style as last chosen; (re)applied once the page has loaded and on every change.
     private var style: (light: String, dark: String?) = PreviewStyles.resolve(id: PreviewStyles.defaultID, followSystem: false)
     private var pageLoaded = false
+    private var zoomPercent = ViewZoom.actualSize
     /// The Block remote images setting the current page was loaded with (it is part of the page's CSP); nil before the first load.
     private var loadedBlockingImages: Bool?
     /// Bumped by `clear()`: a render that started before it must not publish its metadata.
@@ -336,6 +337,22 @@ final class PreviewModel {
     func setStyle(id: String, followSystem: Bool) {
         style = PreviewStyles.resolve(id: id, followSystem: followSystem)
         if pageLoaded { Task { await applyStyle() } }
+    }
+
+    /// View ▸ Zoom: the page is scaled in place (no render, no reload; the page keeps the line at its top). Applied again after every load.
+    func setZoom(percent: Int) {
+        let clamped = ViewZoom.clamped(percent)
+        guard clamped != zoomPercent else { return }
+        zoomPercent = clamped
+        if pageLoaded { Task { await applyZoom() } }
+    }
+
+    private func applyZoom() async {
+        do {
+            _ = try await page.callJavaScript("MacDown2Preview.setZoom(factor)", arguments: ["factor": ViewZoom.factor(zoomPercent)])
+        } catch {
+            log.error("preview zoom failed: \(String(describing: error), privacy: .public)")
+        }
     }
 
     // Always sends the latest choice, so overlapping calls end on the last one (WebKit runs them in the order sent).
@@ -505,6 +522,7 @@ final class PreviewModel {
     private func styleAfterLoad() async {
         pageLoaded = true
         await applyStyle()
+        if zoomPercent != ViewZoom.actualSize { await applyZoom() }
     }
 
     /// A fresh token per load; the page keeps task checkboxes disabled (and editing off) until it has one.
@@ -594,6 +612,7 @@ struct PreviewPane: View {
     @AppStorage(AppearanceKey.previewStyleFollowsSystem) private var followsSystem = false
     @AppStorage(RemoteContent.blockImagesKey) private var blockRemoteImages = false
     @AppStorage(PreviewEditingKey.enabled) private var previewEditing = true
+    @AppStorage(ViewZoom.key) private var zoomPercent = ViewZoom.actualSize
     private let renderSettings = RenderSettings.shared
 
     var body: some View {
@@ -606,6 +625,7 @@ struct PreviewPane: View {
             .onChange(of: flavor?.id, initial: true) { model.setFlavor(flavor) }
             .onChange(of: blockRemoteImages, initial: true) { model.reloadForPolicyChange() }
             .onChange(of: previewEditing, initial: true) { _, on in model.setEditing(enabled: on) }
+            .onChange(of: zoomPercent, initial: true) { _, percent in model.setZoom(percent: percent) }
             // Restarts with the document: the page stays, the text it renders is the active tab's.
             .task(id: ObjectIdentifier(document)) {
                 model.show(document: ObjectIdentifier(document), directory: documentURL?.deletingLastPathComponent(), flavor: flavor)
