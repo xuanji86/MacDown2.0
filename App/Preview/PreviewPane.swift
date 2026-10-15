@@ -147,6 +147,7 @@ final class PreviewModel {
     private func dropText() {
         clearEpoch += 1
         debounce?.cancel()
+        statsTask?.cancel()
         pending = nil
         lastMarkdown = nil
         editChain.reset()
@@ -190,6 +191,9 @@ final class PreviewModel {
     private var pageLoaded = false
     private var zoomPercent = ViewZoom.actualSize
     private var autoRender = true
+    /// The counts while the preview is paused (`scheduleStats`), and the renderer that makes them (created on first use).
+    private var statsTask: Task<Void, Never>?
+    private var statsRenderer: JSCRenderer?
     /// The Block remote images setting the current page was loaded with (it is part of the page's CSP); nil before the first load.
     private var loadedBlockingImages: Bool?
     /// Bumped by `clear()`: a render that started before it must not publish its metadata.
@@ -251,9 +255,35 @@ final class PreviewModel {
     func textChanged(_ markdown: String) {
         // With "Update preview automatically" off only a document's first text gets here (`renderNow` does the rest); `lastMarkdown` is then
         // the text the page shows, so every re-render for another reason (a setting, the style, the folder) keeps showing that text.
-        guard PreviewRefresh.rendersOnEdit(autoRender: autoRender, hasRendered: lastMarkdown != nil) else { return }
+        guard PreviewRefresh.rendersOnEdit(autoRender: autoRender, hasRendered: lastMarkdown != nil) else {
+            scheduleStats(markdown)  // the status bar's counts are the document's, not the page's
+            return
+        }
         // UTF-16 identity, not Swift's canonical `==`: a change from "é" to "e\u{301}" must reach the page, whose offsets are units.
         if !(lastMarkdown.map { markdown.isIdentical(to: $0) } ?? false) { schedule(markdown) }
+    }
+
+    /// With "Update preview automatically" off the page keeps its render, but the word and character counts in the status bar must follow
+    /// the text. They come from a render of it in a private JavaScriptCore context (`JSCRenderer`, the same renderer and options, so the
+    /// numbers are what the page would report), off the main thread, once the typing pauses; a newer text, a render or a document switch
+    /// drops the one in flight.
+    // lazy: a whole-document render per typing pause while paused; `TextStats(counting:)` is cheaper but counts the Markdown source, not the rendered text
+    private func scheduleStats(_ markdown: String) {
+        statsTask?.cancel()
+        let epoch = clearEpoch
+        statsTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(300))
+            guard !Task.isCancelled, let self else { return }
+            let resolved = options.rendering(as: flavor, markdown: markdown, readFile: QuartoIncludes.fileReader(directory: documentDirectory))
+            do {
+                let renderer = try statsRenderer ?? JSCRenderer()
+                statsRenderer = renderer
+                let stats = try await renderer.render(markdown, options: resolved).stats
+                guard !Task.isCancelled, epoch == clearEpoch, metadata != nil, metadata?.stats != stats else { return }
+                metadata?.stats = stats            } catch {
+                log.error("preview stats failed: \(String(describing: error), privacy: .public)")
+            }
+        }
     }
 
     /// Settings ▸ Rendering ▸ Update preview automatically. Turning it on catches up with the edits made while it was off.
@@ -268,6 +298,7 @@ final class PreviewModel {
     func renderNow(_ markdown: String) {
         lastMarkdown = markdown
         debounce?.cancel()
+        statsTask?.cancel()
         if !documentRoot.changedServedFiles().isEmpty {
             refreshChangedResources()
         } else {
@@ -280,6 +311,7 @@ final class PreviewModel {
     func schedule(_ markdown: String) {
         lastMarkdown = markdown
         debounce?.cancel()
+        statsTask?.cancel()  // this render brings its own counts
         let frame = Self.frameInterval
         debounce = Task { [weak self] in
             try? await Task.sleep(for: frame)
