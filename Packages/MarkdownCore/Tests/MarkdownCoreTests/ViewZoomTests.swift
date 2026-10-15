@@ -22,6 +22,28 @@ import Testing
     #expect(ViewZoom.zoomedOut(from: 105) == 100)
 }
 
+@Test func theEditorFontFollowsTheFactorAtEveryBaseSize() {
+    #expect(ViewZoom.editorFontSize(base: 14, percent: 100) == 14)
+    #expect(ViewZoom.editorFontSize(base: 14, percent: 50) == 7, "not stopped at the 8 pt Settings minimum")
+    #expect(ViewZoom.editorFontSize(base: 72, percent: 300) == 216, "Zoom In still works at the 72 pt Settings maximum")
+    #expect(ViewZoom.editorFontSize(base: 72, percent: 110) > 72)
+    #expect(ViewZoom.editorFontSize(base: 8, percent: 50) == 4, "Zoom Out still works at the 8 pt Settings minimum")
+    #expect(ViewZoom.editorFontSize(base: 8, percent: 67) < 8)
+}
+
+@Test func theConfiguredSizeIsClampedBeforeTheFactorAndTheResultStaysInRange() {
+    #expect(ViewZoom.editorFontSize(base: 500, percent: 100) == 72)
+    #expect(ViewZoom.editorFontSize(base: 500, percent: 300) == 216)
+    #expect(ViewZoom.editorFontSize(base: 1, percent: 100) == 8)
+    #expect(ViewZoom.editorFontSize(base: 1, percent: 50) == 4)
+    #expect(ViewZoom.editorFontSize(base: 14, percent: 5000) == 42, "an out-of-range level is clamped like everywhere else")
+    for base in [-5.0, 0, 8, 14, 72, 1000] {
+        for percent in [Int.min, 0, 50, 100, 300, Int.max] {
+            #expect(ViewZoom.effectiveFontSizes.contains(ViewZoom.editorFontSize(base: base, percent: percent)), "\(base) at \(percent)")
+        }
+    }
+}
+
 @Test func storedValuesOutsideTheRangeAreClamped() {
     for (stored, want) in [(0, 50), (-30, 50), (49, 50), (5000, 300), (Int.max, 300), (Int.min, 50), (120, 120)] {
         #expect(ViewZoom.clamped(stored) == want, "\(stored)")

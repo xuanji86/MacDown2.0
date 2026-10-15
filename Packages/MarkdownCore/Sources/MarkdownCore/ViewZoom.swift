@@ -21,6 +21,18 @@ public enum ViewZoom {
     public static func canZoomIn(from percent: Int) -> Bool { zoomedIn(from: percent) != clamped(percent) }
     public static func canZoomOut(from percent: Int) -> Bool { zoomedOut(from: percent) != clamped(percent) }
 
+    /// The configured editor font sizes (Settings > Editor): the base the level multiplies.
+    public static let baseFontSizes = 8.0...72.0
+    /// What the editor can lay out at any level (50 % of the smallest base, 300 % of the largest); `EditorTheme.withFont` holds to it.
+    public static let effectiveFontSizes = 4.0...216.0
+
+    /// The editor font size at `percent`: the configured size is clamped to what Settings allows first, then multiplied, so the
+    /// editor follows the same factor as the preview at every base size instead of stalling at the Settings limits.
+    public static func editorFontSize(base: Double, percent: Int) -> Double {
+        let size = min(max(base, baseFontSizes.lowerBound), baseFontSizes.upperBound) * factor(percent)
+        return min(max(size, effectiveFontSizes.lowerBound), effectiveFontSizes.upperBound)
+    }
+
     /// The multiplier for a font size or a page.
     public static func factor(_ percent: Int) -> Double { Double(clamped(percent)) / 100 }
 }

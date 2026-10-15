@@ -16,7 +16,7 @@ struct ThemeFontOverrideTests {
     }
 
     @Test func sizeIsClamped() {
-        #expect(EditorTheme.default.withFont(name: "", size: 2).font.pointSize == 8)
-        #expect(EditorTheme.default.withFont(name: "", size: 500).font.pointSize == 72)
+        #expect(EditorTheme.default.withFont(name: "", size: 2).font.pointSize == 4)
+        #expect(EditorTheme.default.withFont(name: "", size: 500).font.pointSize == 216)
     }
 }

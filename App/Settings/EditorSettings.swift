@@ -76,6 +76,6 @@ struct EditorSettings: DynamicProperty {
 
     /// The configured font at the View ▸ Zoom level (`ViewZoom`: a multiplier on the configured size).
     func apply(to theme: EditorTheme, zoomPercent: Int = ViewZoom.actualSize) -> EditorTheme {
-        theme.withFont(name: fontName, size: fontSize * ViewZoom.factor(zoomPercent))
+        theme.withFont(name: fontName, size: ViewZoom.editorFontSize(base: fontSize, percent: zoomPercent))
     }
 }
