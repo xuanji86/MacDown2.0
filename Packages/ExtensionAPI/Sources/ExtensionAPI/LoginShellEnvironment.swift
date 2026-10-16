@@ -27,18 +27,40 @@ public struct ToolEnvironmentSnapshot: Sendable, Equatable {
 
     /// First executable file called `name` on `PATH`; a `name` containing "/" is checked as it is. No shell is started.
     public func which(_ name: String) -> String? {
-        let fm = FileManager.default
-        func isTool(_ path: String) -> Bool {
-            var isDirectory: ObjCBool = false
-            return fm.fileExists(atPath: path, isDirectory: &isDirectory) && !isDirectory.boolValue && fm.isExecutableFile(atPath: path)
-        }
         guard !name.isEmpty else { return nil }
         if name.contains("/") {
             let expanded = (name as NSString).expandingTildeInPath
-            return isTool(expanded) ? expanded : nil
+            return Self.isTool(atPath: expanded) ? expanded : nil
         }
-        return path.lazy.map { ($0 as NSString).appendingPathComponent(name) }.first(where: isTool)
+        return path.lazy.map { ($0 as NSString).appendingPathComponent(name) }.first(where: Self.isTool(atPath:))
     }
+
+    /// `path` is an executable file (not a directory).
+    public static func isTool(atPath path: String) -> Bool {
+        let fm = FileManager.default
+        var isDirectory: ObjCBool = false
+        return fm.fileExists(atPath: path, isDirectory: &isDirectory) && !isDirectory.boolValue && fm.isExecutableFile(atPath: path)
+    }
+}
+
+/// A tool's dotted version number ("1.10.19"), as its `--version` prints it.
+public struct ToolVersion: Sendable, Equatable, ExpressibleByArrayLiteral, CustomStringConvertible {
+    public var parts: [Int]
+
+    public init(arrayLiteral parts: Int...) { self.parts = parts }
+
+    /// "1.10.19" → [1, 10, 19]: two or more whole numbers separated by dots and nothing else; nil otherwise.
+    public init?(_ text: some StringProtocol) {
+        let fields = text.split(separator: ".")
+        let numbers = fields.compactMap { Int($0) }
+        guard fields.count >= 2, numbers.count == fields.count else { return nil }
+        parts = numbers
+    }
+
+    /// Not older than `minimum` ([1, 4] counts as 1.4.0).
+    public func isAtLeast(_ minimum: ToolVersion) -> Bool { !parts.lexicographicallyPrecedes(minimum.parts) }
+
+    public var description: String { parts.map(String.init).joined(separator: ".") }
 }
 
 public enum ToolEnvironmentState: Sendable, Equatable {
@@ -68,6 +90,12 @@ extension ToolEnvironment {
 public actor LoginShellEnvironment: ToolEnvironment {
     /// Appended to `PATH` when the shell could not be read.
     public static let fallbackPathEntries = ["/opt/homebrew/bin", "/usr/local/bin", "~/.local/bin"]
+
+    /// A `fallbackPathEntries`-style entry with a leading `~/` put in `home`.
+    public static func expandHome(_ entry: String, home: String) -> String {
+        entry.hasPrefix("~/") ? home + entry.dropFirst(1) : entry
+    }
+
     /// Variables describing the shell session rather than the user's setup; dropped (and `TERM*` by prefix).
     static let droppedKeys: Set<String> = ["_", "SHLVL", "PWD", "OLDPWD"]
 
@@ -129,12 +157,6 @@ public actor LoginShellEnvironment: ToolEnvironment {
 
     // MARK: Reading the shell
 
-    private enum Outcome: Sendable {
-        case output(ProcessOutput)
-        case failed(String)
-        case timedOut
-    }
-
     private func capture() async -> ToolEnvironmentSnapshot {
         let clock = ContinuousClock()
         let start = clock.now
@@ -155,35 +177,19 @@ public actor LoginShellEnvironment: ToolEnvironment {
         let spawner = spawner, timeout = timeout, home = home
         let marker = "MD2ENV" + UUID().uuidString.replacingOccurrences(of: "-", with: "")
         let arguments = Self.shellArguments(shellName: shellName, marker: marker)
-        let outcome = await withTaskGroup(of: Outcome.self) { group in
-            group.addTask {
-                do {
-                    return .output(try await spawner.run(executable: shell, arguments: arguments, directory: home))
-                } catch {
-                    return .failed(error.localizedDescription)
-                }
-            }
-            group.addTask {
-                do { try await Task.sleep(for: timeout) } catch { return .failed("cancelled") }
-                return .timedOut
-            }
-            let first = await group.next() ?? .failed("no result")
-            group.cancelAll()  // kills the shell's process group when the timeout won
-            return first
-        }
-
-        switch outcome {
-        case .timedOut:
+        let output: ProcessOutput
+        do {
+            output = try await withTimeout(timeout) { try await spawner.run(executable: shell, arguments: arguments, directory: home) }
+        } catch is TimeoutError {
             return fallback("timed out after \(timeout.components.seconds) s")
-        case .failed(let reason):
-            return fallback(reason)
-        case .output(let output):
-            guard output.status == 0 else { return fallback("exit status \(output.status)") }
-            guard let dump = Self.extract(output.stdout, marker: marker) else { return fallback("no environment in the shell's output") }
-            let environment = Self.parse(dump)
-            guard environment["PATH"] != nil else { return fallback("no PATH in the shell's environment") }
-            return ToolEnvironmentSnapshot(environment: environment, source: .loginShell(path: shell), seconds: seconds())
+        } catch {
+            return fallback(error.localizedDescription)
         }
+        guard output.status == 0 else { return fallback("exit status \(output.status)") }
+        guard let dump = Self.extract(output.stdout, marker: marker) else { return fallback("no environment in the shell's output") }
+        let environment = Self.parse(dump)
+        guard environment["PATH"] != nil else { return fallback("no PATH in the shell's environment") }
+        return ToolEnvironmentSnapshot(environment: environment, source: .loginShell(path: shell), seconds: seconds())
     }
 
     /// zsh and bash read `.zshrc` / `.bashrc` (where most people put PATH, conda, nvm) only when interactive, hence `-i -l`
@@ -205,9 +211,8 @@ public actor LoginShellEnvironment: ToolEnvironment {
     private func fallbackEnvironment() -> [String: String] {
         var environment = processEnvironment
         var entries = (environment["PATH"] ?? "").split(separator: ":").map(String.init)
-        for extra in Self.fallbackPathEntries {
-            let expanded = extra.hasPrefix("~/") ? home + extra.dropFirst(1) : extra
-            if !entries.contains(expanded) { entries.append(expanded) }
+        for extra in Self.fallbackPathEntries.map({ Self.expandHome($0, home: home) }) where !entries.contains(extra) {
+            entries.append(extra)
         }
         environment["PATH"] = entries.joined(separator: ":")
         return environment

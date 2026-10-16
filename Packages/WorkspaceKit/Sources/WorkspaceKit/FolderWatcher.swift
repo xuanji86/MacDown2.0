@@ -66,19 +66,12 @@ public final class FolderWatcher: @unchecked Sendable {
         roots: [URL], ignore: IgnoreRules = .default, debounce: TimeInterval = 0.25, ignoreSelf: Bool = true, watchRoot: Bool,
         onBatch: @escaping @Sendable (Batch) -> Void
     ) {
-        self.roots = roots.map { Root(given: $0.fileKey, resolved: Self.realPath($0.fileKey)) }
+        self.roots = roots.map { Root(given: $0.fileKey, resolved: realPath($0.fileKey)) }
         self.ignore = ignore
         self.debounce = debounce
         self.ignoreSelf = ignoreSelf
         self.watchRoot = watchRoot
         self.onBatch = onBatch
-    }
-
-    /// `URL.resolvingSymlinksInPath` strips `/private` (it would turn the realpath back into `/var/...`), and FSEvents
-    /// reports the real one, so ask the C library.
-    static func realPath(_ path: String) -> String {
-        var buffer = [CChar](repeating: 0, count: Int(PATH_MAX))
-        return realpath(path, &buffer) != nil ? String(cString: buffer) : path
     }
 
     /// Returns false when the stream could not be created or started. Idempotent.
@@ -195,4 +188,12 @@ extension FolderWatcher.Event {
             mustRescan: has(kFSEventStreamEventFlagMustScanSubDirs) || has(kFSEventStreamEventFlagUserDropped) || has(kFSEventStreamEventFlagKernelDropped),
             rootChanged: has(kFSEventStreamEventFlagRootChanged))
     }
+}
+
+/// realpath(3): symlinks resolved, `/private` kept (what FSEvents and qmd report); the path itself when it does not exist.
+/// `URL.resolvingSymlinksInPath` would strip `/private` and turn the real path back into `/var/...`.
+public func realPath(_ path: String) -> String {
+    var buffer = [CChar](repeating: 0, count: Int(PATH_MAX))
+    guard realpath(path, &buffer) != nil else { return path }
+    return String(decoding: buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
 }

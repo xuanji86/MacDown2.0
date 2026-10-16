@@ -148,7 +148,7 @@ public enum FileOperations {
     /// `fileKey` of the symlink-free location (symlinks of the whole path resolved).
     private static func realKey(_ url: URL) -> String {
         let key = url.fileKey
-        let real = FolderWatcher.realPath(key)
+        let real = realPath(key)
         return real == key ? key : URL(fileURLWithPath: real).fileKey
     }
 }
