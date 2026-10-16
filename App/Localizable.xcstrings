@@ -281,6 +281,46 @@
         }
       }
     },
+    "Search by meaning: also finds documents that say the same thing in other words (Return in the field does the same)" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "按语义搜索：换了说法的文档也能找到（在搜索框里按回车效果相同）"
+          }
+        }
+      }
+    },
+    "Search stopped" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "搜索已停止"
+          }
+        }
+      }
+    },
+    "Searching by meaning…" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在按语义搜索…"
+          }
+        }
+      }
+    },
+    "Semantic Search" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "语义搜索"
+          }
+        }
+      }
+    },
     "Skipped theme files:" : {
       "localizations" : {
         "zh-Hans" : {
@@ -1321,6 +1361,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "正在启动…"
+          }
+        }
+      }
+    },
+    "Stop" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "停止"
+          }
+        }
+      }
+    },
+    "Stop Searching" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "停止搜索"
           }
         }
       }

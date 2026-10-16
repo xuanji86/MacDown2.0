@@ -10,6 +10,7 @@ final class ExtensionHostImpl: ExtensionHostProvider {
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored fileprivate let toolEnvironment: any ToolEnvironment
     private var flavorRegistrations: [(owner: ExtensionID, flavor: any DocumentFlavor)] = []
+    private var searchProviderRegistrations: [(owner: ExtensionID, provider: any SearchProvider)] = []
 
     init(defaults: UserDefaults, toolEnvironment: any ToolEnvironment) {
         self.defaults = defaults
@@ -19,14 +20,22 @@ final class ExtensionHostImpl: ExtensionHostProvider {
     /// Flavors of all currently active extensions, in registration order (consulted when a document is opened).
     var flavors: [any DocumentFlavor] { flavorRegistrations.map(\.flavor) }
 
+    /// Search sources of all currently active extensions (the search panel puts them before the built-in one).
+    var searchProviders: [any SearchProvider] { searchProviderRegistrations.map(\.provider) }
+
     func host(for id: ExtensionID) -> any ExtensionHost { ScopedHost(owner: id, backend: self) }
 
     func revokeRegistrations(of id: ExtensionID) {
         flavorRegistrations.removeAll { $0.owner == id }
+        searchProviderRegistrations.removeAll { $0.owner == id }
     }
 
     fileprivate func add(_ flavor: any DocumentFlavor, owner: ExtensionID) {
         flavorRegistrations.append((owner, flavor))
+    }
+
+    fileprivate func add(_ provider: any SearchProvider, owner: ExtensionID) {
+        searchProviderRegistrations.append((owner, provider))
     }
 
     @MainActor
@@ -43,5 +52,6 @@ final class ExtensionHostImpl: ExtensionHostProvider {
         }
 
         func register(flavor: any DocumentFlavor) { backend.add(flavor, owner: owner) }
+        func register(searchProvider: any SearchProvider) { backend.add(searchProvider, owner: owner) }
     }
 }

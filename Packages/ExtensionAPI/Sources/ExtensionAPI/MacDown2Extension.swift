@@ -37,11 +37,18 @@ extension MacDown2Extension {
 @MainActor
 public protocol ExtensionHost: AnyObject {
     func register(flavor: any DocumentFlavor)
+    /// Adds a source to the sidebar's search panel (PLAN 4.12); dropped with the other registrations on deactivate.
+    func register(searchProvider: any SearchProvider)
     /// Where external tools (quarto, qmd, python, R) are found and which environment they run in (PLAN 4.16). Lazy: the
     /// login shell is read on the first `snapshot()`, never by obtaining the host or by `init`/`activate`; read this only
     /// when a feature is actually used.
     var toolEnvironment: any ToolEnvironment { get }
     var settings: ExtensionSettingsStore { get }
+}
+
+extension ExtensionHost {
+    /// For hosts without a search panel (tests that only exercise flavors).
+    public func register(searchProvider: any SearchProvider) {}
 }
 
 /// A document flavor contributed by an extension. `id` and `renderChunks` must match `flavors.json`.

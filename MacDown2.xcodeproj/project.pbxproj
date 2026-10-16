@@ -24,6 +24,7 @@
 		A100000000000000000000B2 /* macdown2 in Embed Helpers */ = {isa = PBXBuildFile; fileRef = A100000000000000000000A1 /* macdown2 */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 		A100000000000000000000C3 /* PrintKit in Frameworks */ = {isa = PBXBuildFile; productRef = A100000000000000000000C1 /* PrintKit */; };
 		A100000000000000000000C4 /* PrintKit in Frameworks */ = {isa = PBXBuildFile; productRef = A100000000000000000000C2 /* PrintKit */; };
+		A100000000000000000000E0 /* QmdSearchExtension in Frameworks */ = {isa = PBXBuildFile; productRef = A100000000000000000000E1 /* QmdSearchExtension */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -139,6 +140,7 @@
 				A10000000000000000000098 /* WorkspaceKit in Frameworks */,
 				A100000000000000000000AF /* CLIKit in Frameworks */,
 				A100000000000000000000C3 /* PrintKit in Frameworks */,
+				A100000000000000000000E0 /* QmdSearchExtension in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -233,6 +235,7 @@
 				A10000000000000000000097 /* WorkspaceKit */,
 				A100000000000000000000B0 /* CLIKit */,
 				A100000000000000000000C1 /* PrintKit */,
+				A100000000000000000000E1 /* QmdSearchExtension */,
 			);
 			productName = MacDown2;
 			productReference = A10000000000000000000010 /* MacDown2.app */;
@@ -304,6 +307,7 @@
 				A10000000000000000000096 /* XCLocalSwiftPackageReference "Packages/WorkspaceKit" */,
 				A100000000000000000000AE /* XCLocalSwiftPackageReference "Packages/CLIKit" */,
 				A100000000000000000000C0 /* XCLocalSwiftPackageReference "Packages/PrintKit" */,
+				A100000000000000000000E2 /* XCLocalSwiftPackageReference "Packages/QmdSearchExtension" */,
 			);
 			productRefGroup = A10000000000000000000013 /* Products */;
 			projectDirPath = "";
@@ -629,6 +633,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/PrintKit;
 		};
+		A100000000000000000000E2 /* XCLocalSwiftPackageReference "Packages/QmdSearchExtension" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/QmdSearchExtension;
+		};
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCRemoteSwiftPackageReference section */
@@ -675,6 +683,10 @@
 		A1000000000000000000002A /* QuartoExtension */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = QuartoExtension;
+		};
+		A100000000000000000000E1 /* QmdSearchExtension */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = QmdSearchExtension;
 		};
 		A10000000000000000000097 /* WorkspaceKit */ = {
 			isa = XCSwiftPackageProductDependency;

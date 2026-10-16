@@ -1,0 +1,4 @@
+Collection: macdown2-ws-0badf00d
+  Path:     /private/tmp/md2-qmd-fixture/ws
+  Pattern:  **/*.{md,markdown,qmd}
+  Include:  no

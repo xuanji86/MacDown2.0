@@ -24,6 +24,7 @@ struct SearchPage: View {
         }
         .onAppear {
             focus = .field
+            search.prepareProviders()
             search.revalidate()
         }
         .onChange(of: search.focusTick) { focus = .field }
@@ -66,10 +67,17 @@ struct SearchPage: View {
         .accessibilityLabel("Search Results")
     }
 
-    /// Return in the field: the selected result, else the first one.
+    /// Return in the field: a semantic search when a provider can do one and the results are not one yet (PLAN 4.12); else
+    /// the selected result, else the first one.
     private func submit() {
         let search = model.search
-        if let hit = search.selectedHit ?? search.hits.first { open(hit, true) } else { search.start() }
+        if search.supportsSemantic, !search.isSemantic, !search.isRegex {
+            search.startSemantic()
+        } else if let hit = search.selectedHit ?? search.hits.first {
+            open(hit, true)
+        } else {
+            search.start()
+        }
     }
 }
 
@@ -104,6 +112,17 @@ private struct SearchField: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Clear Search")
+            }
+            if search.supportsSemantic {
+                Button { search.startSemantic() } label: {
+                    Image(systemName: "sparkles")
+                        .font(.system(size: 11))
+                        .foregroundStyle(search.isSemantic ? Color.accentColor : Color.secondary)
+                }
+                .buttonStyle(.plain)
+                .disabled(search.isRegex)
+                .help("Search by meaning: also finds documents that say the same thing in other words (Return in the field does the same)")
+                .accessibilityLabel("Semantic Search")
             }
             Button { search.isRegex.toggle() } label: {
                 Text(verbatim: ".*")
@@ -145,10 +164,18 @@ private struct SearchStatusLine: View {
                 HStack(spacing: 6) {
                     ProgressView().controlSize(.mini)
                     Text(searchingLine)
+                    if search.isSemantic {
+                        // Semantic searches can take many seconds (a model is loaded each time).
+                        Button("Stop") { search.stopSearching() }
+                            .controlSize(.mini)
+                            .accessibilityLabel("Stop Searching")
+                    }
                 }
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
-                .accessibilityElement(children: .combine)
+                .accessibilityElement(children: .contain)
+            case .cancelled:
+                line(String(localized: "Search stopped"))
             case .finished:
                 line(search.hitCount == 0
                     ? String(localized: "No matches")
@@ -162,6 +189,8 @@ private struct SearchStatusLine: View {
             if let limit = search.truncation {
                 line(SearchError.truncated(limit).errorDescription ?? "")
             }
+            // Why an extension's source did not answer (the built-in search did); its own words.
+            ForEach(search.notes, id: \.self) { note in line(note) }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 14)
@@ -169,7 +198,8 @@ private struct SearchStatusLine: View {
     }
 
     private var searchingLine: LocalizedStringKey {
-        search.hitCount == 0 ? "Searching…" : "Searching… \(search.hitCount) found so far"
+        if search.isSemantic { return "Searching by meaning…" }
+        return search.hitCount == 0 ? "Searching…" : "Searching… \(search.hitCount) found so far"
     }
 
     private func line(_ text: String) -> some View {

@@ -7,6 +7,19 @@ public struct SearchCapabilities: OptionSet, Sendable {
     public init(rawValue: Int) { self.rawValue = rawValue }
     public static let keyword = SearchCapabilities(rawValue: 1)
     public static let semantic = SearchCapabilities(rawValue: 2)
+    /// Takes `SearchQuery.isRegex` queries.
+    public static let regex = SearchCapabilities(rawValue: 4)
+}
+
+/// A right-click command a provider offers on a folder in the sidebar (qmd: stop indexing it).
+public struct SearchFolderAction: Sendable {
+    public var title: String
+    public var perform: @Sendable () async -> Void
+
+    public init(title: String, perform: @escaping @Sendable () async -> Void) {
+        self.title = title
+        self.perform = perform
+    }
 }
 
 public enum SearchReadiness: Sendable, Equatable {
@@ -28,12 +41,18 @@ public protocol SearchProvider: Sendable {
     /// Hits as they are found. Ends with a `SearchError` when the query is invalid or the results were cut short.
     func search(_ query: SearchQuery, in workspace: URL) -> AsyncThrowingStream<SearchHit, any Error>
     func cancelAll() async
+    /// Commands for `folder` in the sidebar's context menu. Called while the menu is built, so it must answer from memory.
+    func folderActions(for folder: URL) -> [SearchFolderAction]
+}
+
+extension SearchProvider {
+    public func folderActions(for folder: URL) -> [SearchFolderAction] { [] }
 }
 
 extension BuiltinSearchBackend: SearchProvider {
     public var id: String { Self.providerID }
     public var badge: String { L10n.builtinBadge }
-    public var capabilities: SearchCapabilities { .keyword }
+    public var capabilities: SearchCapabilities { [.keyword, .regex] }
     public func prepare(workspace: URL) async throws -> SearchReadiness { .ready }
     public func cancelAll() async { cancel() }
 }

@@ -1,6 +1,7 @@
 import ExtensionAPI
 import Foundation
 import MarkdownCore
+import QmdSearchExtension
 import QuartoExtension
 import SwiftUI
 import UniformTypeIdentifiers
@@ -8,8 +9,7 @@ import UniformTypeIdentifiers
 /// The one place built-in extensions are listed and wired up (core packages must never import them).
 @MainActor
 enum AppExtensions {
-    /// qmd search joins here from M2.
-    static let builtin: [any MacDown2Extension.Type] = [QuartoExtension.self]
+    static let builtin: [any MacDown2Extension.Type] = [QuartoExtension.self, QmdSearchExtension.self]
 
     /// Reads the login shell only when something calls `snapshot()`/`reread()`: extensions through their host, and the
     /// Settings ▸ General "re-read" button. Creating it (even at launch) starts nothing.
