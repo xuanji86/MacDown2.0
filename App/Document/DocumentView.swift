@@ -59,7 +59,6 @@ struct DocumentView: View {
             exportHTML: { [document, fileURL] in Task { await DocumentExport.html(of: document.text, fileURL: fileURL) } },
             exportPDF: { [document, fileURL] in Task { await DocumentExport.pdf(of: document.text, fileURL: fileURL) } },
             printDocument: { [document, fileURL] in Task { await DocumentExport.print(document.text, fileURL: fileURL) } },
-            showOutline: { model.showOutline() },
             renderPreview: { [document, preview] in preview.renderNow(document.text) },
             alternatePreview: alternateMode.flatMap { mode in
                 fileURL.map { url in

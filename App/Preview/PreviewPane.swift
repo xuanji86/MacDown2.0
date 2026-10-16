@@ -122,8 +122,6 @@ final class PreviewModel {
     /// Top visible source line after the user scrolled the preview (0-based, fractional). Throttled to one per frame
     /// inside the page. Not called for scrolls caused by `scroll(toLine:)`.
     var onVisibleLineChange: ((Double) -> Void)?
-    /// A render or script error inside the page (the old content stays on screen).
-    var onRenderError: ((String) -> Void)?
     /// The user clicked a task checkbox on the page and the page's token and render version check out: edit the source
     /// (`task` as the renderer saw it in `text`, the Markdown the page shows; `checked` the wanted state). Returns the document's new text
     /// when it made the edit, nil when it refused; the page is then told to take the checkbox back.
@@ -466,7 +464,6 @@ final class PreviewModel {
             onVisibleLineChange?(line)
         case .error(let stage, let text):
             log.error("preview \(stage, privacy: .public) error: \(text, privacy: .public)")
-            onRenderError?(text)
         case .toggleTask(let token, let task, let checked, let version):
             toggleTask(token: token, task: task, checked: checked, version: version)
         case .selection(let token, let version, let range):
