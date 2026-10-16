@@ -31,8 +31,7 @@ final class MarkdownDocument: NSDocument, ObservableObject {
     @Published var text = ""
     /// Text storages of closed windows that undo steps still point at (`EditorSession.close`).
     var detachedEditorBuffers: [AnyObject] = []
-    /// `isDocumentEdited` as a value views and the window's edited dot can follow.
-    @Published private(set) var isEdited = false
+    /// `isDocumentEdited` as a value views can follow.
     let editedFlag = EditedFlag()
     /// Encoding, line ending and BOM the file is saved back in; shown in the status bar.
     let format = DocumentFormat()
@@ -193,9 +192,10 @@ final class MarkdownDocument: NSDocument, ObservableObject {
         publishEdited()
     }
 
+    /// The edited dot of the windows showing this document (`WorkspaceRegistry.sync` attaches their controllers) follows too.
     private func publishEdited() {
-        isEdited = isDocumentEdited
         editedFlag.value = isDocumentEdited
+        for controller in windowControllers { controller.window?.isDocumentEdited = isDocumentEdited }
     }
 
     override var fileURL: URL? {

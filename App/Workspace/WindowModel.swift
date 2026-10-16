@@ -1,5 +1,4 @@
 import AppKit
-import Combine
 import Observation
 import SwiftUI
 import WorkspaceKit
@@ -37,7 +36,6 @@ final class WindowModel {
     // AppKit side, filled in once the window exists.
     @ObservationIgnored weak var window: NSWindow?
     @ObservationIgnored var windowController: NSWindowController?
-    @ObservationIgnored var editedSink: AnyCancellable?
     @ObservationIgnored var closeGuard: WindowCloseGuard?
     @ObservationIgnored var isRegistered = false
     /// True from creation until the first moments of the window have passed (see `WorkspaceView`).

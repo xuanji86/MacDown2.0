@@ -189,9 +189,8 @@ final class WorkspaceRegistry: DocumentBackend {
         }
         guard let window = model.window else { return }
         if let target {
-            model.editedSink = target.$isEdited.sink { [weak window] in window?.isDocumentEdited = $0 }
+            window.isDocumentEdited = target.isDocumentEdited
         } else {
-            model.editedSink = nil
             window.title = "MacDown2"
             window.representedURL = nil
             window.isDocumentEdited = false
@@ -275,7 +274,6 @@ final class WorkspaceRegistry: DocumentBackend {
         model.sidebar.shutdown()
         model.controller.detach()
         model.windowController = nil
-        model.editedSink = nil
         models[model.controller.id] = nil
         persist()
         #if DEBUG
