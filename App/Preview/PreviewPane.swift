@@ -742,7 +742,7 @@ struct PreviewPane: View {
     private let renderSettings = RenderSettings.shared
 
     var body: some View {
-        let mode = documentURL == nil ? nil : flavor?.alternatePreviewMode
+        let mode = AlternatePreviewState.mode(of: flavor, fileURL: documentURL)
         let alternate = document.alternatePreview
         let external = mode != nil && alternate.isActive
         WebView(model.page)
