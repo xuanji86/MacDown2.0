@@ -158,15 +158,14 @@ public final class FolderWatcher: @unchecked Sendable {
         for event in events {
             if event.rootChanged {
                 // Names the root, or an ancestor of it (then every root below that ancestor is affected).
-                let prefix = event.path == "/" ? "/" : event.path + "/"
-                for root in roots where root.resolved == event.path || root.resolved.hasPrefix(prefix) {
+                for root in roots where root.resolved.isPath(atOrUnder: event.path) {
                     out.directories.insert(root.given)
                     out.subtrees.insert(root.given)
                     out.rootChanged = true
                 }
                 continue
             }
-            guard let root = roots.first(where: { event.path == $0.resolved || event.path.hasPrefix($0.resolved == "/" ? "/" : $0.resolved + "/") })
+            guard let root = roots.first(where: { event.path.isPath(atOrUnder: $0.resolved) })
             else { continue }
             let tail = event.path.dropFirst(root.resolved.count)
             let parts = tail.split(separator: "/").map(String.init)[...]

@@ -190,8 +190,8 @@ public struct FileTreeModel: Sendable {
 
     /// The loaded directories at or below `directory` (a subtree that FSEvents says to scan again).
     public func loadedDirectories(under directory: URL) -> [URL] {
-        let key = directory.fileKey, prefix = key == "/" ? "/" : key + "/"
-        return listings.keys.filter { $0 == key || $0.hasPrefix(prefix) }.sorted().map { URL(fileURLWithPath: $0, isDirectory: true) }
+        let key = directory.fileKey
+        return listings.keys.filter { $0.isPath(atOrUnder: key) }.sorted().map { URL(fileURLWithPath: $0, isDirectory: true) }
     }
 
     /// Whether `apply(read)` would change anything: a refresh that finds the same listings should not make the views redraw.
@@ -207,10 +207,7 @@ public struct FileTreeModel: Sendable {
     /// Whether `url` is a root or inside one.
     public func isUnderRoot(_ url: URL) -> Bool {
         let key = url.fileKey
-        return roots.contains { root in
-            let r = root.fileKey
-            return key == r || key.hasPrefix(r == "/" ? "/" : r + "/")
-        }
+        return roots.contains { key.isPath(atOrUnder: $0.fileKey) }
     }
 
     /// Installs listings read elsewhere (`DirectoryListing.read`). A directory that is gone is dropped with everything
@@ -352,9 +349,8 @@ public struct FileTreeModel: Sendable {
 
     /// Forgets `key` and every cached listing / expansion state below it.
     private mutating func drop(_ key: String) {
-        let prefix = key == "/" ? "/" : key + "/"
-        listings = listings.filter { $0.key != key && !$0.key.hasPrefix(prefix) }
-        expanded = expanded.filter { $0 != key && !$0.hasPrefix(prefix) }
-        unreadable = unreadable.filter { $0 != key && !$0.hasPrefix(prefix) }
+        listings = listings.filter { !$0.key.isPath(atOrUnder: key) }
+        expanded = expanded.filter { !$0.isPath(atOrUnder: key) }
+        unreadable = unreadable.filter { !$0.isPath(atOrUnder: key) }
     }
 }
