@@ -16,6 +16,8 @@ struct WorkspaceView: View {
     @State private var titleGuard = HiddenTitleGuard()
     @State private var chrome = ToolbarStyleGuard()
     @AppStorage(ToolbarStyle.key) private var toolbarStyle = ToolbarStyle.default
+    @CurrentEditorTheme private var theme: EditorTheme
+    @Environment(\.colorScheme) private var systemScheme
 
     private var visibility: Binding<NavigationSplitViewVisibility> {
         Binding(
@@ -24,6 +26,12 @@ struct WorkspaceView: View {
             set: { if !model.isRestoring { model.userSetSidebar(visible: $0 != .detailOnly) } }
         )
     }
+
+    /// No tab is open (`EmptyWorkspaceView` is showing).
+    private var emptyStrip: Bool { model.controller.session.tabs.isEmpty }
+
+    /// The centred title sits on the editor theme's background while no tab is open, on the system's chrome otherwise.
+    private var titleScheme: ColorScheme { emptyStrip ? (theme.colorScheme ?? systemScheme) : systemScheme }
 
     private var title: String { model.activeDocument?.displayName ?? "MacDown2" }
 
@@ -45,6 +53,7 @@ struct WorkspaceView: View {
             .safeAreaBar(edge: .top, spacing: 0) {
                 if !model.controller.session.tabs.isEmpty { TabBar(model: model) }
             }
+            .modifier(EmptyStripChrome(active: emptyStrip, theme: theme))
             // Folders dropped on the window enter workspace mode; Markdown files open as tabs.
             .dropDestination(for: URL.self) { urls, _ in
                 model.sidebar.drop(urls)
@@ -57,7 +66,10 @@ struct WorkspaceView: View {
         // accessibility) and, in the Classic toolbar style, this one is drawn in its place. Minimal has no title text at all:
         // the tab strip carries the file name.
         .overlay(alignment: .top) {
-            if toolbarStyle == .classic { CenteredTitle(title: title, edited: model.activeDocument?.editedFlag.value ?? false) }
+            if toolbarStyle == .classic {
+                CenteredTitle(title: title, edited: model.activeDocument?.editedFlag.value ?? false)
+                    .environment(\.colorScheme, titleScheme)
+            }
         }
         .onChange(of: toolbarStyle, initial: true) { _, style in chrome.style = style }
         .background(WindowAccessor { window in
@@ -195,6 +207,31 @@ private struct CenteredTitle: View {
             .allowsHitTesting(false)
             .accessibilityHidden(true)
             .ignoresSafeArea(.container, edges: .top)
+    }
+}
+
+/// No tab: the empty view is the editor area, so the title bar strip over it is too (the sidebar column keeps its own translucent
+/// material). The colour scheme follows the theme, so the title and the toolbar glyphs stay legible on it. With tabs the strip is the
+/// system's, and the active tab grows out of it.
+private struct EmptyStripChrome: ViewModifier {
+    let active: Bool
+    let theme: EditorTheme
+
+    func body(content: Content) -> some View {
+        content
+            .toolbarBackgroundVisibility(active ? .hidden : .automatic, for: .windowToolbar)
+            .toolbarColorScheme(active ? theme.colorScheme : nil, for: .windowToolbar)
+    }
+}
+
+private extension EditorTheme {
+    /// The colour scheme chrome drawn on this theme's background needs (`chromeAppearance` for SwiftUI); nil = the system's (`auto`).
+    var colorScheme: ColorScheme? {
+        switch appearance {
+        case .light: .light
+        case .dark: .dark
+        case .auto: nil
+        }
     }
 }
 
