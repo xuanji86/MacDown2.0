@@ -32,3 +32,4 @@
 "Turn on the Quarto extension to preview callouts and cross-references" = "Turn on the Quarto extension to preview callouts and cross-references";
 "_quarto.yml, _extensions and .bib files are not read, and cross-reference numbers show as “?”." = "_quarto.yml, _extensions and .bib files are not read, and cross-reference numbers show as “?”.";
 "“%@ --version” failed (%@)." = "“%@ --version” failed (%@).";
+"“%@” is part of the Quarto project in %@. Quarto on this Mac will render the whole project: the code cells of every document in it, and the project’s filters and scripts, may run. Only do this for projects you trust." = "“%@” is part of the Quarto project in %@. Quarto on this Mac will render the whole project: the code cells of every document in it, and the project’s filters and scripts, may run. Only do this for projects you trust.";

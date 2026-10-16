@@ -32,3 +32,4 @@
 "Turn on the Quarto extension to preview callouts and cross-references" = "启用 Quarto 扩展以获得 callout / 交叉引用预览";
 "_quarto.yml, _extensions and .bib files are not read, and cross-reference numbers show as “?”." = "不读取 _quarto.yml、_extensions 或 .bib，交叉引用编号显示为“?”。";
 "“%@ --version” failed (%@)." = "“%1$@ --version” 运行失败（%2$@）。";
+"“%@” is part of the Quarto project in %@. Quarto on this Mac will render the whole project: the code cells of every document in it, and the project’s filters and scripts, may run. Only do this for projects you trust." = "“%1$@”属于 %2$@ 中的 Quarto 项目。本机 Quarto 将渲染整个项目：项目中每个文档的代码单元，以及项目的过滤器和脚本，都可能被执行。只对你信任的项目这样做。";

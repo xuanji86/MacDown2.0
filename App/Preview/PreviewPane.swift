@@ -586,9 +586,23 @@ final class PreviewModel {
                 bridgeToken = nil
                 pageLoaded = false
                 loading = nil
+                // The app's page goes at once: its checkboxes and editing would look as if they worked while nothing here takes them.
+                // A blank page until Quarto's is there (the bar says starting / failed).
+                if url == nil { show(URL(string: "about:blank")!) }
             }
             guard let url, url != externalURL else { return }
             externalURL = url
+            show(url)
+        } else {
+            guard externalActive else { return }
+            externalActive = false
+            externalURL = nil
+            documentRoot.externalOrigin = nil
+            let line = editorLine?()
+            Task { await reloadPage(line: line) }
+        }
+
+        func show(_ url: URL) {
             documentRoot.externalOrigin = url
             Task { [page] in
                 do {
@@ -597,13 +611,6 @@ final class PreviewModel {
                     log.error("quarto page load failed: \(String(describing: error), privacy: .public)")
                 }
             }
-        } else {
-            guard externalActive else { return }
-            externalActive = false
-            externalURL = nil
-            documentRoot.externalOrigin = nil
-            let line = editorLine?()
-            Task { await reloadPage(line: line) }
         }
     }
 

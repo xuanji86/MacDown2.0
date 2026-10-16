@@ -11,8 +11,11 @@ public protocol AlternatePreviewMode: AnyObject {
     var title: String { get }
     /// The menu item that switches it on and off ("Render with Quarto").
     var commandTitle: String { get }
-    /// What to ask before the first start in a document session (the tool will run the document's code); nil = do not ask.
-    var confirmation: AlternatePreviewConfirmation? { get }
+    /// What to ask before the first start in a document session for the document at `fileURL` (the tool will run its code, and
+    /// maybe more: a Quarto project renders as a whole); nil = do not ask.
+    func confirmation(for fileURL: URL) -> AlternatePreviewConfirmation?
+    /// The user agreed to `confirmation(for: fileURL)`.
+    func confirmed(for fileURL: URL)
     /// Looks for the tool (the first call probes; later ones may answer from what was found).
     func isAvailable() async -> AlternatePreviewAvailability
     /// The session for the document at `fileURL`, shared by every window that shows it; made on first ask, not started.

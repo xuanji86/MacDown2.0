@@ -70,8 +70,34 @@ public final class QuartoRealRender: AlternatePreviewMode {
     public var title: String { String(localized: L10n.resource("Quarto")) }
     public var commandTitle: String { L10n.commandTitle }
 
-    public var confirmation: AlternatePreviewConfirmation? {
-        asksEveryTime ? AlternatePreviewConfirmation(title: L10n.confirmTitle, message: L10n.confirmMessage, confirmButton: L10n.confirmButton) : nil
+    /// A document in a Quarto project: `quarto preview … --render html` renders the whole project, so the question names the project and
+    /// is asked once per project per app session even with "Ask before rendering" off. Any other document: the per-document question,
+    /// only with that setting on.
+    public func confirmation(for fileURL: URL) -> AlternatePreviewConfirmation? {
+        if let project = Self.projectRoot(of: fileURL), !confirmedProjects.contains(project.path) {
+            return AlternatePreviewConfirmation(
+                title: L10n.confirmTitle, message: L10n.confirmProjectMessage(fileURL.lastPathComponent, project.path), confirmButton: L10n.confirmButton)
+        }
+        return asksEveryTime ? AlternatePreviewConfirmation(title: L10n.confirmTitle, message: L10n.confirmMessage, confirmButton: L10n.confirmButton) : nil
+    }
+
+    public func confirmed(for fileURL: URL) {
+        if let project = Self.projectRoot(of: fileURL) { confirmedProjects.insert(project.path) }
+    }
+
+    /// Projects the user agreed to render in this app session.
+    @ObservationIgnored private var confirmedProjects: Set<String> = []
+
+    /// The folder of the Quarto project the document is in: the nearest ancestor with `_quarto.yml` / `_quarto.yaml`, as Quarto looks for it.
+    static func projectRoot(of fileURL: URL) -> URL? {
+        var folder = fileURL.standardizedFileURL.deletingLastPathComponent().path
+        while true {
+            for name in ["_quarto.yml", "_quarto.yaml"] where FileManager.default.fileExists(atPath: (folder as NSString).appendingPathComponent(name)) {
+                return URL(filePath: folder, directoryHint: .isDirectory)
+            }
+            guard folder != "/", !folder.isEmpty else { return nil }
+            folder = (folder as NSString).deletingLastPathComponent
+        }
     }
 
     /// A quarto that was found is remembered; one that was not is looked for again next time (it may have been installed since).

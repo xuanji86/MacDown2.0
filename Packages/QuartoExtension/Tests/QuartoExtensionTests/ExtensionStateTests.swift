@@ -125,7 +125,7 @@ private final class SpawnCounter: ProcessSpawner, @unchecked Sendable {
     // The real render is offered (its switch defaults to on) but nothing was looked for and nothing runs.
     let mode = try #require(provider.registered.first?.alternatePreviewMode as? QuartoRealRender)
     #expect(mode.lookup == nil && mode.runningSessions == 0)
-    #expect(mode.confirmation != nil)  // "ask before rendering" defaults to on
+    #expect(mode.confirmation(for: URL(filePath: "/nonexistent/doc.qmd")) != nil)  // "ask before rendering" defaults to on
     #expect(provider.spawner.spawns == 0)
     #expect(await provider.toolEnvironment.state() == .notNeeded)
 }

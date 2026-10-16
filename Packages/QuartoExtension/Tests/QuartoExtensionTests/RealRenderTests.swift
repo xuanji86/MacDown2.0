@@ -348,3 +348,32 @@ private func setUp(_ body: String) throws -> (root: URL, document: URL, quarto: 
     await Task.detached { QuartoChild.stopAllForQuit(grace: 0.3) { group.contains($0) } }.value
     #expect(await eventually { !group.contains(where: isAlive) })
 }
+
+// MARK: Consent
+
+/// Previewing a document of a Quarto project renders the whole project (other documents' code, the project's filters), so the question
+/// says so, and is asked once per project even with "Ask before rendering" off.
+@Test @MainActor func projectDocumentsAskAboutTheWholeProject() throws {
+    let root = try scratchDirectory()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let project = root.appending(path: "site"), chapter = project.appending(path: "chapters")
+    try FileManager.default.createDirectory(at: chapter, withIntermediateDirectories: true)
+    try "project:\n  type: website\n".write(to: project.appending(path: "_quarto.yaml"), atomically: true, encoding: .utf8)
+    let inside = chapter.appending(path: "one.qmd"), sibling = project.appending(path: "index.qmd"), outside = root.appending(path: "loose.qmd")
+    #expect(QuartoRealRender.projectRoot(of: inside)?.path == project.standardizedFileURL.path)
+    #expect(QuartoRealRender.projectRoot(of: outside) == nil)
+    #expect(QuartoRealRender.projectRoot(of: URL(filePath: "/doc.qmd")) == nil)  // the walk ends at /
+
+    let defaults = UserDefaults(suiteName: "test.\(UUID().uuidString)")!
+    defaults.set(false, forKey: "extension.quarto.askEveryTime")
+    let mode = QuartoRealRender(settings: ExtensionSettingsStore(defaults: defaults, extension: "quarto"), toolEnvironment: LoginShellEnvironment())
+    #expect(mode.confirmation(for: outside) == nil)  // asking turned off, no project
+    let ask = try #require(mode.confirmation(for: inside))  // asking turned off, but a project is more than this document
+    #expect(ask.message == L10n.confirmProjectMessage("one.qmd", project.standardizedFileURL.path))
+    mode.confirmed(for: inside)
+    #expect(mode.confirmation(for: sibling) == nil)  // that project is agreed to for this session
+
+    mode.asksEveryTime = true
+    #expect(mode.confirmation(for: sibling)?.message == L10n.confirmMessage)  // and with asking on, the per-document question again
+    #expect(mode.confirmation(for: outside)?.message == L10n.confirmMessage)
+}

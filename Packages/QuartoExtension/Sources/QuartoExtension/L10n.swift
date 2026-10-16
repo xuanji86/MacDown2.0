@@ -18,6 +18,9 @@ enum L10n {
     static var confirmMessage: String {
         String(localized: "Quarto on this Mac will run the code cells in this document, including ```{python} blocks and inline `{python} expr` and `r expr` code. Only do this for documents you trust.", bundle: .module)
     }
+    static func confirmProjectMessage(_ file: String, _ project: String) -> String {
+        String(localized: "“\(file)” is part of the Quarto project in \(project). Quarto on this Mac will render the whole project: the code cells of every document in it, and the project’s filters and scripts, may run. Only do this for projects you trust.", bundle: .module)
+    }
     static var confirmButton: String { String(localized: "Render", bundle: .module) }
     static var quartoNotFound: String {
         String(localized: "Quarto was not found. Install Quarto 1.4 or later from quarto.org, or set its path in Settings ▸ Extensions ▸ Quarto.", bundle: .module)

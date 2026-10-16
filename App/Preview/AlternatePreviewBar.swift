@@ -11,39 +11,46 @@ private let log = Logger(subsystem: "io.github.xuanji86.MacDown2", category: "al
 final class AlternatePreviewState {
     var session: (any AlternatePreviewSession)?
     var confirmed = false
+    /// The availability check and the question before a start; cancelled by `switchOff` (the document closed or moved meanwhile).
+    private var starting: Task<Void, Never>?
     /// An availability check or the confirmation is under way: a second click must not ask twice.
-    var switching = false
+    var switching: Bool { starting != nil }
 
     /// The real render is on (starting, showing, or failed with its banner up).
     var isActive: Bool { session?.status.isActive == true }
 
     /// The user switched the preview to `mode` (segmented control, menu item). Never called by anything else: nothing starts by itself.
     /// Looks for the tool first (an alert when it is missing), then asks before running the document's code, once per document session.
+    /// A `switchOff` while that is under way cancels it, and nothing is started after a cancel.
     func switchOn(_ mode: any AlternatePreviewMode, fileURL: URL, window: NSWindow?) {
-        guard !isActive, !switching else { return }
-        switching = true
-        Task {
-            defer { switching = false }
+        guard !isActive, starting == nil else { return }
+        starting = Task {
+            defer { if !Task.isCancelled { starting = nil } }  // a cancel has cleared it already (and a new start may be under way)
             let availability = await mode.isAvailable()
             log.info("real render: availability \(String(describing: availability), privacy: .public)")
+            guard !Task.isCancelled else { return }
             if case .unavailable(let reason) = availability {
                 await Self.alert(title: String(localized: "Real rendering is not available"), message: reason, button: nil, in: window)
                 return
             }
-            if !confirmed, let ask = mode.confirmation {
+            if !confirmed, let ask = mode.confirmation(for: fileURL) {
                 let go = await Self.alert(title: ask.title, message: ask.message, button: ask.confirmButton, in: window)
                 log.info("real render: confirmation answered \(go ? "render" : "cancel", privacy: .public)")
-                guard go else { return }
+                guard go, !Task.isCancelled else { return }
                 confirmed = true
+                mode.confirmed(for: fileURL)
             }
             let session = mode.session(for: fileURL)
             self.session = session
-            await session.start()
+            await session.start()  // a `switchOff` from here on stops the session itself
         }
     }
 
-    /// Back to the app's own preview: the tool is stopped at once (SIGTERM, SIGKILL after 3 s).
+    /// Back to the app's own preview: a start that is still asking is cancelled, a running tool is stopped at once (SIGTERM, SIGKILL
+    /// after 3 s). Also when the document closes or its file moves (the tool would go on with the old path).
     func switchOff() {
+        starting?.cancel()
+        starting = nil
         guard let session else { return }
         Task { await session.stop() }
     }
