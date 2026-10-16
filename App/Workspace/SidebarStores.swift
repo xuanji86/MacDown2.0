@@ -33,13 +33,16 @@ final class SidebarStores {
     }
 
     func refresh() {
-        favorites = favoritesStore.refresh()
-        recents = recentsStore.refresh().map(\.url)
+        refreshFavorites()
+        refreshRecents()
     }
+
+    private func refreshFavorites() { favorites = favoritesStore.refresh() }
+    private func refreshRecents() { recents = recentsStore.refresh().map(\.url) }
 
     func noteOpened(_ url: URL) {
         recentsStore.noteOpened(url)
-        recents = recentsStore.refresh().map(\.url)
+        refreshRecents()
     }
 
     func clearRecents() {
@@ -53,7 +56,7 @@ final class SidebarStores {
     @discardableResult
     func addFavorite(_ url: URL, at index: Int? = nil) -> Bool {
         guard favoritesStore.add(url) else { return false }
-        refresh()
+        refreshFavorites()
         if let index, let added = favorites.first(where: { $0.url.fileKey == url.fileKey }) { moveFavorite(added.id, to: index) }
         return true
     }
@@ -61,12 +64,12 @@ final class SidebarStores {
     func removeFavorite(_ url: URL) {
         guard let entry = favorites.first(where: { $0.url.fileKey == url.fileKey }) else { return }
         favoritesStore.remove(id: entry.id)
-        refresh()
+        refreshFavorites()
     }
 
     func moveFavorite(_ id: UUID, to index: Int) {
         favoritesStore.move(id: id, toIndex: index)
-        refresh()
+        refreshFavorites()
     }
 
     var favoritesAreFull: Bool { favoritesStore.count >= favoritesStore.capacity }
