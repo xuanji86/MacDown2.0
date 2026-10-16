@@ -13,13 +13,7 @@ public struct WorkspaceFolders: Equatable, Sendable {
     public var rootKeys: Set<String> { Set(roots.map(\.fileKey)) }
 
     /// "MyBook" for one root, "2 folders" for several (the chip's title).
-    public var title: String {
-        switch roots.count {
-        case 0: return ""
-        case 1: return roots[0].lastPathComponent
-        default: return L10n.folders(roots.count)
-        }
-    }
+    public var title: String { SearchScope.title(of: roots) }
 
     /// Enters workspace mode or adds a root. false when it is already one.
     @discardableResult
@@ -37,9 +31,6 @@ public struct WorkspaceFolders: Equatable, Sendable {
 
     /// Roots that still exist as folders (a relaunch after the folder was moved or deleted).
     public func existing(fileManager: FileManager = .default) -> WorkspaceFolders {
-        WorkspaceFolders(roots: roots.filter {
-            var isDirectory: ObjCBool = false
-            return fileManager.fileExists(atPath: $0.path, isDirectory: &isDirectory) && isDirectory.boolValue
-        })
+        WorkspaceFolders(roots: roots.filter { fileManager.isDirectory(atPath: $0.path) })
     }
 }

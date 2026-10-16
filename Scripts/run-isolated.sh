@@ -34,7 +34,8 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-APP="${MACDOWN2_APP:-$ROOT_DIR/build/DerivedData/Build/Products/Debug/MacDown2.app}"
+. "$ROOT_DIR/Scripts/lib.sh"
+APP="$(app_path)"
 STATE_DIR="${TMPDIR:-/tmp}/macdown2-isolated-state"
 SUITE_PREFIX="macdown2-iso-"
 TEMP_PREFIX="macdown2-isolated."
@@ -43,11 +44,8 @@ REAL_DOMAIN="io.github.xuanji86.MacDown2"
 die() { echo "run-isolated: $*" >&2; exit 1; }
 
 winids() {  # prints "<id> <w> <h>" lines for the pid; builds the CoreGraphics helper on first use
-  local tool="$ROOT_DIR/build/winid"
-  if [ ! -x "$tool" ] || [ "$ROOT_DIR/Scripts/winid.swift" -nt "$tool" ]; then
-    mkdir -p "$ROOT_DIR/build"
-    swiftc -O "$ROOT_DIR/Scripts/winid.swift" -o "$tool" >&2
-  fi
+  local tool
+  tool="$(swift_tool winid)" || return 1
   "$tool" "$1"
 }
 
@@ -93,10 +91,8 @@ stop() {
 
 if [ "${1:-}" = "--stop" ]; then stop "${2:-}"; exit 0; fi
 [ -d "$APP" ] || die "no app at $APP (run \`make app\`, or set MACDOWN2_APP)"
-# Only a Debug build honours the isolation variables; a Release bundle would ignore them and open the copies in the user's
-# real preferences domain. The Debug configuration marks its Info.plist (MACDOWN2_ISOLATION_SUPPORTED in the project).
-[ "$(/usr/libexec/PlistBuddy -c 'Print :MacDown2IsolationSupported' "$APP/Contents/Info.plist" 2>/dev/null || true)" = "YES" ] \
-  || die "$APP is not a Debug build with isolation support (Info.plist has no MacDown2IsolationSupported=YES); refusing to launch. Run \`make app\`."
+# A Release bundle would ignore the isolation variables and open the copies in the user's real preferences domain.
+require_isolation_build "$APP" "$APP is not a Debug build with isolation support (Info.plist has no MacDown2IsolationSupported=YES); refusing to launch. Run \`make app\`."
 
 suite="$SUITE_PREFIX$(uuidgen | tr 'A-Z' 'a-z')"
 root="$(mktemp -d "${TMPDIR:-/tmp}/${TEMP_PREFIX}XXXXXX")"
@@ -117,9 +113,10 @@ done
 
 before="$(app_pids)"
 extra=()
-for name in MACDOWN2_TEST_UNTITLED_TEXT MACDOWN2_TEST_TERMINATE_AFTER MACDOWN2_TEST_WINDOW_FRAME MACDOWN2_TEST_EDIT_TEXT MACDOWN2_TEST_EDIT_AFTER MACDOWN2_TEST_PROMPT_ANSWER MACDOWN2_TEST_PROMPT_DELAY MACDOWN2_TEST_OPEN_SETTINGS MACDOWN2_TEST_OPEN_SETTINGS_AFTER MACDOWN2_TEST_STATUS_BAR MACDOWN2_TEST_TOOL_ENV_REREAD MACDOWN2_TEST_SEARCH MACDOWN2_TEST_SEARCH_REGEX MACDOWN2_TEST_SEARCH_OPEN MACDOWN2_TEST_TOGGLE_TASK_LINE MACDOWN2_TEST_TOGGLE_TASK_DELAY MACDOWN2_TEST_TOGGLE_TASK_LAYOUT MACDOWN2_TEST_TOGGLE_TASK_UNDO MACDOWN2_TEST_TOGGLE_TASK_SAVE MACDOWN2_TEST_SHOW_OUTLINE MACDOWN2_TEST_CLOSE_ACTIVE_TAB MACDOWN2_TEST_CLOSE_WINDOW MACDOWN2_TEST_REOPEN MACDOWN2_TEST_NEW_WINDOW MACDOWN2_TEST_DUMP_MENUS MACDOWN2_TEST_ACTIVATE MACDOWN2_TEST_TOOLBAR_STYLE MACDOWN2_TEST_TOOLBAR_STYLE_FLIP MACDOWN2_TEST_DUMP_TOOLBAR MACDOWN2_TEST_TAB_RENAME MACDOWN2_TEST_TAB_RENAME_COMMIT MACDOWN2_TEST_TAB_RENAME_COMMIT_AFTER MACDOWN2_TEST_TAB_RENAME_TAGS MACDOWN2_TEST_TAB_RENAME_FOLDER MACDOWN2_TEST_PASTE MACDOWN2_TEST_PASTE_AFTER MACDOWN2_TEST_SCROLL_PAST_END MACDOWN2_TEST_SCROLL_TO_END MACDOWN2_TEST_EDITOR_THEME MACDOWN2_TEST_EDITOR_THEME_AFTER MACDOWN2_TEST_DUMP_EDITOR MACDOWN2_TEST_PREVIEW_EDIT MACDOWN2_TEST_PREVIEW_DELAY MACDOWN2_TEST_PREVIEW_TYPE MACDOWN2_TEST_PREVIEW_IME MACDOWN2_TEST_PREVIEW_BACKSPACE MACDOWN2_TEST_PREVIEW_UNDO MACDOWN2_TEST_PEER_SELECT MACDOWN2_TEST_PAGE_SELECT MACDOWN2_TEST_PREVIEW_AUTOCORRECT MACDOWN2_TEST_PREVIEW_IME_CANCEL MACDOWN2_TEST_PREVIEW_IME_OVER MACDOWN2_TEST_FOLLOW_CARET; do  # Debug-only drivers (App/IsolatedTestHooks.swift)
+# Every exported MACDOWN2_TEST_* is a Debug-only driver (App/IsolatedTestHooks.swift): forwarded as it is, so a new driver needs no change here.
+while IFS= read -r name; do
   [ -n "${!name:-}" ] && extra+=(--env "$name=${!name}")
-done
+done < <(compgen -e | grep '^MACDOWN2_TEST_' || true)
 # MACDOWN2_LANGUAGE=en|zh-Hans runs this instance in that language (the standard -AppleLanguages launch argument: it reaches this process
 # only, and writes nothing to any preferences domain).
 lang=()

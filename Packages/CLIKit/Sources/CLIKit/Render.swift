@@ -21,17 +21,15 @@ enum Render {
         let manifest: FlavorManifest
         do { manifest = try FlavorManifest.bundled() } catch { throw CLIError(ExitCode.software, "cannot read the flavor manifest: \(error)") }
         // lazy: a `.qmd` is the only flavored type, so the extension decides the type; upgrade = UTType(filenameExtension:) once more flavors exist.
-        let utType = input.pathExtension.lowercased() == "qmd" ? "org.quarto.qmd" : "net.daringfireball.markdown"
-        let (flavor, chunks) = manifest.resolve(utType: utType) { defaults?.object(forKey: $0) as? Bool ?? true }
-        options.flavor = flavor
-        options.renderChunks = chunks
+        let utType = input.pathExtension.lowercased() == "qmd" ? "org.quarto.qmd" : FlavorManifest.markdownUTType
+        let stylesheets = manifest.renderSetup(&options, utType: utType) { defaults?.object(forKey: $0) as? Bool ?? true }
+        let flavor = options.flavor
         // The renderer cannot read files: a Quarto document's `{{< include >}}` children are collected here, from the document's
         // folder only, with the same limits as in the app (QuartoIncludes: 64 files, 5 levels, no cycles, nothing outside the folder).
         // lazy: only Quarto includes files; upgrade = ask the flavor manifest, once a second flavor needs this.
         if flavor.rawValue == "quarto" {
             options.files = QuartoIncludes.files(for: file.text, readFile: QuartoIncludes.fileReader(directory: input.deletingLastPathComponent()))
         }
-        let stylesheets = manifest.entries[flavor]?.stylesheets ?? []
         options = options.forExport  // the output goes to a file or a pipe: no script, frames or event handlers from the document
 
         let result: RenderResult

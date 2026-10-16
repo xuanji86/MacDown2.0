@@ -46,3 +46,22 @@ private func isFile(_ r: DocumentFileResolver.Result) -> Bool { if case .file = 
     #expect(DocumentFileResolver.resolve(path: "/outdir/secret.txt", root: t.doc) == .forbidden)  // symlink dir pointing out
     #expect(DocumentFileResolver.resolve(path: "/../doc2/x", root: t.doc) == .forbidden)  // sibling sharing the name prefix
 }
+
+@Test func isInsideComparesWholePathComponents() {
+    func file(_ path: String) -> URL { URL(fileURLWithPath: path) }
+    let root = file("/a/b")
+    #expect(file("/a/b/c").isInside(root))
+    #expect(file("/a/b/c/d.md").isInside(root))
+    #expect(!file("/a/bc").isInside(root))  // shares the prefix, is not a child
+    #expect(!file("/a/bc/d").isInside(root))
+    #expect(!file("/a").isInside(root))
+    #expect(!file("/a/b").isInside(root))  // the root itself is not inside it...
+    #expect(file("/a/b").isInside(root, orSame: true))  // ...unless asked
+    #expect(!file("/a/bc").isInside(root, orSame: true))
+    // a trailing slash on the root changes nothing
+    #expect(file("/a/b/c").isInside(URL(fileURLWithPath: "/a/b/", isDirectory: true)))
+    #expect(!file("/a/bc").isInside(URL(fileURLWithPath: "/a/b/", isDirectory: true)))
+    // the filesystem root contains everything
+    #expect(file("/a").isInside(file("/")))
+    #expect(file("/a/b/c").isInside(file("/")))
+}

@@ -122,10 +122,14 @@ public final class MarkdownTextView: NSTextView {
     /// Observers of the text storage the view shows; they follow it when `attach(storage:)` swaps it.
     private var storageObservers: [NSObjectProtocol] = []
 
+    private func stopObservingStorage() {
+        storageObservers.forEach(NotificationCenter.default.removeObserver)
+        storageObservers = []
+    }
+
     private func observeStorage() {
         let center = NotificationCenter.default
-        storageObservers.forEach(center.removeObserver)
-        storageObservers = []
+        stopObservingStorage()
         guard let storage = textStorage else { return }
         // Undo and redo change the text without telling the delegate: NSTextView only sends `textDidChange` for typing and for an
         // explicit `didChangeText()` (observed on macOS 26/27 with TextKit 2). The model that mirrors the text, the preview and
@@ -230,13 +234,18 @@ public final class MarkdownTextView: NSTextView {
         insertionPointColor = theme.caret
         selectedTextAttributes = [.backgroundColor: theme.selection]
         applyStorageTheme()
-        gutter?.updateThickness()
-        gutter?.needsDisplay = true
+        refreshGutter()
         enclosingScrollView?.backgroundColor = theme.background
         // Chrome (scroll bars, find bar) follows the theme, not the system.
         appearance = theme.chromeAppearance
         enclosingScrollView?.appearance = appearance
         highlighter?.setTheme(theme)  // repaints later while marked text is in flight
+    }
+
+    /// The line-number column follows the text or the theme: measure it again and redraw.
+    private func refreshGutter() {
+        gutter?.updateThickness()
+        gutter?.needsDisplay = true
     }
 
     /// Set when a theme change had to leave the text storage alone because an input method was composing.
@@ -268,8 +277,7 @@ public final class MarkdownTextView: NSTextView {
     private func compositionDidEnd() {
         if themeNeedsStorage {
             applyStorageTheme()
-            gutter?.updateThickness()
-            gutter?.needsDisplay = true
+            refreshGutter()
         }
         highlighter?.compositionDidEnd()
     }
@@ -290,52 +298,36 @@ public final class MarkdownTextView: NSTextView {
     }
 
     public override func insertText(_ string: Any, replacementRange: NSRange) {
-        if !isApplyingEdit, replacementRange.location == NSNotFound, !hasMarkedText(), let typed = string as? String,
-           let storage = textStorage,
-           let edit = EditingAssistant.typed(typed, in: storage.mutableString, selection: selectedRange(), behavior: behavior) {
-            applyEdit(edit)
-            return
-        }
+        if !isApplyingEdit, replacementRange.location == NSNotFound, let typed = string as? String,
+           assist({ EditingAssistant.typed(typed, in: $0, selection: $1, behavior: behavior) }) { return }
         super.insertText(string, replacementRange: replacementRange)
         compositionDidEnd()
     }
 
     // MARK: Editing assistance (PLAN 4.3.4). All of it steps aside while an input method has marked text.
 
+    /// Applies the assistant's edit for a key and returns true; false = the system does what it always does (no edit, an input
+    /// method composing, no storage).
+    private func assist(_ edit: (_ text: NSString, _ selection: NSRange) -> TextEdit?) -> Bool {
+        guard !hasMarkedText(), let storage = textStorage, let edit = edit(storage.mutableString, selectedRange()) else { return false }
+        applyEdit(edit)
+        return true
+    }
+
     public override func insertNewline(_ sender: Any?) {
-        if !hasMarkedText(), let storage = textStorage,
-           let edit = EditingAssistant.newline(in: storage.mutableString, selection: selectedRange(), behavior: behavior) {
-            applyEdit(edit)
-        } else {
-            super.insertNewline(sender)
-        }
+        if !assist({ EditingAssistant.newline(in: $0, selection: $1, behavior: behavior) }) { super.insertNewline(sender) }
     }
 
     public override func insertTab(_ sender: Any?) {
-        if !hasMarkedText(), let storage = textStorage,
-           let edit = EditingAssistant.tab(in: storage.mutableString, selection: selectedRange(), behavior: behavior) {
-            applyEdit(edit)
-        } else {
-            super.insertTab(sender)
-        }
+        if !assist({ EditingAssistant.tab(in: $0, selection: $1, behavior: behavior) }) { super.insertTab(sender) }
     }
 
     public override func insertBacktab(_ sender: Any?) {
-        if !hasMarkedText(), let storage = textStorage,
-           let edit = EditingAssistant.backtab(in: storage.mutableString, selection: selectedRange(), behavior: behavior) {
-            applyEdit(edit)
-        } else {
-            super.insertBacktab(sender)
-        }
+        if !assist({ EditingAssistant.backtab(in: $0, selection: $1, behavior: behavior) }) { super.insertBacktab(sender) }
     }
 
     public override func deleteBackward(_ sender: Any?) {
-        if !hasMarkedText(), let storage = textStorage,
-           let edit = EditingAssistant.backspace(in: storage.mutableString, selection: selectedRange(), behavior: behavior) {
-            applyEdit(edit)
-        } else {
-            super.deleteBackward(sender)
-        }
+        if !assist({ EditingAssistant.backspace(in: $0, selection: $1, behavior: behavior) }) { super.deleteBackward(sender) }
     }
 
     /// Run a menu/toolbar formatting command on the current selection (undoable as one step). No-op while an input
@@ -506,18 +498,14 @@ public final class MarkdownTextView: NSTextView {
         let origin = enclosingScrollView?.contentView.bounds.origin
         string = text
         selectedRanges = selection.map { NSValue(range: ExternalTextSync.remap($0, from: old, to: text)) }
-        if let origin, let clip = enclosingScrollView?.contentView {
-            clip.scroll(to: origin)
-            enclosingScrollView?.reflectScrolledClipView(clip)
-        }
+        if let origin { enclosingScrollView?.scrollClip(to: origin) }
     }
 
     /// Keeps the marked text as typed (what AppKit does when focus leaves the view) and announces the change like any other
     /// edit, so the model and the undo history follow. Call before something swaps the view's text under a composition.
     public func commitComposition() {
         guard hasMarkedText() else { return }
-        inputContext?.discardMarkedText()
-        unmarkText()
+        endComposition()
         didChangeText()
     }
 
@@ -590,16 +578,12 @@ public final class MarkdownTextView: NSTextView {
         if let scrollView = enclosingScrollView {
             let clip = scrollView.contentView
             let top = clip.constrainBoundsRect(NSRect(origin: NSPoint(x: clip.bounds.origin.x, y: 0), size: clip.bounds.size)).origin
-            if clip.bounds.origin != top {
-                clip.scroll(to: top)
-                scrollView.reflectScrolledClipView(clip)
-            }
+            if clip.bounds.origin != top { scrollView.scrollClip(to: top) }
             scrollRangeToVisible(NSRange(location: 0, length: 0))
         }
         observeStorage()
         installHighlighter()
-        gutter?.updateThickness()
-        gutter?.needsDisplay = true
+        refreshGutter()
         needsDisplay = true
         NSAccessibility.post(element: self, notification: .valueChanged)  // VoiceOver reads the new text, not the one it had
     }
@@ -610,8 +594,7 @@ public final class MarkdownTextView: NSTextView {
         guard let layout = textLayoutManager, let content = textContentStorage else { return }
         leaveStorage()
         replaceStorage(with: NSTextStorage(), in: content, layout: layout)
-        storageObservers.forEach(NotificationCenter.default.removeObserver)
-        storageObservers = []
+        stopObservingStorage()
     }
 
     /// What belongs to the text on screen and must not carry over to the next one.
@@ -729,23 +712,13 @@ public final class MarkdownTextView: NSTextView {
         let target = frame.minY + progress * frame.height + textContainerOrigin.y
         // The clip view knows the limits (document, content insets, scroll past end).
         let wanted = NSRect(origin: NSPoint(x: clip.bounds.origin.x, y: max(target, 0)), size: clip.bounds.size)
-        clip.scroll(to: clip.constrainBoundsRect(wanted).origin)
-        scrollView.reflectScrolledClipView(clip)
+        scrollView.scrollClip(to: clip.constrainBoundsRect(wanted).origin)
     }
 
     // lazy: both scan from the start per call (memchr-speed, <1 ms at 1 MB); cache a line-start table if scroll sync shows up in a profile
     func lineIndex(atOffset offset: Int) -> Int {
         let text = textStorage?.mutableString ?? NSMutableString()
-        var count = 0, i = 0
-        var buffer = [unichar](repeating: 0, count: 4096)
-        let end = min(offset, text.length)
-        while i < end {
-            let n = min(buffer.count, end - i)
-            text.getCharacters(&buffer, range: NSRange(location: i, length: n))
-            for k in 0..<n where buffer[k] == 0x0A { count += 1 }
-            i += n
-        }
-        return count
+        return text.newlines(in: NSRange(location: 0, length: max(0, min(offset, text.length)))).count
     }
 
     func offsetOfLine(_ line: Int) -> Int {
@@ -764,6 +737,14 @@ public final class MarkdownTextView: NSTextView {
             i += n
         }
         return lastStart  // fewer lines than asked for: the last line
+    }
+}
+
+extension NSScrollView {
+    /// Scrolls the content view to `origin` (no animation) and lets the scroll view's scrollers and rulers follow.
+    func scrollClip(to origin: NSPoint) {
+        contentView.scroll(to: origin)
+        reflectScrolledClipView(contentView)
     }
 }
 

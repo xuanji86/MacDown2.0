@@ -18,7 +18,7 @@ final class PreviewProvider: QLPreviewProvider, QLPreviewingController {
         defer { try? handle.close() }
         let data = try handle.read(upToCount: QuickLookPage.maxBytes + 1) ?? Data()
 
-        let utType = (try? request.fileURL.resourceValues(forKeys: [.contentTypeKey]).contentType?.identifier) ?? "net.daringfireball.markdown"
+        let utType = (try? request.fileURL.resourceValues(forKeys: [.contentTypeKey]).contentType?.identifier) ?? FlavorManifest.markdownUTType
 
         // Per request on purpose: a fresh context costs ~one bundle evaluation, and nothing leaks between previews.
         let renderer = try JSCRenderer()
