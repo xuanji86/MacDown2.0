@@ -51,19 +51,13 @@ public struct QuickLookPage: Sendable {
         options.allowRawHTML = false  // whatever the app's setting says: the host runs scripts (see above)
         options.headingAnchors = true
         options.sourceLines = false
-        var styleSheets: [String] = []
-        if let manifest {
-            let (flavor, chunks) = manifest.resolve(utType: utType, isEnabled: isEnabled)
-            options.flavor = flavor
-            options.renderChunks = chunks
-            styleSheets = manifest.entries[flavor]?.stylesheets ?? []
-        }
+        let styleSheets = manifest?.renderSetup(&options, utType: utType, isEnabled: isEnabled) ?? []
         let result = try await renderer.render(source, options: options)
         var body = result.html
         var attachments: [Attachment] = []
         var loaded: [String: String?] = [:]  // path -> cid (nil = refused), so a repeated image is read once
         var imageBytes = 0
-        body = replacing(#"<img\b[^>]*>"#, in: body) { m in
+        body = imgTag.replacingMatches(in: body) { m in
             let src = Self.attribute("src", in: m[0]) ?? "", alt = Self.attribute("alt", in: m[0]) ?? ""
             if src.hasPrefix("data:") { return m[0] }  // inline bytes, nothing to fetch
             if let path = HTMLExporter.relativePath(of: src), let directory = documentDirectory {
@@ -83,19 +77,16 @@ public struct QuickLookPage: Sendable {
         }
         body = neutralizeLinks(removeNetworkReferences(body))
 
-        let style = PreviewStyles.resolve(
-            id: defaults?.string(forKey: PreviewStyles.styleKey) ?? PreviewStyles.defaultID,
-            followSystem: defaults?.bool(forKey: PreviewStyles.followsSystemKey) ?? false
-        )
+        let style = PreviewStyles.resolve(defaults: defaults)
         var css = [HTMLExporter.styleCSS(style)]
-        css += styleSheets.map(asset)
+        css += styleSheets.map(HTMLExporter.asset)
         css.append(Self.noteCSS)
         if body.contains("katex") {
             let fonts = (try? FileManager.default.contentsOfDirectory(at: WebAssets.url("katex/fonts")!, includingPropertiesForKeys: nil)) ?? []
             attachments += fonts.filter { $0.pathExtension == "woff2" }.compactMap { url in
                 (try? Data(contentsOf: url)).map { Attachment(id: url.deletingPathExtension().lastPathComponent, data: $0, fileExtension: "woff2") }
             }
-            css.append(replacing(#"url\(fonts/([^)]+)\.woff2\)"#, in: asset("katex/katex.min.css")) { "url(cid:\($0[1]))" })
+            css.append(HTMLExporter.katexCSS { "cid:\($0)" })
         }
 
         let banner = truncated ? #"<p class="md2-ql-note md2-ql-truncated">\#(Strings.truncated)</p>"# : ""
@@ -115,10 +106,20 @@ public struct QuickLookPage: Sendable {
 
     /// The value of a double-quoted attribute in one tag, still HTML-escaped as the renderer wrote it.
     private static func attribute(_ name: String, in tag: String) -> String? {
-        guard let regex = try? NSRegularExpression(pattern: #"\s\#(name)\s*=\s*"([^"]*)""#, options: .caseInsensitive),
-              let match = regex.firstMatch(in: tag, range: NSRange(location: 0, length: (tag as NSString).length)) else { return nil }
+        guard let match = attributePatterns[name]?.firstMatch(in: tag, range: NSRange(location: 0, length: (tag as NSString).length)) else { return nil }
         return (tag as NSString).substring(with: match.range(at: 1))
     }
+
+    // The page's patterns, compiled once (the tags and attributes of a whole document go through them).
+    private static let attributePatterns = Dictionary(uniqueKeysWithValues: ["src", "alt", "href"].map {
+        ($0, try! NSRegularExpression(pattern: #"\s\#($0)\s*=\s*"([^"]*)""#, options: .caseInsensitive))
+    })
+    private static let imgTag = try! NSRegularExpression(pattern: #"<img\b[^>]*>"#)
+    private static let anyTag = try! NSRegularExpression(pattern: #"<[A-Za-z][^>]*>"#)
+    private static let sourceOrLinkTag = try! NSRegularExpression(pattern: #"^<(?:source|link)\b"#, options: .caseInsensitive)
+    private static let tagAttribute = try! NSRegularExpression(pattern: #"\s+([^\s=/>"']+)(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+))?"#)
+    private static let anchorTag = try! NSRegularExpression(pattern: #"<a\b[^>]*>|</a\s*>"#)
+    private static let liveLink = try! NSRegularExpression(pattern: #"^(?:https?://[^/?#\s]|mailto:)"#, options: .caseInsensitive)
 
     /// Drops what could make the host fetch something: `srcset` and `poster` attributes, `<source>`/`<link>` tags, and `style`
     /// attributes that could hold a CSS `url()`. The renderer escapes raw HTML, so none of these should be here; this is the
@@ -128,10 +129,10 @@ public struct QuickLookPage: Sendable {
     /// Only real tags are touched: text and code never contain a literal `<` (the renderer escapes it), so `<…>` is exactly
     /// a tag, and inside one the attributes are walked one by one, so a quoted value (`alt="use srcset=x"`) is not rescanned.
     static func removeNetworkReferences(_ html: String) -> String {
-        replacing(#"<[A-Za-z][^>]*>"#, in: html) { tag in
+        anyTag.replacingMatches(in: html) { tag in
             let tag = tag[0]
-            if tag.range(of: #"^<(?:source|link)\b"#, options: [.regularExpression, .caseInsensitive]) != nil { return "" }
-            return replacing(#"\s+([^\s=/>"']+)(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+))?"#, in: tag) { attribute in
+            if sourceOrLinkTag.firstMatch(in: tag, range: NSRange(location: 0, length: (tag as NSString).length)) != nil { return "" }
+            return tagAttribute.replacingMatches(in: tag) { attribute in
                 let name = attribute[1].lowercased()
                 if name == "srcset" || name == "poster" { return "" }
                 guard name == "style" else { return attribute[0] }
@@ -147,10 +148,10 @@ public struct QuickLookPage: Sendable {
     /// entity-encoded or whitespace-padded scheme does not match and is neutralised too.
     static func neutralizeLinks(_ html: String) -> String {
         var neutralized = false  // anchors do not nest, so one flag pairs each `</a>` with its opening tag
-        return replacing(#"<a\b[^>]*>|</a\s*>"#, in: html) { m in
+        return anchorTag.replacingMatches(in: html) { m in
             if m[0].hasPrefix("</") { defer { neutralized = false }; return neutralized ? "</span>" : m[0] }
             guard let href = attribute("href", in: m[0]) else { neutralized = false; return m[0] }  // `<a name>`: nothing to follow
-            let allowed = href.hasPrefix("#") || href.range(of: #"^(?:https?://[^/?#\s]|mailto:)"#, options: [.regularExpression, .caseInsensitive]) != nil
+            let allowed = href.hasPrefix("#") || liveLink.firstMatch(in: href, range: NSRange(location: 0, length: (href as NSString).length)) != nil
             neutralized = !allowed
             return allowed ? m[0] : "<span>"
         }
@@ -175,11 +176,7 @@ public struct QuickLookPage: Sendable {
 
     /// What the page may be drawn in: a dark style or a light/dark pair needs the host to allow dark.
     private static func colorScheme(_ style: (light: String, dark: String?)) -> String {
-        style.dark != nil || PreviewStyles.all.first { $0.id == style.light }?.appearance == "dark" ? "light dark" : "light"
-    }
-
-    private static func asset(_ name: String) -> String {
-        WebAssets.url(name).flatMap { try? String(contentsOf: $0, encoding: .utf8) } ?? ""
+        style.dark != nil || PreviewStyles.style(id: style.light).appearance == "dark" ? "light dark" : "light"
     }
 
     /// UTF-8 (a UTF-16 byte-order mark switches to UTF-16). When the file is longer than `maxBytes` the text is cut at the
@@ -201,20 +198,6 @@ public struct QuickLookPage: Sendable {
            let text = String(data: Data(bytes), encoding: .utf16) { return (text, truncated) }
         let text = String(decoding: bytes, as: UTF8.self)
         return (text.hasPrefix("\u{FEFF}") ? String(text.dropFirst()) : text, truncated)
-    }
-
-    /// Regex replace; the closure gets the match and its capture groups (`[0]` is the whole match).
-    private static func replacing(_ pattern: String, in text: String, with transform: ([String]) -> String) -> String {
-        guard let regex = try? NSRegularExpression(pattern: pattern) else { return text }
-        let ns = text as NSString
-        var out = ""
-        var last = 0
-        for match in regex.matches(in: text, range: NSRange(location: 0, length: ns.length)) {
-            out += ns.substring(with: NSRange(location: last, length: match.range.location - last))
-            out += transform((0..<match.numberOfRanges).map { match.range(at: $0).location == NSNotFound ? "" : ns.substring(with: match.range(at: $0)) })
-            last = match.range.location + match.range.length
-        }
-        return out + ns.substring(from: last)
     }
 
     private enum Strings {

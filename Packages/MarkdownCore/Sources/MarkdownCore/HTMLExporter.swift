@@ -24,7 +24,7 @@ public enum HTMLExporter {
     ) -> String {
         var body = body
         if let inlineImages { body = inlineRelativeImages(in: body, source: inlineImages) }
-        let math = body.contains(#"class="katex"#) ? "<style>\(katexCSS())</style>\n" : ""
+        let math = body.contains(#"class="katex"#) ? "<style>\(katexCSS(fontURL: Self.fontDataURL))</style>\n" : ""
         // print.css (paper rules: no desk colour, wrapping code, page breaks) comes after everything that is the document's own
         // look, and the user's stylesheet after that.
         let extra = (stylesheets + ["print.css"]).map { "<style>\(asset($0))</style>\n" }.joined()
@@ -61,12 +61,8 @@ public enum HTMLExporter {
         body: String, title: String, defaults: UserDefaults?, inlineImages: ImageSource? = nil, flavor: String = "markdown",
         stylesheets: [String] = [], userCSS: String? = nil
     ) -> String {
-        let style = PreviewStyles.resolve(
-            id: defaults?.string(forKey: PreviewStyles.styleKey) ?? PreviewStyles.defaultID,
-            followSystem: defaults?.bool(forKey: PreviewStyles.followsSystemKey) ?? false
-        )
         return document(
-            body: body, title: title, style: style, inlineImages: inlineImages, flavor: flavor, stylesheets: stylesheets,
+            body: body, title: title, style: PreviewStyles.resolve(defaults: defaults), inlineImages: inlineImages, flavor: flavor, stylesheets: stylesheets,
             blockRemoteImages: defaults.map(RemoteContent.blocksImages(in:)) ?? false, userCSS: userCSS
         )
     }
@@ -82,40 +78,33 @@ public enum HTMLExporter {
     /// gets the light member (the dark styles keep light text, which would vanish on a white sheet once the print
     /// rules drop the background).
     static func styleCSS(_ style: (light: String, dark: String?)) -> String {
-        let chosen = PreviewStyles.all.first { $0.id == style.light }
-        if style.dark == nil, chosen?.appearance != "dark" { return css(style.light) }
+        let chosen = PreviewStyles.style(id: style.light)
+        if style.dark == nil, chosen.appearance != "dark" { return css(style.light) }
         let screen = style.dark.map { "@media (prefers-color-scheme: light){\(css(style.light))}@media (prefers-color-scheme: dark){\(css($0))}" } ?? css(style.light)
-        let printID = chosen?.appearance == "dark" ? (chosen?.pair ?? style.light) : style.light
+        let printID = chosen.appearance == "dark" ? (chosen.pair ?? style.light) : style.light
         return "@media screen{\(screen)}@media print{\(css(printID))}"
     }
 
     /// The highlight.js theme the style names, then the style itself.
     private static func css(_ id: String) -> String {
-        let style = PreviewStyles.all.first { $0.id == id } ?? PreviewStyles.all.first { $0.id == PreviewStyles.defaultID }!
+        let style = PreviewStyles.style(id: id)
         return asset("hljs-themes/\(style.hljs).css") + asset("preview-styles/\(style.id).css")
     }
 
-    /// KaTeX CSS with its fonts as data URIs: one file, no `fonts/` folder to lose. Costs ~350 kB, so only when the
-    /// document has math.
-    private static func katexCSS() -> String {
-        let css = asset("katex/katex.min.css")
-        guard let fonts = try? NSRegularExpression(pattern: #"url\(fonts/([^)]+\.woff2)\)"#) else { return css }
-        var out = ""
-        var last = css.startIndex
-        for match in fonts.matches(in: css, range: NSRange(css.startIndex..., in: css)) {
-            let whole = Range(match.range, in: css)!, name = String(css[Range(match.range(at: 1), in: css)!])
-            out += css[last..<whole.lowerBound]
-            if let url = WebAssets.url("katex/fonts/\(name)"), let data = try? Data(contentsOf: url) {
-                out += "url(data:font/woff2;base64,\(data.base64EncodedString()))"
-            } else {
-                out += css[whole]
-            }
-            last = whole.upperBound
-        }
-        return out + css[last...]
+    /// KaTeX's CSS with each `url(fonts/<name>.woff2)` replaced by what `fontURL` returns for `<name>` (nil keeps the reference).
+    /// Here the fonts become data URIs (one file, no `fonts/` folder to lose; ~350 kB, so only when the document has math); Quick
+    /// Look points them at its attachments.
+    static func katexCSS(fontURL: (_ name: String) -> String?) -> String {
+        fontReference.replacingMatches(in: asset("katex/katex.min.css")) { m in fontURL(m[1]).map { "url(\($0))" } ?? m[0] }
     }
 
-    private static func asset(_ name: String) -> String {
+    private static let fontReference = try! NSRegularExpression(pattern: #"url\(fonts/([^)]+)\.woff2\)"#)
+
+    private static func fontDataURL(_ name: String) -> String? {
+        WebAssets.url("katex/fonts/\(name).woff2").flatMap { try? Data(contentsOf: $0) }.map { "data:font/woff2;base64,\($0.base64EncodedString())" }
+    }
+
+    static func asset(_ name: String) -> String {
         WebAssets.url(name).flatMap { try? String(contentsOf: $0, encoding: .utf8) } ?? ""
     }
 
@@ -136,21 +125,10 @@ public enum HTMLExporter {
     private static let imgSrc = try! NSRegularExpression(pattern: #"(<img\b[^>]*?\bsrc=)(["'])(.*?)\2"#, options: [.dotMatchesLineSeparators])
 
     static func inlineRelativeImages(in html: String, source: ImageSource) -> String {
-        var out = ""
-        var last = html.startIndex
-        for match in imgSrc.matches(in: html, range: NSRange(html.startIndex..., in: html)) {
-            let whole = Range(match.range, in: html)!
-            let src = String(html[Range(match.range(at: 3), in: html)!])
-            out += html[last..<whole.lowerBound]
-            if let path = relativePath(of: src), let image = source(path) {
-                let prefix = html[Range(match.range(at: 1), in: html)!], quote = html[Range(match.range(at: 2), in: html)!]
-                out += "\(prefix)\(quote)data:\(image.mime);base64,\(image.data.base64EncodedString())\(quote)"
-            } else {
-                out += html[whole]
-            }
-            last = whole.upperBound
+        imgSrc.replacingMatches(in: html) { m in
+            guard let path = relativePath(of: m[3]), let image = source(path) else { return m[0] }
+            return "\(m[1])\(m[2])data:\(image.mime);base64,\(image.data.base64EncodedString())\(m[2])"
         }
-        return out + html[last...]
     }
 
     /// `src` as an attribute value → the file path it names next to the document; nil for absolute URLs (any scheme),

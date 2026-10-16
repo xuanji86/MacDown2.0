@@ -38,8 +38,18 @@ public enum PreviewStyles {
     /// chosen style has a partner; then both members of the pair, ordered by appearance, and the page switches by itself with
     /// `prefers-color-scheme`. An unknown id falls back to the default style.
     public static func resolve(id: String, followSystem: Bool) -> (light: String, dark: String?) {
-        let chosen = all.first { $0.id == id } ?? all.first { $0.id == defaultID }!
+        let chosen = style(id: id)
         guard followSystem, let partner = all.first(where: { $0.id == chosen.pair }) else { return (chosen.id, nil) }
         return chosen.appearance == "dark" ? (partner.id, chosen.id) : (chosen.id, partner.id)
+    }
+
+    /// The same, from the app's preferences (the keys above; nil or absent keys = the default style, fixed).
+    public static func resolve(defaults: UserDefaults?) -> (light: String, dark: String?) {
+        resolve(id: defaults?.string(forKey: styleKey) ?? defaultID, followSystem: defaults?.bool(forKey: followsSystemKey) ?? false)
+    }
+
+    /// The style with this id; an unknown id is the default style.
+    public static func style(id: String) -> PreviewStyle {
+        all.first { $0.id == id } ?? all.first { $0.id == defaultID }!
     }
 }

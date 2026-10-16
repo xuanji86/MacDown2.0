@@ -5,14 +5,11 @@ import Foundation
 /// The editor writes keystrokes to the model and never reads them back, so anything else that changes the model
 /// (Revert To / Browse All Versions, an external file change, SwiftUI handing the view a different document
 /// instance) leaves the editor showing stale text; the next keystroke would then overwrite the model with it.
-/// This struct remembers the last text both sides agreed on and the document instance it belongs to. (`EditorSession` keeps
-/// one per text storage it holds for a document.)
+/// This struct remembers the last text both sides agreed on. (`EditorSession` keeps one per text storage it holds for a document.)
 public struct ExternalTextSync {
-    private weak var document: AnyObject?  // weak: a buffer for a closed document must not keep it alive
     private var lastSyncedText: String
 
-    public init(document: AnyObject, text: String) {
-        self.document = document
+    public init(text: String) {
         self.lastSyncedText = text
     }
 
@@ -25,15 +22,12 @@ public struct ExternalTextSync {
     }
 
     /// Compare the model with what the editor has. Returns the text to load into the editor, or nil when the model
-    /// still holds what the editor last wrote. A different document instance with identical text needs no reload.
-    public mutating func reloadText(document: AnyObject, modelText: String) -> String? {
-        self.document = document
+    /// still holds what the editor last wrote.
+    public mutating func reloadText(modelText: String) -> String? {
         guard modelText != lastSyncedText else { return nil }
         lastSyncedText = modelText
         return modelText
     }
-
-    public func isSameDocument(_ other: AnyObject) -> Bool { document === other }
 
     /// Where a selection should land after the text changed from `old` to `new`: positions in the unchanged prefix
     /// stay, positions in the unchanged suffix shift with it, positions inside the replaced middle clamp into the
