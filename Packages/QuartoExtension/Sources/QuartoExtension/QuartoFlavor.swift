@@ -10,7 +10,12 @@ public struct QuartoFlavor: DocumentFlavor {
     public static let typeIdentifier = "org.quarto.qmd"
     private static let qmd = UTType(importedAs: typeIdentifier, conformingTo: .plainText)
 
-    public init() {}
+    /// The real render, when the extension is active (nil in tests of the approximate preview).
+    private let realRender: QuartoRealRender?
+
+    public init() { realRender = nil }
+
+    init(realRender: QuartoRealRender) { self.realRender = realRender }
 
     public var id: FlavorID { "quarto" }
     public var renderChunks: [String] { ["quarto.chunk.js"] }
@@ -26,6 +31,11 @@ public struct QuartoFlavor: DocumentFlavor {
 
     public func auxiliaryFiles(for markdown: String, readFile: (String) -> String?) -> [String: String] {
         QuartoIncludes.files(for: markdown, readFile: readFile)
+    }
+
+    /// Only while the "Quarto real render" switch is on: off means no switch, no menu item and no probing.
+    @MainActor public var alternatePreviewMode: (any AlternatePreviewMode)? {
+        realRender?.isOn == true ? realRender : nil
     }
 
     public var badge: FlavorBadge? {

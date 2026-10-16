@@ -36,6 +36,8 @@ final class MarkdownDocument: NSDocument, ObservableObject {
     let editedFlag = EditedFlag()
     /// Encoding, line ending and BOM the file is saved back in; shown in the status bar.
     let format = DocumentFormat()
+    /// Quarto real render of this document, while the user has it on (PLAN 4.6.2); stopped when the document closes.
+    let alternatePreview = AlternatePreviewState()
     /// Set only while `reopen(as:)` re-reads the file.
     private var encodingOverride: TextEncoding?
 
@@ -348,6 +350,7 @@ final class MarkdownDocument: NSDocument, ObservableObject {
     }
 
     override func close() {
+        alternatePreview.switchOff()
         externalMonitor?.stop()
         externalMonitor = nil
         dismissExternalPrompt()

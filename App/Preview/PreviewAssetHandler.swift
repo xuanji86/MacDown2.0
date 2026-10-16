@@ -12,6 +12,7 @@ final class DocumentRoot: @unchecked Sendable {
     private var directory: URL?
     private var roots: [URL] = []
     private var served: [URL: FileStamp] = [:]
+    private var external: URL?
     var url: URL? {
         get { lock.withLock { directory } }
         set { lock.withLock { directory = newValue; served = [:] } }
@@ -20,6 +21,12 @@ final class DocumentRoot: @unchecked Sendable {
     var workspaceRoots: [URL] {
         get { lock.withLock { roots } }
         set { lock.withLock { roots = newValue } }
+    }
+
+    /// While the preview shows Quarto's own page (real render): the one origin it may load from (`PreviewNavigationDecider`).
+    var externalOrigin: URL? {
+        get { lock.withLock { external } }
+        set { lock.withLock { external = newValue } }
     }
 
     /// A file the page just asked for (`stamp` taken before it was read, so a change in between shows up as changed).

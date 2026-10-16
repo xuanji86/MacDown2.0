@@ -208,6 +208,12 @@ final class PreviewModel {
     private var selectionTask: Task<Void, Never>?
     /// What the page was last asked to highlight (version, from, to): asking again for the same is skipped.
     private var highlighted: (version: Int, from: Int, to: Int)?
+    /// Quarto real render (PLAN 4.6.2): the page is a local server's instead of `preview.html`. While on, nothing is rendered, scrolled or
+    /// taken from the page here (the status bar's counts still follow the text); `externalURL` is the page once there is one.
+    private var externalActive = false
+    private var externalURL: URL?
+    /// The editor's top visible line (0-based): where the app's own page scrolls to when the real render is switched off.
+    var editorLine: (() -> Double?)?
 
     init(options: RenderOptions = RenderSettings.current) {
         self.options = options
@@ -253,6 +259,11 @@ final class PreviewModel {
     /// The document's text as the editor has it now. Text the page already shows or is about to (a task checkbox click renders its
     /// own result at once, and the edit then reaches here too) is not rendered a second time; `schedule` always renders.
     func textChanged(_ markdown: String) {
+        if externalActive {
+            lastMarkdown = markdown  // rendered when the app's page comes back
+            scheduleStats(markdown)
+            return
+        }
         // With "Update preview automatically" off only a document's first text gets here (`renderNow` does the rest); `lastMarkdown` is then
         // the text the page shows, so every re-render for another reason (a setting, the style, the folder) keeps showing that text.
         guard PreviewRefresh.rendersOnEdit(autoRender: autoRender, hasRendered: lastMarkdown != nil) else {
@@ -333,6 +344,7 @@ final class PreviewModel {
     /// Scrolls the preview so `line` (0-based, fractional ok) is at the top. Instant; the page does not echo it back
     /// through `onVisibleLineChange`. Latest call wins if several arrive while one is running.
     func scroll(toLine line: Double) {
+        guard !externalActive else { return }  // no scroll sync with Quarto's page: it has no source lines
         lastLine = line
         pendingScrollLine = line
         guard !scrolling else { return }
@@ -386,8 +398,9 @@ final class PreviewModel {
         metadata = nil
     }
 
-    private func reloadPage() async {
-        let line = lastLine
+    private func reloadPage(line: Double? = nil) async {
+        guard !externalActive else { return }
+        let line = line ?? lastLine
         pageLoaded = false
         loading = nil
         needsRebuild = true
@@ -430,6 +443,7 @@ final class PreviewModel {
     }
 
     private func handle(_ message: PreviewMessage) {
+        guard !externalActive else { return }  // Quarto's page is not ours: nothing it sends is taken
         switch message {
         case .scroll(let line):
             lastLine = line
@@ -560,12 +574,51 @@ final class PreviewModel {
         }
     }
 
+    /// Quarto real render on (`active`) or off. On: the app's rendering stops at once and the page loads `url` when there is one
+    /// (Quarto takes a few seconds to start); a new URL loads again. Off: `preview.html` is loaded afresh, the current text rendered and
+    /// scrolled to the editor's line.
+    func showExternal(active: Bool, url: URL?) {
+        if active {
+            if !externalActive {
+                externalActive = true
+                debounce?.cancel()
+                pending = nil
+                bridgeToken = nil
+                pageLoaded = false
+                loading = nil
+            }
+            guard let url, url != externalURL else { return }
+            externalURL = url
+            documentRoot.externalOrigin = url
+            Task { [page] in
+                do {
+                    for try await _ in Self.load(url, in: page) {}
+                } catch {
+                    log.error("quarto page load failed: \(String(describing: error), privacy: .public)")
+                }
+            }
+        } else {
+            guard externalActive else { return }
+            externalActive = false
+            externalURL = nil
+            documentRoot.externalOrigin = nil
+            let line = editorLine?()
+            Task { await reloadPage(line: line) }
+        }
+    }
+
+    /// Every load of the page goes through here (`Web/test/no-flicker.test.mjs` keeps it to this one place): `preview.html`, or
+    /// Quarto's page during the real render.
+    private static func load(_ url: URL, in page: WebPage) -> some AsyncSequence<WebPage.NavigationEvent, any Error> {
+        page.load(URLRequest(url: url))
+    }
+
     private func ensureLoaded() async -> Bool {
         if let loading { return await loading.value }
         loadedBlockingImages = RemoteContent.blocksImages(in: AppDefaults.store)
         let task = Task { [page] () -> Bool in
             do {
-                for try await event in page.load(PreviewAssetHandler.previewURL) where event == .finished {
+                for try await event in Self.load(PreviewAssetHandler.previewURL, in: page) where event == .finished {
                     await self.styleAfterLoad()
                     await self.giveToken()
                     return true
@@ -603,6 +656,7 @@ final class PreviewModel {
     }
 
     private func push(_ markdown: String) async {
+        guard !externalActive else { return }
         pending = markdown
         guard !pushing else { return }
         pushing = true
@@ -681,9 +735,23 @@ struct PreviewPane: View {
     private let renderSettings = RenderSettings.shared
 
     var body: some View {
+        let mode = documentURL == nil ? nil : flavor?.alternatePreviewMode
+        let alternate = document.alternatePreview
+        let external = mode != nil && alternate.isActive
         WebView(model.page)
             .webViewContentBackground(.hidden)
-            .overlay(alignment: .top) { PreviewNotices(badge: flavor?.badge, hint: AppExtensions.disabledHint(for: documentURL)) }
+            .overlay(alignment: .top) { PreviewNotices(badge: external ? nil : flavor?.badge, hint: AppExtensions.disabledHint(for: documentURL)) }
+            .safeAreaInset(edge: .top, spacing: 0) {
+                if let mode, let documentURL {
+                    AlternatePreviewBar(mode: mode, state: alternate, fileURL: documentURL, edited: document.editedFlag)
+                }
+            }
+            // Quarto real render: Quarto's page instead of the app's while it is on (PLAN 4.6.2).
+            .onChange(of: ExternalPage(active: external, url: external ? alternate.session?.url : nil), initial: true) { _, page in
+                model.showExternal(active: page.active, url: page.url)
+            }
+            // The flavor lost its real render (switched off in Settings, file renamed away from .qmd): stop what it started.
+            .onChange(of: mode == nil, initial: true) { _, gone in if gone, alternate.isActive { alternate.switchOff() } }
             // `initial`: the pane is gone while the window shows no document, and settings changed meanwhile must still arrive.
             .onChange(of: renderSettings.options, initial: true) { _, options in model.setOptions(options) }
             .onChange(of: "\(style)|\(followsSystem)", initial: true) { model.setStyle(id: style, followSystem: followsSystem) }
@@ -705,4 +773,9 @@ struct PreviewPane: View {
             }
             .onChange(of: documentURL, initial: true) { _, url in model.documentDirectory = url?.deletingLastPathComponent() }
     }
+}
+
+private struct ExternalPage: Equatable {
+    var active: Bool
+    var url: URL?
 }

@@ -43,6 +43,8 @@ struct DocumentView: View {
         let tabURL = fileURL
         let fileURL: URL? = tabURL.isUntitled ? nil : tabURL  // an untitled document has no folder to resolve images or includes in
         let flavor = AppExtensions.flavor(for: fileURL)  // observable: re-evaluated when an extension is switched
+        let alternateMode = fileURL == nil ? nil : flavor?.alternatePreviewMode
+        let alternate = document.alternatePreview
         let actions = WindowActions(
             editor: editor, layout: layout, setLayout: setLayout,
             copyHTML: { [document, fileURL] in Task { await CopyHTML.copy(document.text, fileURL: fileURL) } },
@@ -50,7 +52,14 @@ struct DocumentView: View {
             exportPDF: { [document, fileURL] in Task { await DocumentExport.pdf(of: document.text, fileURL: fileURL) } },
             printDocument: { [document, fileURL] in Task { await DocumentExport.print(document.text, fileURL: fileURL) } },
             showOutline: { model.showOutline() },
-            renderPreview: { [document, preview] in preview.renderNow(document.text) }
+            renderPreview: { [document, preview] in preview.renderNow(document.text) },
+            alternatePreview: alternateMode.flatMap { mode in
+                fileURL.map { url in
+                    AlternatePreviewCommand(title: mode.commandTitle, isOn: alternate.isActive) { [model] in
+                        if alternate.isActive { alternate.switchOff() } else { alternate.switchOn(mode, fileURL: url, window: model.window) }
+                    }
+                }
+            }
         )
         GeometryReader { geometry in
             let total = geometry.size.width, height = geometry.size.height
@@ -90,6 +99,7 @@ struct DocumentView: View {
         .onAppear {
             scrollSync.attach(preview: preview)
             preview.onToggleTask = { [editor] task, checked, text in editor.toggleTask(task, checked: checked, renderedText: text) }
+            preview.editorLine = { [weak editor] in editor?.textView?.topVisibleLine }
             // Preview editing and two-way selection (PLAN M2): edits typed in the preview go into the editor, each pane shows the other's
             // selection. Weak both ways: the preview model and the editor handle refer to each other through these.
             preview.onPreviewEdit = { [weak editor] edit, expected in editor?.applyPreviewEdit(edit, expectedText: expected) }

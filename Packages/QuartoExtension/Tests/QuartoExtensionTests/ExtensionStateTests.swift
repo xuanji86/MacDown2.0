@@ -1,3 +1,4 @@
+import Darwin
 import ExtensionAPI
 import Foundation
 import MarkdownCore
@@ -121,6 +122,73 @@ private final class SpawnCounter: ProcessSpawner, @unchecked Sendable {
     #expect(provider.spawner.spawns == 0)
     #expect(await provider.toolEnvironment.state() == .notNeeded)
     #expect(defaults.bool(forKey: "extension.quarto.enabled"))
+    // The real render is offered (its switch defaults to on) but nothing was looked for and nothing runs.
+    let mode = try #require(provider.registered.first?.alternatePreviewMode as? QuartoRealRender)
+    #expect(mode.lookup == nil && mode.runningSessions == 0)
+    #expect(mode.confirmation != nil)  // "ask before rendering" defaults to on
+    #expect(provider.spawner.spawns == 0)
+    #expect(await provider.toolEnvironment.state() == .notNeeded)
+}
+
+@Test @MainActor func realRenderSwitchedOff_noModeNoMenuNoProbing() async throws {
+    let defaults = freshDefaults()
+    defaults.set(false, forKey: "extension.quarto.realRender")
+    let provider = CountingProvider(defaults: defaults)
+    await ExtensionRegistry([QuartoExtension.self], defaults: defaults, provider: provider).start()
+    let flavor = try #require(provider.registered.first)
+    #expect(flavor.alternatePreviewMode == nil)  // no segmented control, no "Render with Quarto"
+    #expect(provider.spawner.spawns == 0)
+    #expect(await provider.toolEnvironment.state() == .notNeeded)
+}
+
+@Test @MainActor func disabled_noRealRenderAtAll() async throws {
+    let defaults = freshDefaults(quartoEnabled: false)
+    let provider = CountingProvider(defaults: defaults)
+    let registry = ExtensionRegistry([QuartoExtension.self], defaults: defaults, provider: provider)
+    await registry.start()
+    let ext = try #require(registry.extensions.first as? QuartoExtension)
+    #expect(ext.realRender == nil)  // never created: activate never ran
+    #expect(provider.registered.isEmpty && provider.spawner.spawns == 0)
+    #expect(await provider.toolEnvironment.state() == .notNeeded)
+}
+
+/// PLAN 6.1 "switching off while running": a sleep script stands in for `quarto preview`; `deactivate()` must leave no process.
+@Test @MainActor func switchingOffWhileRenderingStopsQuarto() async throws {
+    let root = try scratchDirectory()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let quarto = try fakeQuarto(in: root, preview: """
+    sleep 1000 & echo "$$ $!" > "$(dirname "$0")/pids"
+    echo "Browse at http://localhost:$port/" >&2
+    wait
+    """)
+    let document = root.appending(path: "doc.qmd")
+    try "# Hi\n".write(to: document, atomically: true, encoding: .utf8)
+    let defaults = freshDefaults()
+    defaults.set(quarto.path, forKey: "extension.quarto.quartoPath")
+    let provider = CountingProvider(defaults: defaults)
+    let registry = ExtensionRegistry([QuartoExtension.self], defaults: defaults, provider: provider)
+    await registry.start()
+    let mode = try #require(provider.registered.first?.alternatePreviewMode)
+    #expect(await mode.isAvailable() == .available)
+    let session = mode.session(for: document)
+    #expect(mode.session(for: URL(filePath: root.path + "/./doc.qmd")) === session)  // one per file, however it is spelled
+    await session.start()
+    #expect(session.status == .ready)
+    #expect(session.url?.host() == "127.0.0.1")
+    let group = ((try? String(contentsOf: root.appending(path: "pids"), encoding: .utf8)) ?? "").split(separator: " ").compactMap { pid_t($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
+    #expect(group.count == 2)
+
+    let started = Date()
+    await registry.setEnabled(false, for: "quarto")
+    #expect(Date().timeIntervalSince(started) < 3)
+    #expect(session.status == .stopped && session.url == nil)
+    #expect(provider.registered.isEmpty)  // the flavor, and with it the switch and the menu item, is gone
+    var gone = false
+    for _ in 0..<100 where !gone {
+        gone = group.allSatisfy { kill($0, 0) != 0 && errno == ESRCH }
+        if !gone { try await Task.sleep(for: .milliseconds(20)) }
+    }
+    #expect(gone)
 }
 
 @Test @MainActor func enabled_qmdRendersWithQuartoSyntaxAndLoadsTheChunkOnce() async throws {
