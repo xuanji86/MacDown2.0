@@ -1,4 +1,5 @@
 import AppKit
+import ExtensionAPI
 import SwiftUI
 import WorkspaceKit
 
@@ -88,6 +89,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        MainActor.assumeIsolated { AppRelauncher.launchNewInstanceIfRequested() }
+        MainActor.assumeIsolated {
+            // Extensions' tools (qmd downloading models, …) run in process groups of their own: they would outlive the app.
+            AppExtensions.registry.terminate()
+            AppRelauncher.launchNewInstanceIfRequested()
+        }
     }
 }

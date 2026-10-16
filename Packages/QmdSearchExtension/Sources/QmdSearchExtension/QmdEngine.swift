@@ -10,6 +10,8 @@ struct QmdOptions: Sendable, Equatable {
     var autoEmbed = false
     /// Folders (realpaths) the user answered "Use Built-in Search" for, or whose index they disabled.
     var declinedFolders: Set<String> = []
+    /// Collections whose semantic setup (models downloaded, embedded) finished, as remembered across launches.
+    var semanticReady: Set<String> = []
 }
 
 /// Where qmd is, as found by the last look.
@@ -46,15 +48,27 @@ actor QmdEngine {
         var updateInterval: Duration = .seconds(60)
         /// Watch prepared folders for changes (tests call `markChanged` themselves).
         var watchFolders = true
+        /// The semantic setup for the search page: a version that counts up, workspace (`fileKey`) → collection, collection → setup.
+        var publishSetup: @Sendable (Int, [String: String], [String: SemanticSetup]) -> Void = { _, _, _ in }
+        /// Remembers in the settings that a collection's semantic setup finished (true), or forgets it.
+        var rememberSetup: @Sendable (String, Bool) async -> Void = { _, _ in }
+        /// How often a running setup's progress is read from qmd's model cache.
+        var setupPollInterval: Duration = .milliseconds(500)
+        /// The limit for one semantic search (the setup is not bound by it).
+        var queryTimeout: Duration = .seconds(60)
     }
 
     static let searchTimeout: Duration = .seconds(10)
-    static let queryTimeout: Duration = .seconds(60)
     static let shortTimeout: Duration = .seconds(10)
     // lazy: indexing a new folder may take up to 5 minutes, a full `qmd update` 2; a bigger tree fails with a timeout message
     static let addTimeout: Duration = .seconds(300)
     static let updateTimeout: Duration = .seconds(120)
     static let embedTimeout: Duration = .seconds(30 * 60)
+    // lazy: a setup step (a model download, or embedding a folder) gets 2 hours; qmd's own embed stops after 30 minutes and the
+    // rest is embedded later ("embed when idle" or "Update Embeddings Now")
+    static let setupTimeout: Duration = .seconds(2 * 60 * 60)
+    /// What `qmd embed` prints (and exits 0) when another embed holds qmd's lock.
+    static let embedBusy = "Another embed process is already running"
 
     private struct AskLater: Error {}
 
@@ -69,6 +83,23 @@ actor QmdEngine {
         var dirty: Bool
         var lastUpdate: ContinuousClock.Instant?
         var watcher: FolderWatcher?
+        /// The collection's file count from `qmd collection list`, for the setup's progress.
+        var files: Int? = nil
+    }
+
+    /// What a semantic setup is doing, for its progress text.
+    enum SetupStep: Sendable, Equatable {
+        case starting
+        case embedding(files: Int?)
+        case loading
+    }
+
+    private struct SetupJob {
+        let id: UUID
+        let task: Task<Void, Never>
+        var step: SetupStep
+        /// qmd's model cache, where downloads show up.
+        let models: String
     }
 
     private enum Slot {
@@ -86,11 +117,25 @@ actor QmdEngine {
     private(set) var updatesBlockedBy: [String] = []
     private var updateTask: Task<Void, Never>?
     private var embedTask: Task<String?, Never>?
+    /// qmd lets one `embed` run at a time (another prints a notice and does nothing), so every embed this app starts (setups,
+    /// "Update Embeddings Now", idle) waits its turn here, first come first served.
+    private var embedTurnTaken = false
+    private var embedTurnQueue: [(id: UUID, resume: CheckedContinuation<Void, any Error>)] = []
     private var embedLoop: Task<Void, Never>?
     /// Counts `updateEmbedLoop` calls, so only the one that read the newest settings acts.
     private var embedLoopCheck = 0
     private var lastEmbed: ContinuousClock.Instant?
     private var shutDown = false
+    /// Running semantic setups, by collection.
+    private var setupJobs: [String: SetupJob] = [:]
+    /// By collection; absent = not looked at yet (or semantic search is off).
+    private var setupStates: [String: SemanticSetup] = [:]
+    /// Collections set up again this session because qmd answered that they had no embeddings (once each, so it cannot loop).
+    private var healed: Set<String> = []
+    private var setupVersion = 0
+    /// Everything that runs qmd in the background (preparing a folder, updates, setups, embeds), cancelled from any thread
+    /// when the app quits.
+    nonisolated let live = LiveTasks()
 
     init(_ deps: Dependencies) { self.deps = deps }
 
@@ -152,6 +197,9 @@ actor QmdEngine {
         }
         let task = Task { await self.makeReady(workspace, realRoot: realRoot) }
         slots[realRoot] = .preparing(task)
+        let id = UUID()
+        live.insert(id) { task.cancel() }
+        defer { live.remove(id) }
         return await task.value
     }
 
@@ -188,7 +236,7 @@ actor QmdEngine {
             // Ours but still in the user's default queries: a registration that was interrupted before `exclude`.
             if owned, existing.includedByDefault { _ = try await runner.run(["collection", "exclude", existing.name], timeout: Self.shortTimeout) }
             // Nothing is known about how fresh it is: the first search runs `qmd update`.
-            await adopt(workspace, realRoot: realRoot, Prepared(workspaceKey: workspace.fileKey, collection: existing.name, owned: owned, parent: !exact, dirty: true))
+            await adopt(workspace, realRoot: realRoot, Prepared(workspaceKey: workspace.fileKey, collection: existing.name, owned: owned, parent: !exact, dirty: true, files: existing.files))
             return .ready
         }
 
@@ -219,7 +267,7 @@ actor QmdEngine {
             }
             // Kept out of the user's own `qmd search` / `qmd query` without `-c` (and their agents').
             _ = try await runner.run(["collection", "exclude", name], timeout: Self.shortTimeout)
-            await adopt(workspace, realRoot: realRoot, Prepared(workspaceKey: workspace.fileKey, collection: name, owned: true, dirty: false, lastUpdate: .now))
+            await adopt(workspace, realRoot: realRoot, Prepared(workspaceKey: workspace.fileKey, collection: name, owned: true, dirty: false, lastUpdate: .now, files: nil))
             return .ready
         }
     }
@@ -237,6 +285,7 @@ actor QmdEngine {
         slots[realRoot] = .ready(prepared)
         publishOwned()
         await updateEmbedLoop()
+        await ensureSetup(prepared.collection)
     }
 
     /// `qmd collection list` has no JSON (2.8.3 ignores `--format json` there) and does not print folders, so each
@@ -244,14 +293,18 @@ actor QmdEngine {
     // lazy: one process per collection (~0.2 s each), 4 at once; upgrade: read qmd's YAML config, or a JSON listing if qmd grows one
     private func listCollections(_ runner: QmdRunner) async throws -> [QmdCollection] {
         let list = try await runner.run(["collection", "list"], timeout: Self.shortTimeout)
-        let names = QmdParse.collectionNames(fromList: String(decoding: list.stdout, as: UTF8.self))
+        let listing = String(decoding: list.stdout, as: UTF8.self)
+        let names = QmdParse.collectionNames(fromList: listing)
+        let files = QmdParse.fileCounts(fromList: listing)
         var shown = [QmdCollection?](repeating: nil, count: names.count)
         try await withThrowingTaskGroup(of: (Int, QmdCollection?).self) { group in
             func show(_ index: Int) {
                 group.addTask {
                     try Task.checkCancellation()
                     let show = try await runner.run(["collection", "show", names[index]], timeout: Self.shortTimeout)
-                    return (index, QmdParse.collection(named: names[index], fromShow: String(decoding: show.stdout, as: UTF8.self)))
+                    var collection = QmdParse.collection(named: names[index], fromShow: String(decoding: show.stdout, as: UTF8.self))
+                    collection?.files = files[names[index]]
+                    return (index, collection)
                 }
             }
             var next = 0
@@ -267,8 +320,7 @@ actor QmdEngine {
     private func indexPath() async -> String {
         let environment = await deps.environment.snapshot().environment
         let home = environment["HOME"] ?? NSHomeDirectory()
-        let cache = environment["XDG_CACHE_HOME"].flatMap { $0.isEmpty ? nil : $0 } ?? home + "/.cache"
-        let path = cache + "/qmd/index.sqlite"
+        let path = QmdFiles.cacheDirectory(environment) + "/index.sqlite"
         return path.hasPrefix(home + "/") ? "~" + path.dropFirst(home.count) : path
     }
 
@@ -290,7 +342,10 @@ actor QmdEngine {
         // Registered before any suspension: a second search (another window) joins this one instead of starting its own.
         let task = Task { await self.update() }
         updateTask = task
+        let id = UUID()
+        live.insert(id) { task.cancel() }
         await task.value
+        live.remove(id)
         if updateTask == task { updateTask = nil }
     }
 
@@ -335,6 +390,15 @@ actor QmdEngine {
         guard case .ready(let prepared) = slots[realRoot] else { return ([], false) }
         let runner = try await runner()
         let semantic = query.isSemantic
+        // `qmd query` runs only once the models are there and the folder is embedded; the setup does that in the background.
+        if semantic {
+            await ensureSetup(prepared.collection)
+            switch setupStates[prepared.collection] {
+            case .ready?: break
+            case .failed(let reason)?: throw QmdError.failed(status: 0, message: reason)
+            case .preparing?, nil: throw QmdError.failed(status: 0, message: L10n.semanticNotReady)
+            }
+        }
         // A parent folder's collection: qmd ranks the whole collection, so ask for more and keep this folder's.
         // lazy: 500 results from a parent collection; past that a folder's matches can be crowded out (then the built-in search answers)
         let count = prepared.parent ? 500 : max(1, min(semantic ? 30 : 50, query.limit))
@@ -343,16 +407,23 @@ actor QmdEngine {
         arguments += ["--", query.text]  // a query may start with "-"
         let output: QmdOutput
         do {
-            output = try await runner.run(arguments, timeout: semantic ? Self.queryTimeout : Self.searchTimeout)
+            output = try await runner.run(arguments, timeout: semantic ? deps.queryTimeout : Self.searchTimeout)
         } catch let error as QmdError where semantic {
             throw QmdError.failed(status: 1, message: L10n.semanticFailed(error.localizedDescription))
         }
         // The sidebar's ignore rules apply here too (qmd's mask knows nothing of `_site`, `*_files`, …).
         let base = workspace.pathComponents.count
         let results = try QmdParse.results(output.stdout)
+        // Nothing at all, and qmd says documents lack embeddings: the setup remembered for this collection no longer holds
+        // (the index was rebuilt, …). Set it up again, once per session.
+        if semantic, results.isEmpty, output.stderr.contains("need embeddings"), healed.insert(prepared.collection).inserted {
+            qmdLog.info("qmd query found nothing and reports missing embeddings: setting \(prepared.collection, privacy: .public) up again")
+            await deps.rememberSetup(prepared.collection, false)
+            startSetup(prepared.collection, models: await modelsDirectory())
+        }
         let terms = QmdMapping.terms(of: query.text)
         let inWorkspace = results.compactMap {
-            QmdMapping.hit($0, workspace: workspace, realRoot: realRoot, terms: terms, source: QmdSearchProvider.providerID)
+            QmdMapping.hit($0, workspace: workspace, realRoot: realRoot, terms: terms, wholeWords: semantic, source: QmdSearchProvider.providerID)
         }
         // Every one of a full page was elsewhere in the parent collection: this folder's matches may be further down.
         if prepared.parent, inWorkspace.isEmpty, results.count >= count { throw QmdError.failed(status: 0, message: L10n.crowdedOut) }
@@ -371,6 +442,8 @@ actor QmdEngine {
         prepared.watcher?.stop()
         slots[realRoot] = .unavailable("")
         publishOwned()
+        cancelSetup(prepared.collection, forget: true)
+        await deps.rememberSetup(prepared.collection, false)
         await deps.decline(realRoot)
         do {
             _ = try await runner().run(["collection", "remove", prepared.collection], timeout: Self.shortTimeout)
@@ -383,6 +456,215 @@ actor QmdEngine {
         var owned: [String: String] = [:]
         for case .ready(let p) in slots.values where p.owned { owned[p.workspaceKey] = p.collection }
         deps.publishOwned(owned)
+        publishSetup()
+    }
+
+    // MARK: Semantic setup
+
+    /// Before semantic search works in a collection, qmd needs its models (the embedding model, ~330 MB, and the query
+    /// expansion model, ~1.3 GB; the reranker, ~640 MB, when reranking is on) and the collection's embeddings. qmd fetches
+    /// models on first use, which no 60 s search survives, so a setup job does it in the background when semantic search is
+    /// switched on or a folder is prepared while it is on: `qmd embed -c` (fetches the embedding model, embeds), then one
+    /// throwaway `qmd query` (fetches the expansion model and, unless `--no-rerank`, the reranker). Neither runs a
+    /// collection's update command (only `qmd update` does). Not `qmd pull`: it also fetches the reranker, and without a
+    /// network it deletes the models it has.
+    ///
+    /// Done is remembered per collection across launches (`QmdOptions.semanticReady`) and believed while the models are still
+    /// in qmd's cache; a semantic search that finds nothing because qmd reports missing embeddings sets it up again.
+    private func ensureSetup(_ collection: String) async {
+        guard !shutDown, setupJobs[collection] == nil, setupStates[collection] == nil else { return }
+        let options = await deps.options()
+        guard options.semantic, !shutDown, setupJobs[collection] == nil, setupStates[collection] == nil else { return }
+        let environment = await deps.environment.snapshot().environment
+        let cache = QmdFiles.cacheDirectory(environment)
+        let remembered = options.semanticReady.contains(collection)
+            && QmdFiles.modelsPresent(cache: cache, config: QmdFiles.configDirectory(environment), rerank: options.rerank)
+        guard setupJobs[collection] == nil, setupStates[collection] == nil else { return }  // another call got here first
+        if remembered {
+            setupStates[collection] = .ready
+            publishSetup()
+        } else {
+            startSetup(collection, models: cache + "/models")
+        }
+    }
+
+    private func modelsDirectory() async -> String { QmdFiles.cacheDirectory(await deps.environment.snapshot().environment) + "/models" }
+
+    private func startSetup(_ collection: String, models: String) {
+        guard !shutDown, setupJobs[collection] == nil else { return }
+        let id = UUID()
+        let task = Task { await self.runSetup(collection, id: id) }
+        setupJobs[collection] = SetupJob(id: id, task: task, step: .starting, models: models)
+        live.insert(id) { task.cancel() }
+        setupStates[collection] = .preparing(L10n.setupText(.starting))
+        publishSetup()
+    }
+
+    private func runSetup(_ collection: String, id: UUID) async {
+        let interval = deps.setupPollInterval
+        let poller = Task { [weak self] in
+            while !Task.isCancelled {
+                await self?.showProgress(collection, id: id)
+                try? await Task.sleep(for: interval)
+            }
+        }
+        var outcome: SemanticSetup
+        do {
+            try await setUp(collection, id: id)
+            outcome = .ready
+        } catch {
+            outcome = error is CancellationError || Task.isCancelled ? .failed(L10n.setupStopped) : .failed(L10n.setupFailed(error.localizedDescription))
+            if case .failed(let reason) = outcome { qmdLog.error("qmd semantic setup of \(collection, privacy: .public): \(reason, privacy: .public)") }
+        }
+        poller.cancel()
+        live.remove(id)
+        // Superseded: semantic search was switched off, the index disabled, or the extension switched off meanwhile.
+        guard setupJobs[collection]?.id == id else { return }
+        if outcome == .ready {
+            await deps.rememberSetup(collection, true)
+            guard setupJobs[collection]?.id == id else { return }
+        }
+        setupJobs[collection] = nil
+        setupStates[collection] = outcome
+        publishSetup()
+    }
+
+    private func setUp(_ collection: String, id: UUID) async throws {
+        let runner = try await runner()
+        let files = slots.values.lazy.compactMap { slot -> Int?? in
+            if case .ready(let p) = slot, p.collection == collection { return p.files }
+            return nil
+        }.first ?? nil
+        setStep(collection, id: id, .embedding(files: files))
+        // Waiting for another embed of ours is cancellable: Cancel stops the setup at once.
+        try await takeEmbedTurn()
+        let embed: QmdOutput
+        do {
+            defer { passEmbedTurn() }
+            embed = try await runner.run(["embed", "-c", collection], timeout: Self.setupTimeout, utility: true)
+        }
+        // Only someone else's embed (the user's own `qmd embed`) can hold qmd's lock now.
+        if String(decoding: embed.stdout, as: UTF8.self).contains(Self.embedBusy) { throw QmdError.failed(status: 0, message: L10n.embedBusy) }
+        try Task.checkCancellation()
+        setStep(collection, id: id, .loading)
+        // A text no document holds: a strong keyword match would skip the expansion model (and the cache key is new each time).
+        // Reranking switched on while it ran: once more with the reranker, so it is there before the first reranked search.
+        var rerank = await deps.options().rerank
+        while true {
+            var arguments = ["query", "-c", collection, "-n", "1", "--format", "json"]
+            if !rerank { arguments.append("--no-rerank") }
+            arguments += ["--", "macdown2 setup \(UUID().uuidString.prefix(8).lowercased())"]
+            _ = try await runner.run(arguments, timeout: Self.setupTimeout)
+            try Task.checkCancellation()
+            let now = await deps.options().rerank
+            if rerank || !now { break }
+            rerank = now
+        }
+    }
+
+    /// Waits for the app's previous `qmd embed` to end (throws when the waiting task is cancelled). Each turn taken is passed on
+    /// with `passEmbedTurn`.
+    private func takeEmbedTurn() async throws {
+        try Task.checkCancellation()
+        guard embedTurnTaken else {
+            embedTurnTaken = true
+            return
+        }
+        let id = UUID()
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (resume: CheckedContinuation<Void, any Error>) in
+                if Task.isCancelled { resume.resume(throwing: CancellationError()) } else { embedTurnQueue.append((id, resume)) }
+            }
+        } onCancel: {
+            Task { await self.leaveEmbedQueue(id) }
+        }
+    }
+
+    private func leaveEmbedQueue(_ id: UUID) {
+        guard let index = embedTurnQueue.firstIndex(where: { $0.id == id }) else { return }
+        embedTurnQueue.remove(at: index).resume.resume(throwing: CancellationError())
+    }
+
+    /// The next waiting embed goes (the turn stays taken), or the turn is free.
+    private func passEmbedTurn() {
+        if embedTurnQueue.isEmpty { embedTurnTaken = false } else { embedTurnQueue.removeFirst().resume.resume() }
+    }
+
+    private func setStep(_ collection: String, id: UUID, _ step: SetupStep) {
+        guard setupJobs[collection]?.id == id else { return }
+        setupJobs[collection]?.step = step
+        showProgress(collection, id: id)
+    }
+
+    /// A model being downloaded says how far it got; otherwise the step.
+    private func showProgress(_ collection: String, id: UUID) {
+        guard let job = setupJobs[collection], job.id == id else { return }
+        let text = QmdFiles.downloads(in: job.models).map { L10n.downloadingText(done: $0.done, total: $0.total) } ?? L10n.setupText(job.step)
+        guard setupStates[collection] != .preparing(text) else { return }
+        setupStates[collection] = .preparing(text)
+        publishSetup()
+    }
+
+    /// Stops a running setup. `forget`: nothing is shown afterwards (semantic search off, index disabled); otherwise it reads
+    /// as stopped, with a retry.
+    private func cancelSetup(_ collection: String, forget: Bool) {
+        guard let job = setupJobs[collection] else {
+            if forget { setupStates[collection] = nil }
+            return
+        }
+        job.task.cancel()
+        if forget {
+            setupJobs[collection] = nil
+            setupStates[collection] = nil
+            live.remove(job.id)
+        }
+        // Otherwise `runSetup` ends with "stopped" once qmd is gone.
+    }
+
+    /// The search page's Cancel.
+    func cancelSetup(workspaceKey: String) {
+        guard let collection = collection(workspaceKey: workspaceKey) else { return }
+        cancelSetup(collection, forget: false)
+    }
+
+    /// The search page's Retry, after a failed or stopped setup.
+    func retrySetup(workspaceKey: String) async {
+        guard let collection = collection(workspaceKey: workspaceKey), setupJobs[collection] == nil else { return }
+        if case .ready? = setupStates[collection] { return }
+        startSetup(collection, models: await modelsDirectory())
+    }
+
+    /// Semantic search or reranking was switched. Off: every setup stops and nothing is shown. On (or reranking changed,
+    /// which may need another model): every prepared folder's collection that is not being set up is looked at again.
+    func semanticSettingsChanged() async {
+        let options = await deps.options()
+        if options.semantic {
+            for collection in Array(setupStates.keys) where setupJobs[collection] == nil { setupStates[collection] = nil }
+        } else {
+            for collection in Set(setupJobs.keys).union(setupStates.keys) { cancelSetup(collection, forget: true) }
+        }
+        publishSetup()
+        guard options.semantic else { return }
+        for collection in Set(slots.values.compactMap { slot -> String? in if case .ready(let p) = slot { p.collection } else { nil } }) {
+            await ensureSetup(collection)
+        }
+    }
+
+    /// The setup state of `collection` (tests).
+    func setupState(_ collection: String) -> SemanticSetup? { setupStates[collection] }
+
+    private func collection(workspaceKey: String) -> String? {
+        slots.values.lazy.compactMap { slot -> String? in
+            if case .ready(let p) = slot, p.workspaceKey == workspaceKey { return p.collection }
+            return nil
+        }.first
+    }
+
+    private func publishSetup() {
+        var collections: [String: String] = [:]
+        for case .ready(let p) in slots.values { collections[p.workspaceKey] = p.collection }
+        setupVersion += 1
+        deps.publishSetup(setupVersion, collections, setupStates)
     }
 
     // MARK: Embeddings (semantic search only)
@@ -431,6 +713,8 @@ actor QmdEngine {
         let task = Task { () -> String? in
             for name in names.sorted() {
                 do {
+                    try await self.takeEmbedTurn()
+                    defer { self.passEmbedTurn() }
                     _ = try await runner.run(["embed", "-c", name], timeout: Self.embedTimeout, utility: true)
                 } catch {
                     return error.localizedDescription
@@ -439,7 +723,10 @@ actor QmdEngine {
             return nil
         }
         embedTask = task
+        let id = UUID()
+        live.insert(id) { task.cancel() }
         let result = await task.value
+        live.remove(id)
         embedTask = nil
         lastEmbed = .now
         return result
@@ -463,6 +750,12 @@ actor QmdEngine {
         embedLoop = nil
         for case .ready(let p) in slots.values { p.watcher?.stop() }
         slots = [:]
+        for collection in Array(setupJobs.keys) { cancelSetup(collection, forget: true) }
+        setupStates = [:]
         deps.publishOwned([:])
+        publishSetup()
     }
+
+    /// The app is quitting: every setup and embed is cancelled now, from the caller's thread, which kills their qmd processes.
+    nonisolated func terminateNow() { live.cancelAll() }
 }

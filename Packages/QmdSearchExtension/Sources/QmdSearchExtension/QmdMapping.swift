@@ -46,8 +46,8 @@ enum QmdMapping {
 
     /// One qmd result as a search hit in `workspace` (as the caller spells it), or nil when the file is gone (`qmd://…`) or
     /// outside the workspace (a collection that covers a parent folder also finds files next to it).
-    /// `terms`: `terms(of:)` of the query.
-    static func hit(_ result: QmdParse.Result, workspace: URL, realRoot: String, terms: [String], source: String) -> SearchHit? {
+    /// `terms`: `terms(of:)` of the query; `wholeWords` for a semantic search (see `shorten`).
+    static func hit(_ result: QmdParse.Result, workspace: URL, realRoot: String, terms: [String], wholeWords: Bool = false, source: String) -> SearchHit? {
         var path = result.file
         if path.hasPrefix("./") { path = QmdRunner.workingDirectory + path.dropFirst(2) }
         // Compared as qmd printed it (a realpath): `standardizingPath` would drop the `/private` of an existing `/private/var/…`.
@@ -58,7 +58,7 @@ enum QmdMapping {
         let line = result.line.flatMap { $0 > 0 ? $0 : nil }
         let raw = line.flatMap { l in result.snippet.flatMap { QmdParse.snippetLine($0, line: l) } }
             ?? result.snippet.flatMap(firstTextLine) ?? result.title ?? ""
-        let (snippet, highlights) = shorten(raw.trimmingCharacters(in: .whitespaces), terms: terms)
+        let (snippet, highlights) = shorten(raw.trimmingCharacters(in: .whitespaces), terms: terms, wholeWords: wholeWords)
         return SearchHit(source: source, file: file, line: line, columns: nil, snippet: snippet, highlights: highlights)
     }
 
@@ -85,18 +85,27 @@ enum QmdMapping {
     // lazy: 160 UTF-16 units around the first highlight (a sidebar row shows two lines); the core's snippet maker is internal to WorkspaceKit
     static let maxSnippet = 160
 
-    /// `line` cut to `maxSnippet` around the first term found, with every occurrence of the terms marked (UTF-16 ranges).
-    static func shorten(_ line: String, terms: [String]) -> (String, [Range<Int>]) {
+    /// `line` cut to `maxSnippet` around the first term found, with every occurrence of the terms marked (UTF-16 ranges),
+    /// matched as the built-in search matches (ignoring case, accents and width). `wholeWords`: a semantic search's words are
+    /// not what was matched, so only whole words are marked ("in" not inside "watering"); a term in a script written
+    /// without spaces (Chinese, Japanese, Korean) is still found anywhere.
+    static func shorten(_ line: String, terms: [String], wholeWords: Bool = false) -> (String, [Range<Int>]) {
         var text = line as NSString
         func find(_ text: NSString) -> [Range<Int>] {
             var ranges: [Range<Int>] = []
             for term in terms {
+                let scalars = term.unicodeScalars
+                let bounded = wholeWords && !scalars.contains(where: isUnspaced)
+                let startsWord = bounded && scalars.first.map(isWordScalar) == true
+                let endsWord = bounded && scalars.last.map(isWordScalar) == true
                 var from = 0
                 while from < text.length {
                     let r = text.range(of: term, options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive], range: NSRange(location: from, length: text.length - from))
                     guard r.location != NSNotFound, r.length > 0 else { break }
-                    ranges.append(r.location..<NSMaxRange(r))
                     from = NSMaxRange(r)
+                    if startsWord, r.location > 0, isWordScalar(scalar(in: text, at: r.location - 1)) { continue }
+                    if endsWord, NSMaxRange(r) < text.length, isWordScalar(scalar(in: text, at: NSMaxRange(r))) { continue }
+                    ranges.append(r.location..<NSMaxRange(r))
                 }
             }
             return ranges.sorted { $0.lowerBound < $1.lowerBound }
@@ -119,5 +128,28 @@ enum QmdMapping {
             }
         }
         return (text as String, merged)
+    }
+
+    /// The first scalar of the character at UTF-16 offset `index`.
+    private static func scalar(in text: NSString, at index: Int) -> Unicode.Scalar? {
+        text.substring(with: text.rangeOfComposedCharacterSequence(at: index)).unicodeScalars.first
+    }
+
+    /// A letter, digit or mark of a script that separates words with spaces: next to a match it means the match is inside a word.
+    private static func isWordScalar(_ scalar: Unicode.Scalar?) -> Bool {
+        guard let scalar else { return false }
+        return (CharacterSet.alphanumerics.contains(scalar) || scalar == "_") && !isUnspaced(scalar)
+    }
+
+    /// Han, kana and Hangul: written without spaces between words, so a word can start or end anywhere.
+    private static func isUnspaced(_ scalar: Unicode.Scalar) -> Bool {
+        if scalar.properties.isIdeographic { return true }
+        switch scalar.value {
+        case 0x3040...0x30FF, 0x31F0...0x31FF, 0xFF66...0xFF9F,  // kana (with half-width katakana)
+             0x1100...0x11FF, 0x3130...0x318F, 0xAC00...0xD7AF:  // Hangul
+            return true
+        default:
+            return false
+        }
     }
 }

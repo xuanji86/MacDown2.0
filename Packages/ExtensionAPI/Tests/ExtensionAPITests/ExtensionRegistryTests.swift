@@ -18,7 +18,9 @@ private struct StubFlavor: DocumentFlavor {
     class var enabledByDefault: Bool { true }
     var activations = 0
     var deactivations = 0
+    var terminations = 0
     required init() {}
+    func terminate() { terminations += 1 }
     func activate(host: any ExtensionHost) async {
         activations += 1
         host.register(flavor: StubFlavor())
@@ -78,6 +80,14 @@ private func freshDefaults() -> UserDefaults { UserDefaults(suiteName: "test.\(U
     #expect(provider.flavors == ["on": ["stub"]])
     #expect(defaults.object(forKey: "extension.on.enabled") as? Bool == true)
     #expect(defaults.object(forKey: "extension.off.enabled") as? Bool == false)
+}
+
+@Test @MainActor func quittingTerminatesOnlyTheActiveExtensions() async {
+    let (registry, _) = makeRegistry(freshDefaults())
+    await registry.start()
+    registry.terminate()
+    #expect((registry.extensions[0] as! NoopExtension).terminations == 1)
+    #expect((registry.extensions[1] as! NoopExtension).terminations == 0)  // never activated
 }
 
 @Test @MainActor func storedChoiceOverridesDefault() async {

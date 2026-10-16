@@ -16,6 +16,9 @@ final class FakeQmd: ProcessSpawner, @unchecked Sendable {
     private var calls: [[String]] = []
     private var environments: [[String: String]] = []
     var answer: @Sendable ([String]) -> Reply
+    /// Awaited before answering (a slow download, a hung embed); it should return when the task is cancelled, as a killed
+    /// process would.
+    var delay: @Sendable ([String]) async -> Void = { _ in }
 
     init(answer: @escaping @Sendable ([String]) -> Reply = { _ in Reply() }) { self.answer = answer }
 
@@ -32,6 +35,8 @@ final class FakeQmd: ProcessSpawner, @unchecked Sendable {
         let qmd = QmdRunner.qmdArguments(executable: executable, arguments: arguments) ?? [executable] + arguments
         #expect(directory == "/")
         lock.withLock { calls.append(qmd) }
+        await delay(qmd)
+        if Task.isCancelled { throw CancellationError() }  // as `SystemProcessSpawner` does once it killed the process
         let reply = answer(qmd)
         if !reply.stderr.isEmpty, let path = QmdRunner.stderrPath(arguments: arguments) { try Data(reply.stderr.utf8).write(to: URL(filePath: path)) }
         return ProcessOutput(stdout: Data(reply.stdout.utf8), status: reply.status)
@@ -118,4 +123,40 @@ func collect(_ stream: AsyncThrowingStream<SearchHit, any Error>) async throws -
     var hits: [SearchHit] = []
     for try await hit in stream { hits.append(hit) }
     return hits
+}
+
+/// A gate a fake qmd waits at until the test opens it (or the waiting task is cancelled).
+final class Gate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var open = false
+    private var arrivals = 0
+    func pass() { lock.withLock { open = true } }
+    func close() { lock.withLock { open = false } }
+    var waited: Int { lock.withLock { arrivals } }
+    func wait() async {
+        lock.withLock { arrivals += 1 }
+        while !lock.withLock({ open }), !Task.isCancelled { try? await Task.sleep(for: .milliseconds(10)) }
+    }
+}
+
+final class Box<Value: Sendable>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var stored: Value
+    init(_ value: Value) { stored = value }
+    var value: Value {
+        get { lock.withLock { stored } }
+        set { lock.withLock { stored = newValue } }
+    }
+}
+
+/// Polls `read` until `done` holds (or 5 s pass); returns the last value read.
+@discardableResult
+func eventually<T>(_ read: () async -> T, _ done: (T) -> Bool, timeout: Duration = .seconds(5)) async -> T {
+    let start = ContinuousClock.now
+    var value = await read()
+    while !done(value), ContinuousClock.now - start < timeout {
+        try? await Task.sleep(for: .milliseconds(10))
+        value = await read()
+    }
+    return value
 }

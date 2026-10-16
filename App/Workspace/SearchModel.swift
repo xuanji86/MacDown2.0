@@ -81,6 +81,39 @@ final class SearchModel {
         return providers.contains { $0.canRun(semantic) }
     }
 
+    /// Whether a semantic search of the folders being searched can run yet: a provider may still be setting it up (qmd
+    /// downloads its models and embeds the folder first), or its setup failed. Reads the providers' observable state, so the
+    /// page follows the progress. Keyword search does not wait for it.
+    var semanticSetup: SemanticSetup {
+        var setup = SemanticSetup.ready
+        forEachSemanticSource { provider, root in
+            if setup == .ready { setup = provider.semanticSetup(for: root) }
+        }
+        return setup
+    }
+
+    /// Retry after a failed (or stopped) semantic setup.
+    func retrySemanticSetup() {
+        forEachSemanticSource { provider, root in
+            if case .failed = provider.semanticSetup(for: root) { provider.retrySemanticSetup(for: root) }
+        }
+    }
+
+    /// Stops a running semantic setup (it can be retried).
+    func cancelSemanticSetup() {
+        forEachSemanticSource { provider, root in
+            if case .preparing = provider.semanticSetup(for: root) { provider.cancelSemanticSetup(for: root) }
+        }
+    }
+
+    private func forEachSemanticSource(_ body: (any SearchProvider, URL) -> Void) {
+        let (roots, files) = scope()
+        let semantic = SearchQuery(text: query, files: files, isSemantic: true)
+        for provider in providers where provider.canRun(semantic) {
+            for root in roots { body(provider, root) }
+        }
+    }
+
     /// The folders being searched, as the page names them ("MyBook"); "" with none. Reads the sidebar's state, so a view
     /// that shows it follows the workspace.
     var scopeSnapshot: SearchScopeSnapshot {
@@ -136,8 +169,12 @@ final class SearchModel {
         }
     }
 
-    /// Return in the field (or the sparkles button) while a provider can search by meaning: the same text, semantically.
-    func startSemantic() { start(semantic: true) }
+    /// Return in the field (or the sparkles button) while a provider can search by meaning: the same text, semantically. Not
+    /// while the semantic search is still being set up.
+    func startSemantic() {
+        guard semanticSetup == .ready else { return }
+        start(semantic: true)
+    }
 
     /// Stops a running search and keeps what was found.
     func stopSearching() {

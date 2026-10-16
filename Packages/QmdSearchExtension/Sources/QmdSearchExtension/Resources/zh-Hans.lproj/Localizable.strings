@@ -10,7 +10,7 @@
 "Register “%@” as qmd collection “%@”?" = "把“%1$@”注册为 qmd collection“%2$@”？";
 "Register" = "注册";
 "Rerank results (another model, slower)" = "重排结果（需要另一个模型，更慢）";
-"Return in the search field, or the sparkles button, asks qmd for documents with a similar meaning. The first semantic search downloads about 2 GB of models into qmd’s cache and each one takes seconds." = "在搜索框按回车或点星光按钮，让 qmd 找意思相近的文档。第一次语义搜索会下载约 2 GB 模型到 qmd 的缓存目录，每次搜索需要几秒。";
+"Return in the search field, or the sparkles button, asks qmd for documents with a similar meaning. Turning this on sets it up in the background: qmd downloads about 1.6 GB of models into its cache (~/.cache/qmd/models; reranking adds about 0.6 GB) and embeds each folder you search. The search panel shows the progress, and keyword search works meanwhile. Each semantic search then takes seconds." = "在搜索框按回车或点星光按钮，让 qmd 找意思相近的文档。打开后会在后台准备：qmd 下载约 1.6 GB 模型到它的缓存目录（~/.cache/qmd/models；重排另需约 0.6 GB），并为你搜索的每个文件夹生成嵌入。搜索面板会显示进度，期间关键词搜索照常可用。之后每次语义搜索需要几秒。";
 "Searches folders with your installed qmd (keyword and optional semantic search) instead of the built-in search." = "用你安装的 qmd 搜索文件夹（关键词搜索，可选语义搜索），代替内置搜索。";
 "Semantic search failed: %@" = "语义搜索失败：%@";
 "Semantic search" = "语义搜索";
@@ -31,3 +31,13 @@
 "qmd’s answer could not be read" = "无法读取 qmd 的输出";
 "qmd’s best matches are all outside this folder (its collection covers a parent folder)" = "qmd 排名最前的结果都在这个文件夹之外（它的 collection 覆盖的是上级文件夹）";
 "“%@” is not an executable qmd; the built-in search is used." = "“%@”不是可执行的 qmd，使用内置搜索。";
+"Semantic search is still being set up; keyword search works meanwhile." = "语义搜索还在准备中；期间关键词搜索照常可用。";
+"Semantic search setup was stopped." = "语义搜索的准备已停止。";
+"Semantic search setup failed: %@" = "语义搜索准备失败：%@";
+"another “qmd embed” is running; try again when it has finished" = "另一个“qmd embed”正在运行，请等它结束后重试";
+"Preparing semantic search…" = "正在准备语义搜索…";
+"Preparing semantic search: embedding 1 document…" = "正在准备语义搜索：为 1 个文档生成嵌入…";
+"Preparing semantic search: embedding %lld documents…" = "正在准备语义搜索：为 %lld 个文档生成嵌入…";
+"Preparing semantic search: loading the models…" = "正在准备语义搜索：加载模型…";
+"Preparing semantic search: downloading qmd’s models (%@ of %@)…" = "正在准备语义搜索：下载 qmd 的模型（%1$@ / %2$@）…";
+"Preparing semantic search: embedding the folder’s documents…" = "正在准备语义搜索：为文件夹里的文档生成嵌入…";

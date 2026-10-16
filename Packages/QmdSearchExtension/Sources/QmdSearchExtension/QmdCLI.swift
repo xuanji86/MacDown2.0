@@ -86,9 +86,11 @@ struct QmdRunner: Sendable {
         return String(decoding: (try? handle.readToEnd()) ?? Data(), as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    /// The line that says what went wrong: Node's `Error: …`, else the last line qmd wrote.
+    /// The line that says what went wrong: Node's `Error: …`, else the last line qmd wrote (not its "run 'qmd doctor'" hint),
+    /// without terminal escapes (qmd hides the cursor even with NO_COLOR).
     static func gist(of stderr: String, status: Int32) -> String {
-        let lines = stderr.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        let lines = stderr.replacing(/\u{1B}\[[0-9;?]*[A-Za-z]/, with: "").split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty && !$0.contains("run 'qmd doctor'") }
         let line = lines.first { $0.hasPrefix("Error:") } ?? lines.last { !$0.hasPrefix("at ") && !$0.hasPrefix("Node.js") } ?? ""
         let text = line.isEmpty ? L10n.exitStatus(status) : line
         return text.count > 300 ? String(text.prefix(300)) + "…" : text
@@ -113,11 +115,27 @@ enum QmdParse {
     /// A collection is a line `name (qmd://name/)`, `[excluded]` after it when it is left out of default queries; its
     /// details are indented below.
     static func collectionNames(fromList text: String) -> [String] {
-        text.split(whereSeparator: \.isNewline).compactMap { line in
-            guard let first = line.first, !first.isWhitespace, let r = line.range(of: " (qmd://") else { return nil }
-            let name = String(line[..<r.lowerBound])
-            return line[r.upperBound...].hasPrefix(name + "/)") ? name : nil
+        text.split(whereSeparator: \.isNewline).compactMap(listedName)
+    }
+
+    /// The `Files:` count under each collection of `qmd collection list` (`Files:    4`).
+    static func fileCounts(fromList text: String) -> [String: Int] {
+        var counts: [String: Int] = [:]
+        var current: String?
+        for line in text.split(whereSeparator: \.isNewline) {
+            if let name = listedName(line) {
+                current = name
+            } else if let current, let match = line.firstMatch(of: /^\s+Files:\s+(\d+)/) {
+                counts[current] = Int(match.1)
+            }
         }
+        return counts
+    }
+
+    private static func listedName(_ line: Substring) -> String? {
+        guard let first = line.first, !first.isWhitespace, let r = line.range(of: " (qmd://") else { return nil }
+        let name = String(line[..<r.lowerBound])
+        return line[r.upperBound...].hasPrefix(name + "/)") ? name : nil
     }
 
     /// `qmd collection show <name>`: the folder (only shown here, not by `list`), the mask, and whether `qmd update` runs a
@@ -174,4 +192,6 @@ struct QmdCollection: Sendable, Equatable {
     var includedByDefault: Bool
     /// `qmd update` runs a shell command (`git pull`, …) for it before re-indexing.
     var hasUpdateCommand: Bool
+    /// How many files it holds (`collection list`); nil when not known.
+    var files: Int?
 }

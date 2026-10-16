@@ -9,6 +9,12 @@ struct SearchProviderTests {
         #expect(provider.id == "builtin" && provider.badge == L10n.builtinBadge)
         #expect(provider.capabilities == [.keyword, .regex, .allFiles])
         #expect(try await provider.prepare(workspace: URL(filePath: "/")) == .ready)
+        // Nothing to set up: semantic setup reads as ready and its commands do nothing.
+        await MainActor.run {
+            #expect(provider.semanticSetup(for: URL(filePath: "/")) == .ready)
+            provider.retrySemanticSetup(for: URL(filePath: "/"))
+            provider.cancelSemanticSetup(for: URL(filePath: "/"))
+        }
     }
 
     @Test func itSearchesThroughTheProtocolAndBadgesItsHits() async throws {
