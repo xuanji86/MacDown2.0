@@ -1,5 +1,6 @@
 import AppKit
 import Darwin
+import ExtensionAPI
 import Foundation
 
 /// A long-running child (`quarto preview`) in its own process group, stdout and stderr into one pipe. `quarto` is a bash script
@@ -39,49 +40,26 @@ final class QuartoChild: @unchecked Sendable {
     ) throws -> QuartoChild {
         installQuitHooks()
         var fds: [Int32] = [0, 0]
-        guard pipe(&fds) == 0 else { throw ProcessSpawnFailure(code: errno) }
+        guard pipe(&fds) == 0 else { throw ProcessSpawnError.launchFailed(errno: errno) }
         let (readEnd, writeEnd) = (fds[0], fds[1])
         _ = fcntl(readEnd, F_SETFD, FD_CLOEXEC)
         _ = fcntl(readEnd, F_SETFL, fcntl(readEnd, F_GETFL) | O_NONBLOCK)
 
-        var actions: posix_spawn_file_actions_t?
-        var attributes: posix_spawnattr_t?
-        posix_spawn_file_actions_init(&actions)
-        posix_spawnattr_init(&attributes)
-        defer {
-            posix_spawn_file_actions_destroy(&actions)
-            posix_spawnattr_destroy(&attributes)
-        }
-        posix_spawn_file_actions_addopen(&actions, 0, "/dev/null", O_RDONLY, 0)
-        posix_spawn_file_actions_adddup2(&actions, writeEnd, 1)
-        posix_spawn_file_actions_adddup2(&actions, writeEnd, 2)
-        posix_spawn_file_actions_addchdir(&actions, directory)
-        var defaultSignals = sigset_t(), noSignals = sigset_t()
-        sigfillset(&defaultSignals)
-        sigemptyset(&noSignals)
-        posix_spawnattr_setsigdefault(&attributes, &defaultSignals)
-        posix_spawnattr_setsigmask(&attributes, &noSignals)
-        posix_spawnattr_setpgroup(&attributes, 0)
-        posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_SETPGROUP | POSIX_SPAWN_SETSIGDEF | POSIX_SPAWN_SETSIGMASK | POSIX_SPAWN_CLOEXEC_DEFAULT))
-
-        var argv: [UnsafeMutablePointer<CChar>?] = ([executable] + arguments).map { strdup($0) } + [nil]
-        var envp: [UnsafeMutablePointer<CChar>?] = environment.map { strdup("\($0.key)=\($0.value)") } + [nil]
-        defer {
-            argv.forEach { free($0) }
-            envp.forEach { free($0) }
-        }
-
         // Registered under the lock together with the spawn, so a quit in between cannot miss it.
         registryLock.lock()
-        var spawned: pid_t = 0
-        let rc = posix_spawn(&spawned, executable, &actions, &attributes, &argv, &envp)
-        let pid = spawned
+        let spawned = Result {
+            try SystemProcessSpawner.spawnInNewGroup(
+                executable: executable, arguments: arguments, directory: directory, environment: environment, stdout: writeEnd, stderr: writeEnd)
+        }
         close(writeEnd)
-        guard rc == 0 else {
+        let pid: pid_t
+        do {
+            pid = try spawned.get()
+        } catch {
             registryLock.unlock()
             close(readEnd)
             if let logFile { try? FileManager.default.removeItem(at: logFile) }
-            throw ProcessSpawnFailure(code: rc)
+            throw error
         }
         let child = QuartoChild(pid: pid, queue: DispatchQueue(label: "quarto.child.\(pid)"))
         live[pid] = child
@@ -110,8 +88,7 @@ final class QuartoChild: @unchecked Sendable {
                 child.reaped = true
             }
             registryLock.withLock { _ = live.removeValue(forKey: pid) }
-            let signal = status & 0x7f
-            onExit((signal == 0 ? (status >> 8) & 0xff : 128 + signal, errors))
+            onExit((SystemProcessSpawner.exitStatus(status), errors))
         }
         exit.setEventHandler(handler: finish)
         child.readSource = read
@@ -202,11 +179,6 @@ final class QuartoChild: @unchecked Sendable {
         let children = registryLock.withLock { Array(live.values) }
         children.forEach { $0.signal(SIGKILL) }
     }
-}
-
-struct ProcessSpawnFailure: Error, LocalizedError {
-    let code: Int32
-    var errorDescription: String? { String(cString: strerror(code)) }
 }
 
 /// The `--log-format json-stream` log: one JSON object per line, `{"msg", "level", "levelName"}` (level 40 = ERROR, 50 = CRITICAL).

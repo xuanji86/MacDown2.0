@@ -107,37 +107,9 @@ public struct SystemProcessSpawner: ProcessSpawner {
                 throw CancellationError()
             }
 
-            var actions: posix_spawn_file_actions_t?
-            var attributes: posix_spawnattr_t?
-            posix_spawn_file_actions_init(&actions)
-            posix_spawnattr_init(&attributes)
-            defer {
-                posix_spawn_file_actions_destroy(&actions)
-                posix_spawnattr_destroy(&attributes)
-            }
-            posix_spawn_file_actions_addopen(&actions, 0, "/dev/null", O_RDONLY, 0)
-            posix_spawn_file_actions_adddup2(&actions, writeEnd, 1)
-            posix_spawn_file_actions_addopen(&actions, 2, "/dev/null", O_WRONLY, 0)
-            posix_spawn_file_actions_addchdir(&actions, directory)
-            var defaultSignals = sigset_t(), noSignals = sigset_t()
-            sigfillset(&defaultSignals)
-            sigemptyset(&noSignals)
-            posix_spawnattr_setsigdefault(&attributes, &defaultSignals)
-            posix_spawnattr_setsigmask(&attributes, &noSignals)
-            posix_spawnattr_setpgroup(&attributes, 0)
-            posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_SETPGROUP | POSIX_SPAWN_SETSIGDEF | POSIX_SPAWN_SETSIGMASK | POSIX_SPAWN_CLOEXEC_DEFAULT))
-
-            var argv: [UnsafeMutablePointer<CChar>?] = ([executable] + arguments).map { strdup($0) } + [nil]
-            var envp: [UnsafeMutablePointer<CChar>?] = environment.map { strdup("\($0.key)=\($0.value)") } + [nil]
-            defer {
-                argv.forEach { free($0) }
-                envp.forEach { free($0) }
-            }
-
-            var child: pid_t = 0
-            let rc = posix_spawn(&child, executable, &actions, &attributes, &argv, &envp)
+            let spawned = Result { try SystemProcessSpawner.spawnInNewGroup(executable: executable, arguments: arguments, directory: directory, environment: environment, stdout: writeEnd) }
             close(writeEnd)
-            guard rc == 0 else { throw ProcessSpawnError.launchFailed(errno: rc) }
+            let child = try spawned.get()
             lock.withLock {
                 pid = child
                 if terminated { kill(-child, SIGKILL) }
@@ -197,8 +169,77 @@ public struct SystemProcessSpawner: ProcessSpawner {
             }
             if tooLarge { throw ProcessSpawnError.outputTooLarge }
             if wasTerminated { throw CancellationError() }
-            let signal = status & 0x7f
-            return ProcessOutput(stdout: data, status: signal == 0 ? (status >> 8) & 0xff : 128 + signal)
+            return ProcessOutput(stdout: data, status: SystemProcessSpawner.exitStatus(status))
         }
+    }
+}
+
+extension SystemProcessSpawner {
+    /// `posix_spawn`s `executable` in `directory` as the leader of a new process group (so the group can be signalled as a whole):
+    /// stdin on /dev/null, stdout on `stdout`, stderr on `stderr` (nil: /dev/null), default signal handling with nothing blocked,
+    /// no other descriptor inherited. The caller keeps owning `stdout` / `stderr` and closes its copies.
+    public static func spawnInNewGroup(
+        executable: String, arguments: [String], directory: String, environment: [String: String], stdout: Int32, stderr: Int32? = nil
+    ) throws -> pid_t {
+        var actions: posix_spawn_file_actions_t?
+        var attributes: posix_spawnattr_t?
+        posix_spawn_file_actions_init(&actions)
+        posix_spawnattr_init(&attributes)
+        defer {
+            posix_spawn_file_actions_destroy(&actions)
+            posix_spawnattr_destroy(&attributes)
+        }
+        posix_spawn_file_actions_addopen(&actions, 0, "/dev/null", O_RDONLY, 0)
+        posix_spawn_file_actions_adddup2(&actions, stdout, 1)
+        if let stderr {
+            posix_spawn_file_actions_adddup2(&actions, stderr, 2)
+        } else {
+            posix_spawn_file_actions_addopen(&actions, 2, "/dev/null", O_WRONLY, 0)
+        }
+        posix_spawn_file_actions_addchdir(&actions, directory)
+        var defaultSignals = sigset_t(), noSignals = sigset_t()
+        sigfillset(&defaultSignals)
+        sigemptyset(&noSignals)
+        posix_spawnattr_setsigdefault(&attributes, &defaultSignals)
+        posix_spawnattr_setsigmask(&attributes, &noSignals)
+        posix_spawnattr_setpgroup(&attributes, 0)
+        posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_SETPGROUP | POSIX_SPAWN_SETSIGDEF | POSIX_SPAWN_SETSIGMASK | POSIX_SPAWN_CLOEXEC_DEFAULT))
+
+        var argv: [UnsafeMutablePointer<CChar>?] = ([executable] + arguments).map { strdup($0) } + [nil]
+        var envp: [UnsafeMutablePointer<CChar>?] = environment.map { strdup("\($0.key)=\($0.value)") } + [nil]
+        defer {
+            argv.forEach { free($0) }
+            envp.forEach { free($0) }
+        }
+
+        var child: pid_t = 0
+        let rc = posix_spawn(&child, executable, &actions, &attributes, &argv, &envp)
+        guard rc == 0 else { throw ProcessSpawnError.launchFailed(errno: rc) }
+        return child
+    }
+
+    /// A `waitpid` status as one number: the exit code, or 128 + the signal number when a signal killed the process.
+    public static func exitStatus(_ status: Int32) -> Int32 {
+        let signal = status & 0x7f
+        return signal == 0 ? (status >> 8) & 0xff : 128 + signal
+    }
+}
+
+/// `withTimeout` gave up: the time passed before the work finished.
+public struct TimeoutError: Error, LocalizedError, Equatable {
+    public init() {}
+    public var errorDescription: String? { "timed out" }
+}
+
+/// `work`, cancelled when `timeout` passes first (a `ProcessSpawner` then kills the process group), which throws `TimeoutError`.
+public func withTimeout<T: Sendable>(_ timeout: Duration, _ work: @escaping @Sendable () async throws -> T) async throws -> T {
+    try await withThrowingTaskGroup(of: T.self) { group in
+        group.addTask { try await work() }
+        group.addTask {
+            try await Task.sleep(for: timeout)
+            throw TimeoutError()
+        }
+        defer { group.cancelAll() }
+        return try await group.next()!
     }
 }

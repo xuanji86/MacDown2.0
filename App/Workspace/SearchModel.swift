@@ -58,8 +58,6 @@ final class SearchModel {
     @ObservationIgnored private let providerList: () -> [any SearchProvider]
     @ObservationIgnored private let scope: () -> (roots: [URL], files: FileTreeOptions)
     @ObservationIgnored private let debouncer = Debouncer(delay: .milliseconds(200))
-    /// qmd starts a process per search: typing waits a little longer while an extension provider is on.
-    @ObservationIgnored private let extensionDebouncer = Debouncer(delay: .milliseconds(250))
     @ObservationIgnored private(set) var task: Task<Void, Never>?
     @ObservationIgnored private var generation = 0
     /// The scope the current results (or the running search) belong to.
@@ -75,7 +73,13 @@ final class SearchModel {
     var providerIDs: [String] { providers.map(\.id) }
     /// A provider can search by meaning: Return in the field and the sparkles button do that. Not with "All" file types,
     /// which only the built-in search covers.
-    var supportsSemantic: Bool { !scope().files.showAllFiles && providers.contains { $0.capabilities.contains(.semantic) } }
+    var supportsSemantic: Bool { canSearchSemantically(files: scope().files) }
+
+    /// Regardless of the regular-expression switch, which only greys the sparkles button out.
+    private func canSearchSemantically(files: FileTreeOptions) -> Bool {
+        let semantic = SearchQuery(text: query, files: files, isSemantic: true)
+        return providers.contains { $0.canRun(semantic) }
+    }
 
     /// The folders being searched, as the page names them ("MyBook"); "" with none. Reads the sidebar's state, so a view
     /// that shows it follows the workspace.
@@ -107,24 +111,22 @@ final class SearchModel {
             cancelDebounce()
             clear()
         } else {
-            (providers.count > 1 ? extensionDebouncer : debouncer).submit { [weak self] in self?.start() }
+            // qmd starts a process per search: typing waits a little longer while an extension provider is on.
+            debouncer.submit(after: providers.count > 1 ? .milliseconds(250) : nil) { [weak self] in self?.start() }
         }
     }
 
-    private func cancelDebounce() {
-        debouncer.cancel()
-        extensionDebouncer.cancel()
-    }
+    private func cancelDebounce() { debouncer.cancel() }
 
     /// The search page came on screen: extension providers may look for their tool and ask their questions now (PLAN 4.12:
     /// qmd's detection, consent and collection registration happen on the first opening, not at launch).
     func prepareProviders() {
         let roots = scope().roots
-        let pending = providers.filter { $0.id != BuiltinSearchBackend.providerID }
-        guard !roots.isEmpty, !pending.isEmpty else { return }
+        let providers = providers
+        guard !roots.isEmpty else { return }
         Task { [weak self] in
             var reasons: [String] = []
-            for provider in pending {
+            for provider in providers {
                 for root in roots {
                     if case .unavailable(let reason)? = try? await provider.prepare(workspace: root), !reason.isEmpty { reasons.append(reason) }
                 }
@@ -159,7 +161,7 @@ final class SearchModel {
         cancelDebounce()
         let (roots, files) = scope()
         var q = currentQuery(files: files)
-        q.isSemantic = semantic && !q.isRegex && !files.showAllFiles
+        q.isSemantic = semantic && !q.isRegex && canSearchSemantically(files: files)
         isSemantic = q.isSemantic
         searchedScope = SearchScopeSnapshot(roots: roots.map(\.fileKey), files: files, providers: providerIDs)
         guard !q.isBlank else { clear(); return }
@@ -209,14 +211,12 @@ final class SearchModel {
         }
 
         outer: for root in roots {
-            for provider in providers {
+            let providers = providers
+            for (index, provider) in providers.enumerated() {
                 if Task.isCancelled { return }
-                let isCore = provider.id == BuiltinSearchBackend.providerID
                 // Only the built-in search does regular expressions and "All" file types (an extension's index has its own
                 // set of files); a semantic search goes to a provider that can do it, or nowhere.
-                if q.isRegex && !provider.capabilities.contains(.regex) { continue }
-                if q.files.showAllFiles && !isCore { continue }
-                if q.isSemantic && !provider.capabilities.contains(.semantic) { continue }
+                if !provider.canRun(q) { continue }
                 var sub = q
                 sub.limit = max(remaining, 0)
                 var found = 0
@@ -243,8 +243,9 @@ final class SearchModel {
                     break outer
                 } catch {
                     if Task.isCancelled { return }
-                    // An extension's keyword search failed before finding anything: the built-in search answers instead.
-                    if !isCore, !q.isSemantic, found == 0 {
+                    // A search failed before finding anything and a provider after it can take the query (the built-in one
+                    // for an extension's keyword search): that one answers instead.
+                    if found == 0, providers[(index + 1)...].contains(where: { $0.canRun(q) }) {
                         reasons.append(error.localizedDescription)
                         continue
                     }

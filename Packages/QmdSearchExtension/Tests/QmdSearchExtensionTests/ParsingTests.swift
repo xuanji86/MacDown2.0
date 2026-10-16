@@ -58,7 +58,7 @@ struct ParsingTests {
     @Test func resultsBecomeHitsInTheWorkspaceAsTheCallerSpellsIt() throws {
         let results = try QmdParse.results(try fixture("search.json"))
         let workspace = URL(filePath: "/tmp/md2-qmd-fixture/ws/", directoryHint: .isDirectory)
-        let hits = results.compactMap { QmdMapping.hit($0, workspace: workspace, realRoot: "/private/tmp/md2-qmd-fixture/ws", query: "capacitor", source: "qmd") }
+        let hits = results.compactMap { QmdMapping.hit($0, workspace: workspace, realRoot: "/private/tmp/md2-qmd-fixture/ws", terms: QmdMapping.terms(of: "capacitor"), source: "qmd") }
         #expect(hits.map(\.file.path) == ["/tmp/md2-qmd-fixture/ws/alpha.md", "/tmp/md2-qmd-fixture/ws/notes/gamma.markdown", "/tmp/md2-qmd-fixture/ws/notes/beta.qmd"])
         #expect(hits.map(\.line) == [3, 1, 7])
         #expect(hits[0].snippet == "This file talks about the quantum flux capacitor.")
@@ -66,7 +66,7 @@ struct ParsingTests {
         #expect(hits.allSatisfy { $0.source == "qmd" && $0.columns == nil })
 
         let cjk = try QmdParse.results(try fixture("search-cjk.json")).compactMap {
-            QmdMapping.hit($0, workspace: workspace, realRoot: "/private/tmp/md2-qmd-fixture/ws", query: "中文测试", source: "qmd")
+            QmdMapping.hit($0, workspace: workspace, realRoot: "/private/tmp/md2-qmd-fixture/ws", terms: QmdMapping.terms(of: "中文测试"), source: "qmd")
         }
         #expect(cjk.map(\.line) == [8])
         #expect(cjk.first.map { ($0.snippet as NSString).substring(with: NSRange($0.highlights[0])) } == "中文测试")
@@ -76,7 +76,7 @@ struct ParsingTests {
         // A user's collection on a parent folder also finds files next to the workspace.
         let workspace = URL(filePath: "/notes/book")
         func hit(_ file: String) -> SearchHit? {
-            QmdMapping.hit(QmdParse.Result(file: file, line: 1, snippet: "@@ -1,1 @@ (0 before, 0 after)\nx\n"), workspace: workspace, realRoot: "/notes/book", query: "x", source: "qmd")
+            QmdMapping.hit(QmdParse.Result(file: file, line: 1, snippet: "@@ -1,1 @@ (0 before, 0 after)\nx\n"), workspace: workspace, realRoot: "/notes/book", terms: QmdMapping.terms(of: "x"), source: "qmd")
         }
         #expect(hit("/notes/book/a.md")?.file.path == "/notes/book/a.md")
         #expect(hit("/notes/other.md") == nil)

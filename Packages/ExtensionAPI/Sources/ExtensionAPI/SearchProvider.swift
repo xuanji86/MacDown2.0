@@ -9,6 +9,18 @@ public struct SearchCapabilities: OptionSet, Sendable {
     public static let semantic = SearchCapabilities(rawValue: 2)
     /// Takes `SearchQuery.isRegex` queries.
     public static let regex = SearchCapabilities(rawValue: 4)
+    /// Covers every file type ("All" in the file filter), not only the files an index of its own holds.
+    public static let allFiles = SearchCapabilities(rawValue: 8)
+}
+
+extension SearchQuery {
+    /// What a provider must be able to do to answer this query.
+    public var requiredCapabilities: SearchCapabilities {
+        var needed: SearchCapabilities = isSemantic ? .semantic : .keyword
+        if isRegex { needed.insert(.regex) }
+        if files.showAllFiles { needed.insert(.allFiles) }
+        return needed
+    }
 }
 
 /// A right-click command a provider offers on a folder in the sidebar (qmd: stop indexing it).
@@ -47,12 +59,15 @@ public protocol SearchProvider: Sendable {
 
 extension SearchProvider {
     public func folderActions(for folder: URL) -> [SearchFolderAction] { [] }
+
+    /// This provider can answer `query`.
+    public func canRun(_ query: SearchQuery) -> Bool { capabilities.isSuperset(of: query.requiredCapabilities) }
 }
 
 extension BuiltinSearchBackend: SearchProvider {
     public var id: String { Self.providerID }
     public var badge: String { L10n.builtinBadge }
-    public var capabilities: SearchCapabilities { [.keyword, .regex] }
+    public var capabilities: SearchCapabilities { [.keyword, .regex, .allFiles] }
     public func prepare(workspace: URL) async throws -> SearchReadiness { .ready }
     public func cancelAll() async { cancel() }
 }

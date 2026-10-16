@@ -27,9 +27,10 @@ public enum QuartoLookup: Sendable, Equatable {
 /// PATH, then the usual install directories; each candidate must answer `quarto --version` with 1.4 or later. Runs only when the user
 /// switches to the real render or opens the extension's settings, never at launch.
 enum QuartoLocator {
-    static let minimumVersion = [1, 4]
-    /// Looked at after the login shell's PATH, in this order.
-    static let fallbackDirectories = ["/opt/homebrew/bin", "/usr/local/bin", "/Applications/quarto/bin", "~/.local/bin"]
+    static let minimumVersion: ToolVersion = [1, 4]
+    /// Looked at after the login shell's PATH, in this order: the app's fallback PATH entries, with the Quarto installer's folder
+    /// right after /usr/local/bin (whose `quarto` is usually a link into it).
+    static let fallbackDirectories = LoginShellEnvironment.fallbackPathEntries.flatMap { $0 == "/usr/local/bin" ? [$0, "/Applications/quarto/bin"] : [$0] }
 
     /// `spawner` runs `quarto --version` (in the tool environment); `timeout` is per candidate (a cold Deno start takes ~0.5 s).
     static func locate(
@@ -38,84 +39,47 @@ enum QuartoLocator {
     ) async -> QuartoLookup {
         if let manual = manualPath?.trimmingCharacters(in: .whitespacesAndNewlines), !manual.isEmpty {
             let path = (manual as NSString).expandingTildeInPath
-            guard isExecutableFile(path) else { return .notFound(L10n.notExecutable(path)) }
-            switch await check(path, source: .manual, spawner: spawner, home: home, timeout: timeout) {
-            case .success(let location): return .found(location)
-            case .failure(let reason): return .notFound(reason.text)
-            }
+            guard ToolEnvironmentSnapshot.isTool(atPath: path) else { return .notFound(L10n.notExecutable(path)) }
+            return await check(path, source: .manual, spawner: spawner, home: home, timeout: timeout)
         }
         var candidates: [(path: String, source: QuartoLocation.Source)] = []
         if let onPath = environment.which("quarto") { candidates.append((onPath, .loginPath)) }
         for directory in fallbackDirectories {
-            let expanded = directory.hasPrefix("~/") ? home + directory.dropFirst(1) : directory
-            let path = (expanded as NSString).appendingPathComponent("quarto")
-            if isExecutableFile(path) { candidates.append((path, .fallbackDirectory)) }
+            let path = (LoginShellEnvironment.expandHome(directory, home: home) as NSString).appendingPathComponent("quarto")
+            if ToolEnvironmentSnapshot.isTool(atPath: path) { candidates.append((path, .fallbackDirectory)) }
         }
         // /usr/local/bin/quarto is usually a link to /Applications/quarto/bin/quarto: ask each real file once.
         var seen = Set<String>()
         candidates = candidates.filter { seen.insert(URL(filePath: $0.path).resolvingSymlinksInPath().path).inserted }
         var firstProblem: String?
         for candidate in candidates {
-            switch await check(candidate.path, source: candidate.source, spawner: spawner, home: home, timeout: timeout) {
-            case .success(let location): return .found(location)
-            case .failure(let reason): firstProblem = firstProblem ?? reason.text
-            }
+            let lookup = await check(candidate.path, source: candidate.source, spawner: spawner, home: home, timeout: timeout)
+            guard case .notFound(let reason) = lookup else { return lookup }
+            firstProblem = firstProblem ?? reason
         }
         return .notFound(firstProblem ?? L10n.quartoNotFound)
     }
 
-    struct Problem: Error { let text: String }
-
-    private static func check(_ path: String, source: QuartoLocation.Source, spawner: any ProcessSpawner, home: String, timeout: Duration) async -> Result<QuartoLocation, Problem> {
+    /// `quarto --version` at `path`: found when it answers with a supported version, else why not.
+    private static func check(_ path: String, source: QuartoLocation.Source, spawner: any ProcessSpawner, home: String, timeout: Duration) async -> QuartoLookup {
         let output: ProcessOutput
         do {
             output = try await withTimeout(timeout) { try await spawner.run(executable: path, arguments: ["--version"], directory: home) }
         } catch {
-            return .failure(Problem(text: L10n.versionFailed(path, error.localizedDescription)))
+            return .notFound(L10n.versionFailed(path, error.localizedDescription))
         }
         let text = String(decoding: output.stdout, as: UTF8.self)
         guard output.status == 0, let version = parseVersion(text) else {
-            return .failure(Problem(text: L10n.versionFailed(path, "exit status \(output.status)")))
+            return .notFound(L10n.versionFailed(path, "exit status \(output.status)"))
         }
-        let shown = version.map(String.init).joined(separator: ".")
-        guard isSupported(version) else { return .failure(Problem(text: L10n.tooOld(shown, path))) }
-        return .success(QuartoLocation(path: path, version: shown, source: source))
+        guard isSupported(version) else { return .notFound(L10n.tooOld(version.description, path)) }
+        return .found(QuartoLocation(path: path, version: version.description, source: source))
     }
 
     /// "1.10.19" (what `quarto --version` prints, maybe after other lines) → [1, 10, 19]; nil when no line is a version.
-    static func parseVersion(_ output: String) -> [Int]? {
-        for line in output.split(whereSeparator: \.isNewline).reversed() {
-            let parts = line.trimmingCharacters(in: .whitespaces).split(separator: ".")
-            guard parts.count >= 2 else { continue }
-            let numbers = parts.compactMap { Int($0) }
-            if numbers.count == parts.count { return numbers }
-        }
-        return nil
+    static func parseVersion(_ output: String) -> ToolVersion? {
+        output.split(whereSeparator: \.isNewline).reversed().lazy.compactMap { ToolVersion($0.trimmingCharacters(in: .whitespaces)) }.first
     }
 
-    static func isSupported(_ version: [Int]) -> Bool {
-        version.lexicographicallyPrecedes(minimumVersion) == false
-    }
-
-    private static func isExecutableFile(_ path: String) -> Bool {
-        var isDirectory: ObjCBool = false
-        return FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory) && !isDirectory.boolValue && FileManager.default.isExecutableFile(atPath: path)
-    }
-}
-
-struct TimedOut: Error, LocalizedError {
-    var errorDescription: String? { "timed out" }
-}
-
-/// `work`, cancelled (the spawner then kills the process) when `timeout` passes first.
-func withTimeout<T: Sendable>(_ timeout: Duration, _ work: @escaping @Sendable () async throws -> T) async throws -> T {
-    try await withThrowingTaskGroup(of: T.self) { group in
-        group.addTask { try await work() }
-        group.addTask {
-            try await Task.sleep(for: timeout)
-            throw TimedOut()
-        }
-        defer { group.cancelAll() }
-        return try await group.next()!
-    }
+    static func isSupported(_ version: ToolVersion) -> Bool { version.isAtLeast(minimumVersion) }
 }

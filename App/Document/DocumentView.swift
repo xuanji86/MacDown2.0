@@ -43,7 +43,7 @@ struct DocumentView: View {
         let tabURL = fileURL
         let fileURL: URL? = tabURL.isUntitled ? nil : tabURL  // an untitled document has no folder to resolve images or includes in
         let flavor = AppExtensions.flavor(for: fileURL)  // observable: re-evaluated when an extension is switched
-        let alternateMode = fileURL == nil ? nil : flavor?.alternatePreviewMode
+        let alternateMode = AlternatePreviewState.mode(of: flavor, fileURL: fileURL)
         let alternate = document.alternatePreview
         let actions = WindowActions(
             editor: editor, layout: layout, setLayout: setLayout,
@@ -56,7 +56,7 @@ struct DocumentView: View {
             alternatePreview: alternateMode.flatMap { mode in
                 fileURL.map { url in
                     AlternatePreviewCommand(title: mode.commandTitle, isOn: alternate.isActive) { [model] in
-                        if alternate.isActive { alternate.switchOff() } else { alternate.switchOn(mode, fileURL: url, window: model.window) }
+                        alternate.toggle(mode, fileURL: url, window: model.window)
                     }
                 }
             }

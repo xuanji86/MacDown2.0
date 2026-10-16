@@ -9,9 +9,10 @@ public final class Debouncer {
 
     public init(delay: Duration) { self.delay = delay }
 
-    public func submit(_ action: @escaping @MainActor () -> Void) {
+    /// - Parameter delay: this time's wait instead of the one given to `init`.
+    public func submit(after delay: Duration? = nil, _ action: @escaping @MainActor () -> Void) {
         task?.cancel()
-        task = Task { [delay] in
+        task = Task { [delay = delay ?? self.delay] in
             try? await Task.sleep(for: delay)
             guard !Task.isCancelled else { return }
             action()

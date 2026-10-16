@@ -21,6 +21,17 @@ final class AlternatePreviewState {
     /// The real render is on (starting, showing, or failed with its banner up).
     var isActive: Bool { session?.status.isActive == true }
 
+    /// The real render `flavor` offers for the document at `fileURL`; none for an untitled document (no file for the tool to render).
+    static func mode(of flavor: (any DocumentFlavor)?, fileURL: URL?) -> (any AlternatePreviewMode)? {
+        fileURL == nil ? nil : flavor?.alternatePreviewMode
+    }
+
+    /// The menu item and the `Approximate | <title>` switch: back to the app's own preview when the real render is on, else
+    /// `switchOn`.
+    func toggle(_ mode: any AlternatePreviewMode, fileURL: URL, window: NSWindow?) {
+        if isActive { switchOff() } else { switchOn(mode, fileURL: fileURL, window: window) }
+    }
+
     /// The user switched the preview to `mode` (segmented control, menu item). Never called by anything else: nothing starts by itself.
     /// Looks for the tool first (an alert when it is missing), then asks before running the document's code, once per document session.
     /// A `switchOff` while that is under way cancels it, and nothing is started after a cancel.
@@ -91,7 +102,7 @@ struct AlternatePreviewBar: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            Picker(selection: Binding(get: { state.isActive }, set: { on in on ? switchOn() : state.switchOff() })) {
+            Picker(selection: Binding(get: { state.isActive }, set: { on in if on != state.isActive { toggle() } })) {
                 Text("Approximate").tag(false)
                 Text(verbatim: mode.title).tag(true)
             } label: {
@@ -123,8 +134,8 @@ struct AlternatePreviewBar: View {
         }
     }
 
-    private func switchOn() {
-        state.switchOn(mode, fileURL: fileURL, window: NSApp.keyWindow)
+    private func toggle() {
+        state.toggle(mode, fileURL: fileURL, window: NSApp.keyWindow)
     }
 
     @ViewBuilder private func status(_ session: any AlternatePreviewSession) -> some View {

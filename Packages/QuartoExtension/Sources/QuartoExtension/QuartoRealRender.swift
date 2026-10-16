@@ -147,11 +147,13 @@ public final class QuartoRealRender: AlternatePreviewMode {
     /// Sessions with a process (tests).
     var runningSessions: Int { sessions.values.filter { $0.status.isActive }.count }
 
-    /// Stops every document's preview (switch off, extension off). Sessions stay known; they are stopped, not running.
+    /// Stops every document's preview at once (switch off, extension off) and forgets the sessions: the next start makes new ones.
     func stopAll() async {
         let running = Array(sessions.values)
         sessions = [:]
-        for session in running { await session.stop() }
+        await withTaskGroup(of: Void.self) { group in
+            for session in running { group.addTask { await session.stop() } }
+        }
     }
 }
 
@@ -181,9 +183,7 @@ final class QuartoPreviewSession: AlternatePreviewSession {
 
     /// The live process's log, read now: error entries from its JSON log file, else the end of what it printed.
     private func liveLogText(_ process: QuartoPreviewProcess) -> String {
-        let errors = QuartoLog.errors(in: process.logFile)
-        let lines = errors.isEmpty ? process.console.lines : errors
-        return lines.isEmpty ? L10n.emptyLog : lines.joined(separator: "\n")
+        QuartoPreviewProcess.logText(errors: QuartoLog.errors(in: process.logFile), console: process.console)
     }
 
     func start() async {
@@ -191,11 +191,13 @@ final class QuartoPreviewSession: AlternatePreviewSession {
         status = .starting
         url = nil
         lastLog = nil
-        guard case .found(let location) = await owner.probe() else {
-            if case .notFound(let reason) = owner.lookup ?? .notFound(L10n.quartoNotFound) {
-                lastLog = reason
-                status = .failed(reason)
-            }
+        let location: QuartoLocation
+        switch await owner.probe() {
+        case .found(let found):
+            location = found
+        case .notFound(let reason):
+            lastLog = reason
+            status = .failed(reason)
             return
         }
         // Stopped while looking.

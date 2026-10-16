@@ -78,9 +78,8 @@ actor QmdEngine {
     }
 
     private let deps: Dependencies
-    private var tool: QmdTool?
-    private var toolManualPath: String?
-    private var toolTask: Task<QmdTool, Never>?
+    /// The last look for qmd (finished or still running) and the Settings path it was for.
+    private var tool: (manualPath: String, task: Task<QmdTool, Never>)?
     /// By the workspace folder's realpath.
     private var slots: [String: Slot] = [:]
     /// Collections `qmd update` would run a shell command for: while there are any, the app never runs `qmd update`.
@@ -88,6 +87,8 @@ actor QmdEngine {
     private var updateTask: Task<Void, Never>?
     private var embedTask: Task<String?, Never>?
     private var embedLoop: Task<Void, Never>?
+    /// Counts `updateEmbedLoop` calls, so only the one that read the newest settings acts.
+    private var embedLoopCheck = 0
     private var lastEmbed: ContinuousClock.Instant?
     private var shutDown = false
 
@@ -98,18 +99,11 @@ actor QmdEngine {
     /// The tool, looked for once (again when the Settings path changed, or `force`). The first call reads the login shell.
     func detect(force: Bool = false) async -> QmdTool {
         let manual = await deps.options().manualPath.trimmingCharacters(in: .whitespaces)
-        if !force, let tool, toolManualPath == manual { return tool }
-        if !force, let toolTask, toolManualPath == manual { return await toolTask.value }
+        if !force, let tool, tool.manualPath == manual { return await tool.task.value }
         if force { resetUnavailable() }
         let task = Task { await self.probe(manualPath: manual) }
-        toolTask = task
-        toolManualPath = manual
-        let found = await task.value
-        if toolManualPath == manual {
-            tool = found
-            toolTask = nil
-        }
-        return found
+        tool = (manual, task)
+        return await task.value
     }
 
     private func probe(manualPath: String) async -> QmdTool {
@@ -119,8 +113,7 @@ actor QmdEngine {
             let output = try await runner(path: path, environment: snapshot.environment).run(["--version"], timeout: Self.shortTimeout)
             let text = String(decoding: output.stdout, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
             guard let version = QmdParse.version(text) else { return .broken(path: path, message: L10n.unknownVersion(text)) }
-            let name = version.map(String.init).joined(separator: ".")
-            return QmdParse.isSupported(version) ? .found(path: path, version: name) : .unsupported(path: path, version: name)
+            return QmdParse.isSupported(version) ? .found(path: path, version: version.description) : .unsupported(path: path, version: version.description)
         } catch {
             return .broken(path: path, message: error.localizedDescription)
         }
@@ -132,9 +125,10 @@ actor QmdEngine {
         return QmdRunner(executable: path, environment: environment, makeSpawner: deps.makeSpawner)
     }
 
-    /// A runner for the qmd that was found; throws when there is none.
-    private func runner() async throws -> QmdRunner {
-        let tool = await detect()
+    /// A runner for the qmd that was found; throws (with the note that says why) when there is none.
+    private func runner() async throws -> QmdRunner { try await runner(for: await detect()) }
+
+    private func runner(for tool: QmdTool) async throws -> QmdRunner {
         guard case .found(let path, _) = tool else { throw QmdError.failed(status: 127, message: L10n.note(for: tool)) }
         return runner(path: path, environment: await deps.environment.snapshot().environment)
     }
@@ -183,7 +177,7 @@ actor QmdEngine {
     private func findOrRegister(_ workspace: URL, realRoot: String) async throws -> SearchReadiness {
         let tool = await detect()
         guard case .found = tool else { return .unavailable(L10n.note(for: tool)) }
-        let runner = try await runner()
+        let runner = try await runner(for: tool)
         let collections = try await listCollections(runner)
         updatesBlockedBy = collections.filter(\.hasUpdateCommand).map(\.name)
         try Task.checkCancellation()
@@ -194,7 +188,7 @@ actor QmdEngine {
             // Ours but still in the user's default queries: a registration that was interrupted before `exclude`.
             if owned, existing.includedByDefault { _ = try await runner.run(["collection", "exclude", existing.name], timeout: Self.shortTimeout) }
             // Nothing is known about how fresh it is: the first search runs `qmd update`.
-            adopt(workspace, realRoot: realRoot, Prepared(workspaceKey: workspace.fileKey, collection: existing.name, owned: owned, parent: !exact, dirty: true))
+            await adopt(workspace, realRoot: realRoot, Prepared(workspaceKey: workspace.fileKey, collection: existing.name, owned: owned, parent: !exact, dirty: true))
             return .ready
         }
 
@@ -225,12 +219,12 @@ actor QmdEngine {
             }
             // Kept out of the user's own `qmd search` / `qmd query` without `-c` (and their agents').
             _ = try await runner.run(["collection", "exclude", name], timeout: Self.shortTimeout)
-            adopt(workspace, realRoot: realRoot, Prepared(workspaceKey: workspace.fileKey, collection: name, owned: true, dirty: false, lastUpdate: .now))
+            await adopt(workspace, realRoot: realRoot, Prepared(workspaceKey: workspace.fileKey, collection: name, owned: true, dirty: false, lastUpdate: .now))
             return .ready
         }
     }
 
-    private func adopt(_ workspace: URL, realRoot: String, _ prepared: Prepared) {
+    private func adopt(_ workspace: URL, realRoot: String, _ prepared: Prepared) async {
         var prepared = prepared
         if deps.watchFolders {
             // `ignoreSelf: false`: the app's own saves change the files qmd indexes too.
@@ -242,21 +236,32 @@ actor QmdEngine {
         }
         slots[realRoot] = .ready(prepared)
         publishOwned()
-        startEmbedLoop()
+        await updateEmbedLoop()
     }
 
     /// `qmd collection list` has no JSON (2.8.3 ignores `--format json` there) and does not print folders, so each
-    /// collection is looked up with `qmd collection show`.
-    // lazy: one process per collection (~0.2 s each); upgrade: read qmd's YAML config, or a JSON listing if qmd grows one
+    /// collection is looked up with `qmd collection show`, a few at a time; the result keeps the listing's order.
+    // lazy: one process per collection (~0.2 s each), 4 at once; upgrade: read qmd's YAML config, or a JSON listing if qmd grows one
     private func listCollections(_ runner: QmdRunner) async throws -> [QmdCollection] {
         let list = try await runner.run(["collection", "list"], timeout: Self.shortTimeout)
-        var collections: [QmdCollection] = []
-        for name in QmdParse.collectionNames(fromList: String(decoding: list.stdout, as: UTF8.self)) {
-            try Task.checkCancellation()
-            let show = try await runner.run(["collection", "show", name], timeout: Self.shortTimeout)
-            if let collection = QmdParse.collection(named: name, fromShow: String(decoding: show.stdout, as: UTF8.self)) { collections.append(collection) }
+        let names = QmdParse.collectionNames(fromList: String(decoding: list.stdout, as: UTF8.self))
+        var shown = [QmdCollection?](repeating: nil, count: names.count)
+        try await withThrowingTaskGroup(of: (Int, QmdCollection?).self) { group in
+            func show(_ index: Int) {
+                group.addTask {
+                    try Task.checkCancellation()
+                    let show = try await runner.run(["collection", "show", names[index]], timeout: Self.shortTimeout)
+                    return (index, QmdParse.collection(named: names[index], fromShow: String(decoding: show.stdout, as: UTF8.self)))
+                }
+            }
+            var next = 0
+            while next < min(4, names.count) { show(next); next += 1 }
+            while let (index, collection) = try await group.next() {
+                shown[index] = collection
+                if next < names.count { show(next); next += 1 }
+            }
         }
-        return collections
+        return shown.compactMap(\.self)
     }
 
     private func indexPath() async -> String {
@@ -345,8 +350,9 @@ actor QmdEngine {
         // The sidebar's ignore rules apply here too (qmd's mask knows nothing of `_site`, `*_files`, …).
         let base = workspace.pathComponents.count
         let results = try QmdParse.results(output.stdout)
+        let terms = QmdMapping.terms(of: query.text)
         let inWorkspace = results.compactMap {
-            QmdMapping.hit($0, workspace: workspace, realRoot: realRoot, query: query.text, source: QmdSearchProvider.providerID)
+            QmdMapping.hit($0, workspace: workspace, realRoot: realRoot, terms: terms, source: QmdSearchProvider.providerID)
         }
         // Every one of a full page was elsewhere in the parent collection: this folder's matches may be further down.
         if prepared.parent, inWorkspace.isEmpty, results.count >= count { throw QmdError.failed(status: 0, message: L10n.crowdedOut) }
@@ -381,14 +387,25 @@ actor QmdEngine {
 
     // MARK: Embeddings (semantic search only)
 
-    /// Every 5 minutes, while semantic search and "embed when idle" are on: `qmd embed` for the prepared collections when
-    /// the Mac has been idle for 2 minutes, runs on power or more than half its battery, and the last run is 30 minutes ago.
-    private func startEmbedLoop() {
-        guard embedLoop == nil else { return }
-        embedLoop = Task { [weak self] in
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(300))
-                await self?.embedIfIdle()
+    /// Every 5 minutes, while semantic search and "embed when idle" are on and a folder is prepared: `qmd embed` for the
+    /// prepared collections when the Mac has been idle for 2 minutes, runs on power or more than half its battery, and the
+    /// last run is 30 minutes ago. Called when a folder is prepared and when either setting changes: the loop only runs
+    /// while it could embed something.
+    func updateEmbedLoop() async {
+        embedLoopCheck += 1
+        let check = embedLoopCheck
+        let options = await deps.options()
+        guard check == embedLoopCheck else { return }  // a later call read newer settings
+        let prepared = slots.values.contains { if case .ready = $0 { true } else { false } }
+        if !options.semantic || !options.autoEmbed || shutDown || !prepared {
+            embedLoop?.cancel()
+            embedLoop = nil
+        } else if embedLoop == nil {
+            embedLoop = Task { [weak self] in
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: .seconds(300))
+                    await self?.embedIfIdle()
+                }
             }
         }
     }
@@ -409,7 +426,8 @@ actor QmdEngine {
             return nil
         })
         guard !names.isEmpty else { return L10n.nothingToEmbed }
-        guard let runner = try? await runner() else { return L10n.note(for: tool ?? .notFound(manualPath: nil)) }
+        let runner: QmdRunner
+        do { runner = try await self.runner() } catch { return error.localizedDescription }
         let task = Task { () -> String? in
             for name in names.sorted() {
                 do {
@@ -431,7 +449,7 @@ actor QmdEngine {
 
     /// Stops every qmd process this engine started (their process groups are killed); prepared folders stay prepared.
     func cancelAll() {
-        toolTask?.cancel()
+        tool?.task.cancel()
         updateTask?.cancel()
         embedTask?.cancel()
         for case .preparing(let task) in slots.values { task.cancel() }
@@ -447,7 +465,4 @@ actor QmdEngine {
         slots = [:]
         deps.publishOwned([:])
     }
-
-    /// What the settings pane shows.
-    var status: (tool: QmdTool?, updatesBlockedBy: [String]) { (tool, updatesBlockedBy) }
 }
