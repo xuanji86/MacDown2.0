@@ -21,7 +21,7 @@ struct EngineTests {
         let hits = try await collect(provider.search(SearchQuery(text: "-x needle"), in: workspace))
         #expect(hits.map(\.file.lastPathComponent) == ["ch1.md"])  // elsewhere.md is outside the workspace
         #expect(hits.first?.line == 4 && hits.first?.snippet == "the needle here")
-        #expect(qmd.commands.last == ["search", "-c", "notes", "-n", "50", "--format", "json", "--full-path", "--", "-x needle"])
+        #expect(qmd.commands.last == ["search", "-c", "notes", "-n", "500", "--format", "json", "--full-path", "--", "-x needle"])
         #expect(qmd.lastEnvironment?["NO_COLOR"] == "1" && qmd.lastEnvironment?["PATH"]?.contains("/usr/bin") == true)
         #expect(provider.folderActions(for: workspace).isEmpty)  // not ours: nothing to remove
     }

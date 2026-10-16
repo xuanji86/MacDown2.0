@@ -26,6 +26,7 @@ enum L10n {
 
     static func semanticFailed(_ message: String) -> String { String(localized: "Semantic search failed: \(message)", bundle: .module) }
     static func timedOut(_ seconds: Int64) -> String { String(localized: "qmd did not answer within \(seconds) s", bundle: .module) }
+    static var crowdedOut: String { String(localized: "qmd’s best matches are all outside this folder (its collection covers a parent folder)", bundle: .module) }
     static var badOutput: String { String(localized: "qmd’s answer could not be read", bundle: .module) }
     static func exitStatus(_ status: Int32) -> String { String(localized: "qmd exited with status \(status)", bundle: .module) }
 

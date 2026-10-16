@@ -73,8 +73,9 @@ final class SearchModel {
     var providers: [any SearchProvider] { providerList() }
     /// Changes when an extension adds or removes its provider: the page starts over then.
     var providerIDs: [String] { providers.map(\.id) }
-    /// A provider can search by meaning: Return in the field and the sparkles button do that.
-    var supportsSemantic: Bool { providers.contains { $0.capabilities.contains(.semantic) } }
+    /// A provider can search by meaning: Return in the field and the sparkles button do that. Not with "All" file types,
+    /// which only the built-in search covers.
+    var supportsSemantic: Bool { !scope().files.showAllFiles && providers.contains { $0.capabilities.contains(.semantic) } }
 
     /// The folders being searched, as the page names them ("MyBook"); "" with none. Reads the sidebar's state, so a view
     /// that shows it follows the workspace.
@@ -158,7 +159,7 @@ final class SearchModel {
         cancelDebounce()
         let (roots, files) = scope()
         var q = currentQuery(files: files)
-        q.isSemantic = semantic && !q.isRegex
+        q.isSemantic = semantic && !q.isRegex && !files.showAllFiles
         isSemantic = q.isSemantic
         searchedScope = SearchScopeSnapshot(roots: roots.map(\.fileKey), files: files, providers: providerIDs)
         guard !q.isBlank else { clear(); return }

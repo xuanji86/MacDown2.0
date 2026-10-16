@@ -63,6 +63,8 @@ actor QmdEngine {
         var collection: String
         /// We registered it (`macdown2-…` for exactly this folder): ours to remove.
         var owned: Bool
+        /// The collection is a parent folder's: qmd's top results may all lie outside this one.
+        var parent = false
         /// Something changed since the last `qmd update` (or nothing is known about it yet).
         var dirty: Bool
         var lastUpdate: ContinuousClock.Instant?
@@ -137,8 +139,9 @@ actor QmdEngine {
         return runner(path: path, environment: await deps.environment.snapshot().environment)
     }
 
-    /// After "Check Again": folders that could not use qmd get another chance (declined ones stay declined).
-    private func resetUnavailable() {
+    /// After "Check Again" or "Ask Again for Declined Folders": folders that could not (or would not) use qmd are prepared
+    /// again on the next search; a folder still in the declined setting stays declined.
+    func resetUnavailable() {
         for (key, slot) in slots { if case .unavailable = slot { slots[key] = nil } }
     }
 
@@ -186,9 +189,12 @@ actor QmdEngine {
         try Task.checkCancellation()
 
         if let existing = QmdMapping.covering(collections, realRoot: realRoot) {
-            let owned = existing.name.hasPrefix(QmdMapping.ownPrefix) && realPath(existing.path) == realRoot
+            let exact = realPath(existing.path) == realRoot
+            let owned = existing.name.hasPrefix(QmdMapping.ownPrefix) && exact
+            // Ours but still in the user's default queries: a registration that was interrupted before `exclude`.
+            if owned, existing.includedByDefault { _ = try await runner.run(["collection", "exclude", existing.name], timeout: Self.shortTimeout) }
             // Nothing is known about how fresh it is: the first search runs `qmd update`.
-            adopt(workspace, realRoot: realRoot, Prepared(workspaceKey: workspace.fileKey, collection: existing.name, owned: owned, dirty: true))
+            adopt(workspace, realRoot: realRoot, Prepared(workspaceKey: workspace.fileKey, collection: existing.name, owned: owned, parent: !exact, dirty: true))
             return .ready
         }
 
@@ -209,7 +215,14 @@ actor QmdEngine {
         case .register:
             try Task.checkCancellation()
             guard !shutDown else { throw CancellationError() }
-            _ = try await runner.run(["collection", "add", realRoot, "--name", name, "--mask", QmdMapping.mask], timeout: Self.addTimeout)
+            do {
+                _ = try await runner.run(["collection", "add", realRoot, "--name", name, "--mask", QmdMapping.mask], timeout: Self.addTimeout)
+            } catch let error as QmdError {
+                // qmd saves the collection before indexing: one that failed half-way must not land in default queries.
+                // (Switched off mid-add: no new process; the next prepare finds it and excludes it.)
+                _ = try? await runner.run(["collection", "exclude", name], timeout: Self.shortTimeout)
+                throw error
+            }
             // Kept out of the user's own `qmd search` / `qmd query` without `-c` (and their agents').
             _ = try await runner.run(["collection", "exclude", name], timeout: Self.shortTimeout)
             adopt(workspace, realRoot: realRoot, Prepared(workspaceKey: workspace.fileKey, collection: name, owned: true, dirty: false, lastUpdate: .now))
@@ -268,27 +281,42 @@ actor QmdEngine {
     private func refresh(_ realRoot: String) async {
         guard case .ready(let prepared) = slots[realRoot], prepared.dirty else { return }
         if let last = prepared.lastUpdate, ContinuousClock.now - last < deps.updateInterval { return }
-        guard updatesBlockedBy.isEmpty else {
-            qmdLog.info("qmd update skipped: collections with an update command: \(self.updatesBlockedBy.joined(separator: ", "), privacy: .public)")
-            return
-        }
         if let updateTask { return await updateTask.value }
-        // One update re-indexes them all; changes made while it runs mark their folder again.
-        let now = ContinuousClock.now
-        for (key, slot) in slots {
-            if case .ready(var other) = slot {
-                other.dirty = false
-                other.lastUpdate = now
-                slots[key] = .ready(other)
-            }
-        }
         guard let runner = try? await runner() else { return }
-        let task = Task {
-            do { _ = try await runner.run(["update"], timeout: Self.updateTimeout) } catch { qmdLog.error("qmd update failed: \(error.localizedDescription, privacy: .public)") }
-        }
+        let task = Task { await self.update(runner) }
         updateTask = task
         await task.value
         updateTask = nil
+    }
+
+    private func update(_ runner: QmdRunner) async {
+        let now = ContinuousClock.now
+        let ready = slots.compactMap { key, slot -> String? in
+            if case .ready = slot { return key }
+            return nil
+        }
+        func mark(dirty: Bool?) {
+            for key in ready {
+                guard case .ready(var p) = slots[key] else { continue }
+                p.lastUpdate = now  // tried now: the next try waits `updateInterval`
+                if let dirty { p.dirty = dirty }
+                slots[key] = .ready(p)
+            }
+        }
+        do {
+            // The collections as they are now: one may have gained an update command since the folder was prepared.
+            updatesBlockedBy = try await listCollections(runner).filter(\.hasUpdateCommand).map(\.name)
+            guard updatesBlockedBy.isEmpty else {
+                qmdLog.info("qmd update skipped: collections with an update command: \(self.updatesBlockedBy.joined(separator: ", "), privacy: .public)")
+                return mark(dirty: nil)
+            }
+            // One update re-indexes them all; a change made while it runs marks its folder again.
+            mark(dirty: false)
+            _ = try await runner.run(["update"], timeout: Self.updateTimeout)
+        } catch {
+            qmdLog.error("qmd update failed: \(error.localizedDescription, privacy: .public)")
+            mark(dirty: true)  // try again after `updateInterval`
+        }
     }
 
     // MARK: Searching
@@ -300,7 +328,10 @@ actor QmdEngine {
         guard case .ready(let prepared) = slots[realRoot] else { return [] }
         let runner = try await runner()
         let semantic = query.isSemantic
-        var arguments = [semantic ? "query" : "search", "-c", prepared.collection, "-n", String(max(1, min(semantic ? 30 : 50, query.limit))), "--format", "json", "--full-path"]
+        // A parent folder's collection: qmd ranks the whole collection, so ask for more and keep this folder's.
+        // lazy: 500 results from a parent collection; past that a folder's matches can be crowded out (then the built-in search answers)
+        let count = prepared.parent ? 500 : max(1, min(semantic ? 30 : 50, query.limit))
+        var arguments = [semantic ? "query" : "search", "-c", prepared.collection, "-n", String(count), "--format", "json", "--full-path"]
         if semantic, await !deps.options().rerank { arguments.append("--no-rerank") }
         arguments += ["--", query.text]  // a query may start with "-"
         let output: QmdOutput
@@ -311,9 +342,13 @@ actor QmdEngine {
         }
         // The sidebar's ignore rules apply here too (qmd's mask knows nothing of `_site`, `*_files`, …).
         let base = workspace.pathComponents.count
-        return try QmdParse.results(output.stdout).compactMap {
+        let results = try QmdParse.results(output.stdout)
+        let hits = results.compactMap {
             QmdMapping.hit($0, workspace: workspace, realRoot: realRoot, query: query.text, source: QmdSearchProvider.providerID)
         }.filter { !query.files.ignore.ignores(components: Array($0.file.pathComponents.dropFirst(base)), lastIsDirectory: false) }
+        // Every one of a full page was elsewhere in the parent collection: this folder's matches may be further down.
+        if hits.isEmpty, results.count >= count { throw QmdError.failed(status: 0, message: L10n.crowdedOut) }
+        return hits
     }
 
     // MARK: Disabling a folder's index

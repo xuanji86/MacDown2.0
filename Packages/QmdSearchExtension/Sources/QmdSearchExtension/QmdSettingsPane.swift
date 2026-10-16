@@ -43,7 +43,10 @@ struct QmdSettingsPane: View {
             }
             caption(Text("qmd keeps one index for all your collections. A folder is added to it only after you agree, as a collection that your own qmd searches leave out; right-click the folder in the sidebar to remove it again.", bundle: .module))
             if !settings.declinedFolders.isEmpty {
-                Button { settings.forgetDeclined() } label: { Text("Ask Again for Declined Folders", bundle: .module) }
+                Button {
+                    settings.forgetDeclined()
+                    Task { await engine.resetUnavailable() }
+                } label: { Text("Ask Again for Declined Folders", bundle: .module) }
             }
         }
         .font(.callout)
