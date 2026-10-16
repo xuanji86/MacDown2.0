@@ -1,4 +1,5 @@
 import Darwin
+import ExtensionAPI
 import Foundation
 
 /// One `quarto preview` for one document (PLAN 4.6.2):
@@ -82,6 +83,8 @@ actor QuartoPreviewProcess {
             )
         } catch {
             eventSink.finish()
+            // The bare reason ("No such file or directory"): the message around it already says Quarto could not start.
+            if case .launchFailed(let code)? = error as? ProcessSpawnError { throw StartError.launch(String(cString: strerror(code))) }
             throw StartError.launch(error.localizedDescription)
         }
         // One consumer, so output and the exit are handled in the order they happened.
@@ -123,8 +126,10 @@ actor QuartoPreviewProcess {
     }
 
     /// The log's error entries (live: read from the file; afterwards: what was read before it was deleted), else the end of the console.
-    func logText() -> String {
-        let errors = finalLogErrors ?? QuartoLog.errors(in: logFile)
+    func logText() -> String { Self.logText(errors: finalLogErrors ?? QuartoLog.errors(in: logFile), console: console) }
+
+    /// What "View Log" shows: the log's error entries, else the end of the console, else that there is nothing yet.
+    nonisolated static func logText(errors: [String], console: ConsoleTail) -> String {
         let lines = errors.isEmpty ? console.lines : errors
         return lines.isEmpty ? L10n.emptyLog : lines.joined(separator: "\n")
     }
@@ -158,7 +163,7 @@ actor QuartoPreviewProcess {
 
     private func handle(line: String) {
         console.append(line)
-        guard let url else {
+        if url == nil {
             if let found = QuartoConsole.pageURL(in: line) {
                 url = found
                 eventSink.yield(.rendered(Date()))
@@ -167,7 +172,6 @@ actor QuartoPreviewProcess {
             }
             return
         }
-        _ = url
         if let event = QuartoConsole.event(for: line) { eventSink.yield(event) }
     }
 
