@@ -192,10 +192,10 @@ final class MarkdownDocument: NSDocument, ObservableObject {
         publishEdited()
     }
 
-    /// The edited dot of the windows showing this document (`WorkspaceRegistry.sync` attaches their controllers) follows too.
+    /// Every change of the edited state goes through the two `updateChangeCount` overrides, and `super` forwards it to the window
+    /// controllers (the edited dot); `WorkspaceRegistry.sync` sets it when a window switches to this document.
     private func publishEdited() {
         editedFlag.value = isDocumentEdited
-        for controller in windowControllers { controller.window?.isDocumentEdited = isDocumentEdited }
     }
 
     override var fileURL: URL? {
