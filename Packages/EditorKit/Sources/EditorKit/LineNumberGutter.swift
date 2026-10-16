@@ -105,8 +105,10 @@ final class LineNumberRulerView: NSRulerView {
         if abs(ruleThickness - width) > 0.5 { ruleThickness = width }
     }
 
-    /// Text changed: redraw now, resize (a digit more or less) once the edit is done, outside `processEditing`.
+    /// Text changed: redraw now, resize (a digit more or less) once the edit is done, outside `processEditing`. Nothing while the
+    /// column is hidden: turning it on measures it again (`updateThickness`).
     func textDidChange() {
+        guard textView?.viewSettings.showsLineNumbers == true else { return }
         needsDisplay = true
         guard !recountScheduled else { return }
         recountScheduled = true
