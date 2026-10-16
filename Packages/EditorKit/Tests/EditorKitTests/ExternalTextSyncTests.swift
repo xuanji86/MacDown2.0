@@ -2,64 +2,33 @@ import AppKit
 import Testing
 @testable import EditorKit
 
-private final class Doc {}
-
 struct ExternalTextSyncTests {
     @Test func theEditorsOwnWritesAreNotReloaded() {
-        let doc = Doc()
-        var sync = ExternalTextSync(document: doc, text: "a")
+        var sync = ExternalTextSync(text: "a")
         sync.editorDidWrite("ab")
-        #expect(sync.reloadText(document: doc, modelText: "ab") == nil)
+        #expect(sync.reloadText(modelText: "ab") == nil)
     }
 
     @Test func aModelChangeBehindTheEditorsBackIsReloadedOnce() {
-        let doc = Doc()
-        var sync = ExternalTextSync(document: doc, text: "old")
-        #expect(sync.reloadText(document: doc, modelText: "reverted") == "reverted")
-        #expect(sync.reloadText(document: doc, modelText: "reverted") == nil)
+        var sync = ExternalTextSync(text: "old")
+        #expect(sync.reloadText(modelText: "reverted") == "reverted")
+        #expect(sync.reloadText(modelText: "reverted") == nil)
         // and the next keystroke is compared against the reloaded text, not the stale one
         sync.editorDidWrite("reverted!")
-        #expect(sync.reloadText(document: doc, modelText: "reverted!") == nil)
-    }
-
-    @Test func aDifferentDocumentInstanceIsDetectedAndReloadedWhenTheTextDiffers() {
-        let first = Doc(), second = Doc()
-        var sync = ExternalTextSync(document: first, text: "one")
-        #expect(sync.isSameDocument(first))
-        #expect(!sync.isSameDocument(second))
-        #expect(sync.reloadText(document: second, modelText: "two") == "two")
-        #expect(sync.isSameDocument(second))
-    }
-
-    @Test func aDifferentInstanceWithIdenticalTextKeepsTheEditorAsItIs() {
-        let first = Doc(), second = Doc()
-        var sync = ExternalTextSync(document: first, text: "same")
-        #expect(sync.reloadText(document: second, modelText: "same") == nil)
-        #expect(sync.isSameDocument(second))
+        #expect(sync.reloadText(modelText: "reverted!") == nil)
     }
 
     @Test func matchesTellsWhetherTheModelAlreadyHoldsAText() {
-        let doc = Doc()
-        var sync = ExternalTextSync(document: doc, text: "a")
+        var sync = ExternalTextSync(text: "a")
         #expect(sync.matches("a") && !sync.matches("ab"))
         sync.editorDidWrite("ab")
         #expect(sync.matches("ab") && !sync.matches("a"))
     }
 
-    @Test func itDoesNotKeepTheDocumentAlive() {
-        var doc: Doc? = Doc()
-        weak var weakDoc = doc
-        let sync = ExternalTextSync(document: doc!, text: "a")
-        doc = nil
-        #expect(weakDoc == nil)
-        #expect(!sync.isSameDocument(Doc()))
-    }
-
     @Test func staleEditorContentCannotOverwriteAnExternalChange() {
         // The data-loss scenario: model changed externally, editor still holds "old", user types.
-        let doc = Doc()
-        var sync = ExternalTextSync(document: doc, text: "old")
-        let reload = sync.reloadText(document: doc, modelText: "new from disk")
+        var sync = ExternalTextSync(text: "old")
+        let reload = sync.reloadText(modelText: "new from disk")
         #expect(reload == "new from disk")  // the editor is told to show it before any keystroke can be written back
     }
 
