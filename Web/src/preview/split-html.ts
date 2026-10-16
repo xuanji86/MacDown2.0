@@ -62,22 +62,20 @@ function tagEnd(html: string, p: number, skips: number[]): number {
   }
 }
 
-// cyrb53 over html[a, b) minus the skip ranges skips[s0 .. s1).
+// cyrb53 over html[a, b) minus the skip ranges skips[s0 .. s1) (pairs [from, to), ascending, inside [a, b)).
 export function hashRange(html: string, a: number, b: number, skips: number[], s0: number, s1: number): number {
   let h1 = 0xdeadbeef;
   let h2 = 0x41c6ce57;
-  let k = s0;
-  let nextSkip = k < s1 ? skips[k] : Infinity;
-  for (let i = a; i < b; ) {
-    if (i === nextSkip) {
-      i = skips[k + 1];
-      k += 2;
-      nextSkip = k < s1 ? skips[k] : Infinity;
-      continue;
+  let i = a;
+  for (let k = s0; ; k += 2) {
+    const stop = k < s1 ? skips[k] : b;
+    for (; i < stop; i++) {
+      const c = html.charCodeAt(i);
+      h1 = Math.imul(h1 ^ c, 2654435761);
+      h2 = Math.imul(h2 ^ c, 1597334677);
     }
-    const c = html.charCodeAt(i++);
-    h1 = Math.imul(h1 ^ c, 2654435761);
-    h2 = Math.imul(h2 ^ c, 1597334677);
+    if (k >= s1) break;
+    i = skips[k + 1];
   }
   h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
   h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
