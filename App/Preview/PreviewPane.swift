@@ -93,6 +93,24 @@ struct PreviewMetadata: Decodable, Equatable {
     var stats: TextStats
 }
 
+/// What `MacDown2Preview.update` returns (`Web/src/preview/main.ts`): either `deferred`, an `error`, or the render's metadata and timings.
+private struct UpdateReport: Decodable {
+    var deferred: Bool?
+    var error: String?
+    var outline: [OutlineItem]?
+    var stats: TextStats?
+    var blockCount: Int?
+    var perf: Perf?
+
+    struct Perf: Decodable {
+        var mode: String?
+        var render: Double?
+        var patch: Double?
+        var split: Double?
+        var apply: Double?
+    }
+}
+
 /// Owns the `WebPage` that shows `preview.html` and pushes Markdown into it.
 @MainActor @Observable
 final class PreviewModel {
@@ -104,8 +122,6 @@ final class PreviewModel {
     /// Top visible source line after the user scrolled the preview (0-based, fractional). Throttled to one per frame
     /// inside the page. Not called for scrolls caused by `scroll(toLine:)`.
     var onVisibleLineChange: ((Double) -> Void)?
-    /// A render or script error inside the page (the old content stays on screen).
-    var onRenderError: ((String) -> Void)?
     /// The user clicked a task checkbox on the page and the page's token and render version check out: edit the source
     /// (`task` as the renderer saw it in `text`, the Markdown the page shows; `checked` the wanted state). Returns the document's new text
     /// when it made the edit, nil when it refused; the page is then told to take the checkbox back.
@@ -287,10 +303,8 @@ final class PreviewModel {
             guard !Task.isCancelled, let self else { return }
             let resolved = options.rendering(as: flavor, markdown: markdown, readFile: QuartoIncludes.fileReader(directory: documentDirectory))
             do {
-                // Made off the main actor: a JSContext created on the main thread puts its timers on the main run loop, which then waits on
-                // the VM lock while a large render holds it.
                 let renderer: JSCRenderer
-                if let statsRenderer { renderer = statsRenderer } else { renderer = try await Task.detached { try JSCRenderer() }.value }
+                if let statsRenderer { renderer = statsRenderer } else { renderer = try await .makeOffMain() }
                 statsRenderer = renderer
                 let stats = try await renderer.render(markdown, options: resolved).stats
                 guard !Task.isCancelled, epoch == clearEpoch, metadata != nil, metadata?.stats != stats else { return }
@@ -321,24 +335,34 @@ final class PreviewModel {
         }
     }
 
+    /// Renders `markdown` at once as the page's text: a render of older text still waiting would otherwise land after this one.
+    private func pushNow(_ markdown: String) {
+        lastMarkdown = markdown
+        debounce?.cancel()
+        Task { [weak self] in await self?.push(markdown) }
+    }
+
+    /// Runs a script of the page (`MacDown2Preview`); a failure is logged as "preview <what> failed", or ignored without a `what`.
+    private func call(_ script: String, _ arguments: [String: Any] = [:], what: String? = nil) async {
+        do {
+            _ = try await page.callJavaScript(script, arguments: arguments)
+        } catch {
+            if let what { log.error("preview \(what, privacy: .public) failed: \(String(describing: error), privacy: .public)") }
+        }
+    }
+
     /// Renders on the next display frame: changes within one frame (a paste, key repeat) collapse into one render, which is cheap
     /// (incremental, a few ms even on large files). The latest call wins; `push` keeps one render in flight.
     func schedule(_ markdown: String) {
         lastMarkdown = markdown
         debounce?.cancel()
         statsTask?.cancel()  // this render brings its own counts
-        let frame = Self.frameInterval
+        let frame = Duration.displayFrame
         debounce = Task { [weak self] in
             try? await Task.sleep(for: frame)
             guard !Task.isCancelled else { return }
             await self?.push(markdown)
         }
-    }
-
-    /// One refresh interval of the main screen (8 ms at 120 Hz); ~16 ms when it is unknown.
-    private static var frameInterval: Duration {
-        let seconds = NSScreen.main?.minimumRefreshInterval ?? 0
-        return .seconds(seconds > 0 ? seconds : 1.0 / 60)
     }
 
     /// Scrolls the preview so `line` (0-based, fractional ok) is at the top. Instant; the page does not echo it back
@@ -354,11 +378,7 @@ final class PreviewModel {
             guard await ensureLoaded() else { return }
             while let next = pendingScrollLine {
                 pendingScrollLine = nil
-                do {
-                    _ = try await page.callJavaScript("MacDown2Preview.scrollToLine(line)", arguments: ["line": next])
-                } catch {
-                    log.error("preview scroll failed: \(String(describing: error), privacy: .public)")
-                }
+                await call("MacDown2Preview.scrollToLine(line)", ["line": next], what: "scroll")
             }
         }
     }
@@ -425,21 +445,13 @@ final class PreviewModel {
     }
 
     private func applyZoom() async {
-        do {
-            _ = try await page.callJavaScript("MacDown2Preview.setZoom(factor)", arguments: ["factor": ViewZoom.factor(zoomPercent)])
-        } catch {
-            log.error("preview zoom failed: \(String(describing: error), privacy: .public)")
-        }
+        await call("MacDown2Preview.setZoom(factor)", ["factor": ViewZoom.factor(zoomPercent)], what: "zoom")
     }
 
     // Always sends the latest choice, so overlapping calls end on the last one (WebKit runs them in the order sent).
     private func applyStyle() async {
         let (light, dark) = style
-        do {
-            _ = try await page.callJavaScript("MacDown2Preview.setStyle(light, dark)", arguments: ["light": light, "dark": dark.map { $0 as Any } ?? NSNull()])
-        } catch {
-            log.error("preview style failed: \(String(describing: error), privacy: .public)")
-        }
+        await call("MacDown2Preview.setStyle(light, dark)", ["light": light, "dark": dark.map { $0 as Any } ?? NSNull()], what: "style")
     }
 
     private func handle(_ message: PreviewMessage) {
@@ -450,7 +462,6 @@ final class PreviewModel {
             onVisibleLineChange?(line)
         case .error(let stage, let text):
             log.error("preview \(stage, privacy: .public) error: \(text, privacy: .public)")
-            onRenderError?(text)
         case .toggleTask(let token, let task, let checked, let version):
             toggleTask(token: token, task: task, checked: checked, version: version)
         case .selection(let token, let version, let range):
@@ -466,8 +477,7 @@ final class PreviewModel {
             previewEdit(token: token, edit: edit)
         case .resync(let token):
             guard token == bridgeToken, let lastMarkdown else { return }
-            debounce?.cancel()
-            Task { [weak self] in await self?.push(lastMarkdown) }
+            pushNow(lastMarkdown)
         }
     }
 
@@ -482,17 +492,13 @@ final class PreviewModel {
         let expected = editingEnabled ? editChain.expectedText(for: edit) : .failure(.stale)
         if case .success(let text) = expected, let new = onPreviewEdit?(edit, text) {
             editChain.accept(edit, result: new)
-            lastMarkdown = new
-            debounce?.cancel()  // a render of older text still waiting would otherwise land after this one
-            Task { [weak self] in await self?.push(new) }
+            pushNow(new)
             return
         }
         let reason: PreviewEditRefusal = if case .failure(let why) = expected { why } else { .stale }
         log.info("preview edit refused (burst \(edit.burst) on render \(edit.base), edit \(edit.seq)): \(reason.rawValue, privacy: .public)")
         editChain.refused(edit)
-        Task { [page] in
-            _ = try? await page.callJavaScript("MacDown2Preview.editRefused(kind, burst, seq)", arguments: ["kind": reason.rawValue, "burst": edit.burst, "seq": edit.seq])
-        }
+        Task { await call("MacDown2Preview.editRefused(kind, burst, seq)", ["kind": reason.rawValue, "burst": edit.burst, "seq": edit.seq]) }
     }
 
     /// Settings ▸ Rendering ▸ Edit in preview. The page gets it with every load too (`giveToken`).
@@ -511,11 +517,7 @@ final class PreviewModel {
             "structure": String(localized: "That change belongs in the editor."),
             "stale": String(localized: "The text changed meanwhile: the preview shows it again."),
         ]
-        do {
-            _ = try await page.callJavaScript("MacDown2Preview.setEditing({ enabled, hints })", arguments: ["enabled": editingEnabled, "hints": hints])
-        } catch {
-            log.error("preview editing setup failed: \(String(describing: error), privacy: .public)")
-        }
+        await call("MacDown2Preview.setEditing({ enabled, hints })", ["enabled": editingEnabled, "hints": hints], what: "editing setup")
     }
 
     /// The editor's selection changed; `read` gives its range and its text, read together. Looked at once per frame, the latest
@@ -524,7 +526,7 @@ final class PreviewModel {
     func showEditorSelection(read: @escaping () -> (NSRange, String)?) {
         pendingSelection = read
         guard selectionTask == nil else { return }
-        let frame = Self.frameInterval
+        let frame = Duration.displayFrame
         selectionTask = Task { [weak self] in
             try? await Task.sleep(for: frame)
             guard let self else { return }
@@ -551,7 +553,7 @@ final class PreviewModel {
         if let last = highlighted, last.version == request.version, last.from == request.from, last.to == request.to { return }
         if request.from < 0, highlighted.map({ $0.from < 0 }) ?? true { highlighted = request; return }
         highlighted = request
-        _ = try? await page.callJavaScript("MacDown2Preview.highlightSource(from, to, version)", arguments: ["from": request.from, "to": request.to, "version": request.version])
+        await call("MacDown2Preview.highlightSource(from, to, version)", ["from": request.from, "to": request.to, "version": request.version])
     }
 
     /// Only a click on the page we last loaded, on a render we sent and still know (`PreviewEditChain`, the same record edits and
@@ -565,12 +567,10 @@ final class PreviewModel {
         }
         if let text = editChain.text(ofRender: version), let new = onToggleTask?(task, checked, text) {
             // Render the new text now instead of after the next frame: a second click inside that window would be stale.
-            lastMarkdown = new
-            debounce?.cancel()  // a render of older text still waiting would otherwise land after this one
-            Task { [weak self] in await self?.push(new) }
+            pushNow(new)
         } else {
             log.info("preview task toggle refused (line \(task.line), version \(version))")
-            Task { [page] in _ = try? await page.callJavaScript("MacDown2Preview.resyncTasks()") }
+            Task { await call("MacDown2Preview.resyncTasks()") }
         }
     }
 
@@ -654,11 +654,7 @@ final class PreviewModel {
         let token = UUID().uuidString
         bridgeToken = token
         editChain.reset()
-        do {
-            _ = try await page.callJavaScript("MacDown2Preview.setTaskToken(token)", arguments: ["token": token])
-        } catch {
-            log.error("preview token failed: \(String(describing: error), privacy: .public)")
-        }
+        await call("MacDown2Preview.setTaskToken(token)", ["token": token], what: "token")
         await applyEditing()
     }
 
@@ -695,27 +691,28 @@ final class PreviewModel {
                     ]
                 )
                 let elapsed = ContinuousClock.now - started
-                // Render failures are reported over the bridge (`handle`); success carries blocks/outline/stats/perf.
-                let meta = (result as? String).flatMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any] }
-                if meta?["deferred"] as? Bool == true {
+                // Render failures are reported over the bridge (`handle`); success carries outline/stats/blockCount/perf.
+                let report = (result as? String).flatMap { try? JSONDecoder().decode(UpdateReport.self, from: Data($0.utf8)) }
+                if report?.deferred == true {
                     // Held back by the page: it still shows the previous render (and more).
                     if rebuild { needsRebuild = true }
                     log.info("preview update held back by the page (edit in flight)")
-                } else if meta?["error"] == nil {
+                } else if report?.error == nil {
                     // A render that started before `clear()` / a document switch must not publish: its text is not the pane's any more.
-                    if epoch == clearEpoch, let decoded = try? JSONDecoder().decode(PreviewMetadata.self, from: Data((result as? String ?? "").utf8)) {
+                    if epoch == clearEpoch, let outline = report?.outline, let stats = report?.stats {
+                        let decoded = PreviewMetadata(outline: outline, stats: stats)
                         if decoded != metadata { metadata = decoded }
                         editChain.landed(version: version, mark: mark)
                         if editorSelection != nil { await applyEditorSelection() }  // the render dropped the page's highlight
                     }
-                    let perf = meta?["perf"] as? [String: Any]
+                    let perf = report?.perf
                     let ms = Double(elapsed.components.attoseconds) / 1e15 + Double(elapsed.components.seconds) * 1000
-                    let mode = perf?["mode"] as? String ?? "?"
-                    let jsRender = perf?["render"] as? Double ?? -1
-                    let jsPatch = perf?["patch"] as? Double ?? -1
-                    let jsSplit = perf?["split"] as? Double ?? -1
-                    let jsApply = perf?["apply"] as? Double ?? -1
-                    let blocks = (meta?["blocks"] as? [Any])?.count ?? -1
+                    let mode = perf?.mode ?? "?"
+                    let jsRender = perf?.render ?? -1
+                    let jsPatch = perf?.patch ?? -1
+                    let jsSplit = perf?.split ?? -1
+                    let jsApply = perf?.apply ?? -1
+                    let blocks = report?.blockCount ?? -1
                     log.info("preview updated: mode=\(mode, privacy: .public) swift_to_done_ms=\(ms, format: .fixed(precision: 1)) js_render_ms=\(jsRender, format: .fixed(precision: 1)) js_patch_ms=\(jsPatch, format: .fixed(precision: 1)) (split \(jsSplit, format: .fixed(precision: 1)) apply \(jsApply, format: .fixed(precision: 1))) blocks=\(blocks) bytes=\(next.utf8.count)")
                 }
             } catch {

@@ -31,7 +31,15 @@ struct DocumentView: View {
     @AppStorage(WindowChromeKey.divider) private var showsDivider = false
     @AppStorage(ToolbarStyle.key) private var toolbarStyle = ToolbarStyle.default
 
-    private var layout: SplitLayout { model.layout }
+    /// The fraction while the divider is being dragged: the window's saved state (written to disk on every change) takes it only
+    /// when the drag ends. Resets by itself when the gesture ends or is cancelled.
+    @GestureState private var draggedFraction: Double?
+
+    private var layout: SplitLayout {
+        var layout = model.layout
+        if let draggedFraction { layout.editorFraction = draggedFraction }
+        return layout
+    }
 
     private func setLayout(_ new: SplitLayout) {
         model.userSetLayout(new)
@@ -51,7 +59,6 @@ struct DocumentView: View {
             exportHTML: { [document, fileURL] in Task { await DocumentExport.html(of: document.text, fileURL: fileURL) } },
             exportPDF: { [document, fileURL] in Task { await DocumentExport.pdf(of: document.text, fileURL: fileURL) } },
             printDocument: { [document, fileURL] in Task { await DocumentExport.print(document.text, fileURL: fileURL) } },
-            showOutline: { model.showOutline() },
             renderPreview: { [document, preview] in preview.renderNow(document.text) },
             alternatePreview: alternateMode.flatMap { mode in
                 fileURL.map { url in
@@ -121,16 +128,19 @@ struct DocumentView: View {
 
     /// One-point separator (drawn only with "show divider" on) with a wider invisible grab area (always there).
     private func divider(at x: Double, total: Double, height: Double, editorOnRight: Bool) -> some View {
-        Rectangle().fill(showsDivider ? AnyShapeStyle(.separator) : AnyShapeStyle(.clear)).frame(width: 1, height: height)
+        func fraction(of drag: DragGesture.Value) -> Double? {
+            guard total > 0 else { return nil }
+            let fraction = editorOnRight ? 1 - drag.location.x / total : drag.location.x / total
+            return min(max(fraction, SplitLayout.minFraction), SplitLayout.maxFraction)
+        }
+        return Rectangle().fill(showsDivider ? AnyShapeStyle(.separator) : AnyShapeStyle(.clear)).frame(width: 1, height: height)
             .overlay {
                 Color.clear.frame(width: 9).contentShape(Rectangle())
                     .pointerStyle(.columnResize)
                     .gesture(
-                        DragGesture(minimumDistance: 1, coordinateSpace: .named("split")).onChanged { drag in
-                            guard total > 0 else { return }
-                            let fraction = editorOnRight ? 1 - drag.location.x / total : drag.location.x / total
-                            model.editorFraction = min(max(fraction, SplitLayout.minFraction), SplitLayout.maxFraction)
-                        }
+                        DragGesture(minimumDistance: 1, coordinateSpace: .named("split"))
+                            .updating($draggedFraction) { drag, state, _ in state = fraction(of: drag) }
+                            .onEnded { drag in if let fraction = fraction(of: drag) { model.editorFraction = fraction } }
                     )
             }
             .offset(x: x - 0.5)

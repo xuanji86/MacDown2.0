@@ -465,16 +465,11 @@ final class FileTableCoordinator: NSObject, NSTableViewDataSource, NSTableViewDe
     // MARK: Favorites
 
     private func chooseFavoriteFolder() {
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = false
-        panel.canChooseDirectories = true
-        panel.allowsMultipleSelection = true
-        panel.prompt = String(localized: "Add")
-        let done: (NSApplication.ModalResponse) -> Void = { [weak self] response in
+        let panel = NSOpenPanel.folderPicker(prompt: String(localized: "Add"), multiple: true)
+        panel.present(on: table?.window) { [weak self] response in
             guard response == .OK else { return }
             for url in panel.urls { self?.model.addFavorite(url) }
         }
-        if let window = table?.window { panel.beginSheetModal(for: window, completionHandler: done) } else { panel.begin(completionHandler: done) }
     }
 
     /// Rows where a dropped folder becomes a favorite: the favorites section, `start` is the first row of it.

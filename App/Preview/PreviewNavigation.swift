@@ -77,7 +77,7 @@ struct PreviewNavigationDecider: WebPage.NavigationDeciding {
         alert.informativeText = file.deletingLastPathComponent().path
         alert.addButton(withTitle: String(localized: "Cancel"))
         alert.addButton(withTitle: String(localized: "Create"))
-        Self.present(alert) { response in
+        alert.present(on: NSApp.keyWindow) { response in
             guard response == .alertSecondButtonReturn else { return }
             guard AppDefaults.permitsOpening(file), policy.decide(link, isLinkActivation: true) == .offerToCreate(file) else { return NSSound.beep() }
             if let failure = Self.createEmptyFile(at: file) {
@@ -102,7 +102,7 @@ struct PreviewNavigationDecider: WebPage.NavigationDeciding {
         alert.informativeText = file.path
         alert.addButton(withTitle: String(localized: "Cancel"))
         alert.addButton(withTitle: String(localized: "Open"))
-        present(alert) { response in
+        alert.present(on: NSApp.keyWindow) { response in
             if response == .alertSecondButtonReturn { NSWorkspace.shared.open(file) }
         }
     }
@@ -111,10 +111,6 @@ struct PreviewNavigationDecider: WebPage.NavigationDeciding {
         let alert = NSAlert()
         alert.messageText = title
         alert.informativeText = text
-        present(alert) { _ in }
-    }
-
-    @MainActor private static func present(_ alert: NSAlert, _ done: @escaping (NSApplication.ModalResponse) -> Void) {
-        if let window = NSApp.keyWindow { alert.beginSheetModal(for: window, completionHandler: done) } else { done(alert.runModal()) }
+        alert.present(on: NSApp.keyWindow)
     }
 }

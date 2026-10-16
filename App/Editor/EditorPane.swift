@@ -14,15 +14,11 @@ struct EditorPane: NSViewRepresentable {
     let scrollSync: ScrollSyncController
     // Only these keys re-evaluate the view (never typing). The system scheme is the window's: only the text view's own
     // chrome is forced to the theme's appearance, so it does not feed back.
-    @AppStorage(AppearanceKey.editorTheme) private var themeName = AppearanceDefault.editorTheme
-    @AppStorage(AppearanceKey.editorThemeFollowsSystem) private var followsSystem = false
+    @CurrentEditorTheme private var currentTheme: EditorTheme
     @AppStorage(ViewZoom.key) private var zoomPercent = ViewZoom.actualSize  // View ▸ Zoom, shared with the preview
-    @Environment(\.colorScheme) private var colorScheme
     private var settings = EditorSettings()
 
-    private var theme: EditorTheme {
-        settings.apply(to: UserThemeFolder.resolve(name: themeName, followSystem: followsSystem, systemIsDark: colorScheme == .dark), zoomPercent: zoomPercent)
-    }
+    private var theme: EditorTheme { settings.apply(to: currentTheme, zoomPercent: zoomPercent) }
     /// Lets the toolbar and menus reach the text view this pane creates.
     var editor: EditorHandle?
     /// Receives caret and selection changes for the status bar and outline.

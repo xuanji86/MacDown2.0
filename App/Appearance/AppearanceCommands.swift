@@ -16,6 +16,18 @@ enum AppearanceDefault {
     static let previewStyle = PreviewStyles.defaultID  // "github" (white)
 }
 
+/// The editor theme the settings and the system appearance select now, for a view that paints in its colours (re-evaluated when
+/// either changes; a user theme edited on disk is `UserThemeFolder.store`'s business).
+@MainActor
+@propertyWrapper
+struct CurrentEditorTheme: DynamicProperty {
+    @AppStorage(AppearanceKey.editorTheme) private var name = AppearanceDefault.editorTheme
+    @AppStorage(AppearanceKey.editorThemeFollowsSystem) private var followsSystem = false
+    @Environment(\.colorScheme) private var colorScheme
+
+    var wrappedValue: EditorTheme { UserThemeFolder.resolve(name: name, followSystem: followsSystem, systemIsDark: colorScheme == .dark) }
+}
+
 /// View ▸ Editor Theme / Preview Style: pick one, plus a Follow System switch that swaps in the pick's light/dark partner by itself.
 struct AppearanceCommands: Commands {
     @AppStorage(AppearanceKey.editorTheme, store: AppDefaults.store) private var editorTheme = AppearanceDefault.editorTheme

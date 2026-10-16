@@ -30,22 +30,74 @@ struct DocumentToolbar: ToolbarContent {
             .sharedBackgroundVisibility(.hidden)
     }
 
-    /// A toolbar button drawn as `label` (a glyph), named `title` (its tooltip, its accessibility label and, in the system's » menu,
-    /// its entry: see `ToolbarStyleGuard`).
-    private func button<Glyph: View>(
-        _ title: LocalizedStringKey, _ command: MarkdownCommand, shortcut: String, @ViewBuilder label: () -> Glyph
-    ) -> some View {
-        Button { actions.editor.perform(command) } label: {
-            Label { Text(title) } icon: { label().frame(minWidth: compact ? 0 : 22) }.labelStyle(.iconOnly)
+    /// The editing buttons of either layout: what each is called and does, and how it is drawn in the current style. The name is its
+    /// tooltip, its accessibility label and, in the system's » menu, its entry (see `ToolbarStyleGuard`); the tooltip's shortcut is the
+    /// Format menu's (`MarkdownCommand.shortcut`).
+    private enum Tool {
+        case unindent, indent, bold, italic, underline, unorderedList, orderedList, blockquote, codeBlock, link, image
+
+        var title: LocalizedStringKey {
+            switch self {
+            case .unindent: "Unindent"
+            case .indent: "Indent"
+            case .bold: "Bold"
+            case .italic: "Italic"
+            case .underline: "Underline"
+            case .unorderedList: "Unordered List"
+            case .orderedList: "Ordered List"
+            case .blockquote: "Blockquote"
+            case .codeBlock: "Code Block"
+            case .link: "Link"
+            case .image: "Image"
+            }
+        }
+
+        var command: MarkdownCommand {
+            switch self {
+            case .unindent: .outdent
+            case .indent: .indent
+            case .bold: .bold
+            case .italic: .italic
+            case .underline: .underline
+            case .unorderedList: .unorderedList
+            case .orderedList: .orderedList
+            case .blockquote: .blockquote
+            case .codeBlock: .codeBlock
+            case .link: .link
+            case .image: .image
+            }
+        }
+    }
+
+    private func tool(_ tool: Tool) -> some View {
+        Button { actions.editor.perform(tool.command) } label: {
+            Label { Text(tool.title) } icon: { glyph(tool).frame(minWidth: compact ? 0 : 22) }.labelStyle(.iconOnly)
         }
             .buttonStyle(ToolbarIconStyle(compact: compact))
-            .help(Text(title) + Text(verbatim: " (\(shortcut))"))
-            .accessibilityLabel(Text(title))
+            .help(Text(tool.title) + Text(verbatim: tool.command.shortcut.map { " (\($0.label))" } ?? ""))
+            .accessibilityLabel(Text(tool.title))
             .disabled(!actions.editorEnabled)
     }
 
-    private func symbol(_ title: LocalizedStringKey, _ name: String, _ command: MarkdownCommand, shortcut: String) -> some View {
-        button(title, command, shortcut: shortcut) { Image(systemName: name).font(.system(size: 15, weight: compact ? .light : .regular)) }
+    @ViewBuilder private func glyph(_ tool: Tool) -> some View {
+        switch tool {
+        case .unindent: symbol("decrease.indent")
+        case .indent: symbol("increase.indent")
+        case .unorderedList: symbol("list.bullet")
+        case .orderedList: symbol("list.number")
+        case .link: symbol("link")
+        case .image: symbol("photo")
+        case .bold: Text(verbatim: "B").font(.system(size: compact ? 14 : 17, weight: compact ? .semibold : .bold))
+        case .italic: Text(verbatim: "I").font(.system(size: compact ? 15 : 17, design: .serif)).italic()
+        case .underline: Text(verbatim: "U").font(.system(size: compact ? 14 : 17)).underline()
+        case .blockquote:
+            Text(verbatim: "\u{201C}\u{201D}").font(.system(size: compact ? 17 : 20, weight: compact ? .semibold : .bold, design: .serif)).italic()
+        case .codeBlock: AngleBrackets(size: compact ? 12 : 14)
+        }
+    }
+
+    private func symbol(_ name: String) -> some View {
+        Image(systemName: name).font(.system(size: 15, weight: compact ? .light : .regular))
     }
 
     private func heading(_ level: Int) -> some View {
@@ -58,7 +110,7 @@ struct DocumentToolbar: ToolbarContent {
             .labelStyle(.iconOnly)
         }
         .buttonStyle(ToolbarIconStyle(compact: compact))
-        .help(Text("Heading \(level)") + Text(verbatim: " (⌘\(level))"))
+        .help(Text("Heading \(level)") + Text(verbatim: MarkdownCommand.heading(level).shortcut.map { " (\($0.label))" } ?? ""))
         .accessibilityLabel("Heading \(level)")
         .disabled(!actions.editorEnabled)
     }
@@ -78,14 +130,14 @@ struct DocumentToolbar: ToolbarContent {
 
     @ToolbarContentBuilder private var classicLeft: some ToolbarContent {
         group {
-            symbol("Unindent", "decrease.indent", .outdent, shortcut: "⌘[")
-            symbol("Indent", "increase.indent", .indent, shortcut: "⌘]")
+            tool(.unindent)
+            tool(.indent)
             clusterGap
-            button("Bold", .bold, shortcut: "⌘B") { Text(verbatim: "B").font(.system(size: 17, weight: .bold)) }
+            tool(.bold)
             divider
-            button("Italic", .italic, shortcut: "⌘I") { Text(verbatim: "I").font(.system(size: 17, design: .serif)).italic() }
+            tool(.italic)
             divider
-            button("Underline", .underline, shortcut: "⌘U") { Text(verbatim: "U").font(.system(size: 17)).underline() }
+            tool(.underline)
             clusterGap
             heading(1)
             divider
@@ -98,20 +150,18 @@ struct DocumentToolbar: ToolbarContent {
     @ToolbarContentBuilder private var classicRight: some ToolbarContent {
         ToolbarSpacer(.flexible)
         group {
-            symbol("Unordered List", "list.bullet", .unorderedList, shortcut: "⇧⌘U")
-            symbol("Ordered List", "list.number", .orderedList, shortcut: "⇧⌘O")
+            tool(.unorderedList)
+            tool(.orderedList)
         }
         ToolbarSpacer(.flexible)
         group {
-            button("Blockquote", .blockquote, shortcut: "⇧⌘B") {
-                Text(verbatim: "\u{201C}\u{201D}").font(.system(size: 20, weight: .bold, design: .serif)).italic()
-            }
-            button("Code Block", .codeBlock, shortcut: "⌥⌘K") { AngleBrackets() }
+            tool(.blockquote)
+            tool(.codeBlock)
         }
         ToolbarSpacer(.flexible)
         group {
-            symbol("Link", "link", .link, shortcut: "⇧⌘K")
-            symbol("Image", "photo", .image, shortcut: "⇧⌘I")
+            tool(.link)
+            tool(.image)
         }
         ToolbarSpacer(.flexible)
         group { copyHTML }
@@ -129,27 +179,23 @@ struct DocumentToolbar: ToolbarContent {
     }
 
     @ToolbarContentBuilder private var minimalLeft: some ToolbarContent {
-        item { symbol("Unindent", "decrease.indent", .outdent, shortcut: "⌘[") }
-        item(gap: true) { symbol("Indent", "increase.indent", .indent, shortcut: "⌘]") }
-        item { button("Bold", .bold, shortcut: "⌘B") { Text(verbatim: "B").font(.system(size: 14, weight: .semibold)) } }
-        item { button("Italic", .italic, shortcut: "⌘I") { Text(verbatim: "I").font(.system(size: 15, design: .serif)).italic() } }
-        item(gap: true) { button("Underline", .underline, shortcut: "⌘U") { Text(verbatim: "U").font(.system(size: 14)).underline() } }
+        item { tool(.unindent) }
+        item(gap: true) { tool(.indent) }
+        item { tool(.bold) }
+        item { tool(.italic) }
+        item(gap: true) { tool(.underline) }
         item { heading(1) }
         item { heading(2) }
         item(gap: true) { heading(3) }
     }
 
     @ToolbarContentBuilder private var minimalRight: some ToolbarContent {
-        item { symbol("Unordered List", "list.bullet", .unorderedList, shortcut: "⇧⌘U") }
-        item(gap: true) { symbol("Ordered List", "list.number", .orderedList, shortcut: "⇧⌘O") }
-        item {
-            button("Blockquote", .blockquote, shortcut: "⇧⌘B") {
-                Text(verbatim: "\u{201C}\u{201D}").font(.system(size: 17, weight: .semibold, design: .serif)).italic()
-            }
-        }
-        item(gap: true) { button("Code Block", .codeBlock, shortcut: "⌥⌘K") { AngleBrackets(size: 12) } }
-        item { symbol("Link", "link", .link, shortcut: "⇧⌘K") }
-        item(gap: true) { symbol("Image", "photo", .image, shortcut: "⇧⌘I") }
+        item { tool(.unorderedList) }
+        item(gap: true) { tool(.orderedList) }
+        item { tool(.blockquote) }
+        item(gap: true) { tool(.codeBlock) }
+        item { tool(.link) }
+        item(gap: true) { tool(.image) }
         item { copyHTML }
     }
 
@@ -168,7 +214,7 @@ struct DocumentToolbar: ToolbarContent {
             Label { Text("Copy HTML") } icon: { CopyHTMLIcon(scale: compact ? 0.85 : 1).frame(minWidth: compact ? 0 : 22) }.labelStyle(.iconOnly)
         }
             .buttonStyle(ToolbarIconStyle(compact: compact))
-            .help(Text("Copy HTML") + Text(verbatim: " (⌥⌘C)"))
+            .help(Text("Copy HTML") + Text(verbatim: " (\(KeyboardShortcut.copyHTML.label))"))
             .accessibilityLabel("Copy HTML")
     }
 
@@ -191,7 +237,7 @@ struct DocumentToolbar: ToolbarContent {
             .labelStyle(.iconOnly)
         }
         .buttonStyle(ToolbarIconStyle(compact: compact))
-        .help(Text("Cycle Editor and Preview") + Text(verbatim: " (⌃⌘L)"))
+        .help(Text("Cycle Editor and Preview") + Text(verbatim: " (\(KeyboardShortcut.cycleLayout.label))"))
     }
 
     private var layoutPresets: some View {

@@ -78,14 +78,9 @@ final class AlternatePreviewState {
             alert.addButton(withTitle: String(localized: "Cancel"))
             alert.addButton(withTitle: button)
         }
-        let response: NSApplication.ModalResponse
-        if let window {
-            response = await withCheckedContinuation { continuation in
-                alert.beginSheetModal(for: window) { continuation.resume(returning: $0) }
-                IsolatedTestHooks.answer(alert, on: window)  // isolated Debug runs only: MACDOWN2_TEST_PROMPT_ANSWER=reload is the second button
-            }
-        } else {
-            response = alert.runModal()
+        let response: NSApplication.ModalResponse = await withCheckedContinuation { continuation in
+            alert.present(on: window) { continuation.resume(returning: $0) }
+            if let window { IsolatedTestHooks.answer(alert, on: window) }  // isolated Debug runs only: MACDOWN2_TEST_PROMPT_ANSWER=reload is the second button
         }
         return button != nil && response == .alertSecondButtonReturn
     }

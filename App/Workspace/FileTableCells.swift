@@ -311,7 +311,6 @@ final class PathBarCellView: NSTableCellView {
 
     required init?(coder: NSCoder) { fatalError() }
 
-    override func updateLayer() { bar.layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.06).cgColor }
     override func viewDidChangeEffectiveAppearance() { bar.layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.06).cgColor }
 
     func configure(segments: [CurrentLocation.Segment], canGoUp: Bool, goUp: @escaping () -> Void, go: @escaping (URL) -> Void) {
