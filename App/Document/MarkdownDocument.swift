@@ -22,11 +22,11 @@ extension Notification.Name {
 /// remembered at read time and restored on save (`MarkdownFile`).
 @objc(MarkdownDocument)
 final class MarkdownDocument: NSDocument, ObservableObject {
-    static let markdownType = "net.daringfireball.markdown"
+    static let markdownType = UTType.markdown.identifier
     /// Not declared by the system (checked on macOS 26/27), so Info.plist imports it as a Markdown alias; files are still typed
     /// `markdownType` by extension. Readable only, so Save As never offers it.
     static let publicMarkdownType = "public.markdown"
-    static let quartoType = "org.quarto.qmd"
+    static let quartoType = UTType.quarto.identifier
 
     @Published var text = ""
     /// Text storages of closed windows that undo steps still point at (`EditorSession.close`).
@@ -111,7 +111,7 @@ final class MarkdownDocument: NSDocument, ObservableObject {
 
     /// The document type for a file, by extension (does not depend on Launch Services having registered our declarations).
     static func type(for url: URL) -> String {
-        url.pathExtension.lowercased() == "qmd" ? quartoType : markdownType
+        UTType.ofDocument(at: url) == .quarto ? quartoType : markdownType
     }
 
     override init() {
