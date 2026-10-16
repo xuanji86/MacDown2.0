@@ -335,6 +335,22 @@ final class PreviewModel {
         }
     }
 
+    /// Renders `markdown` at once as the page's text: a render of older text still waiting would otherwise land after this one.
+    private func pushNow(_ markdown: String) {
+        lastMarkdown = markdown
+        debounce?.cancel()
+        Task { [weak self] in await self?.push(markdown) }
+    }
+
+    /// Runs a script of the page (`MacDown2Preview`); a failure is logged as "preview <what> failed", or ignored without a `what`.
+    private func call(_ script: String, _ arguments: [String: Any] = [:], what: String? = nil) async {
+        do {
+            _ = try await page.callJavaScript(script, arguments: arguments)
+        } catch {
+            if let what { log.error("preview \(what, privacy: .public) failed: \(String(describing: error), privacy: .public)") }
+        }
+    }
+
     /// Renders on the next display frame: changes within one frame (a paste, key repeat) collapse into one render, which is cheap
     /// (incremental, a few ms even on large files). The latest call wins; `push` keeps one render in flight.
     func schedule(_ markdown: String) {
@@ -368,11 +384,7 @@ final class PreviewModel {
             guard await ensureLoaded() else { return }
             while let next = pendingScrollLine {
                 pendingScrollLine = nil
-                do {
-                    _ = try await page.callJavaScript("MacDown2Preview.scrollToLine(line)", arguments: ["line": next])
-                } catch {
-                    log.error("preview scroll failed: \(String(describing: error), privacy: .public)")
-                }
+                await call("MacDown2Preview.scrollToLine(line)", ["line": next], what: "scroll")
             }
         }
     }
@@ -439,21 +451,13 @@ final class PreviewModel {
     }
 
     private func applyZoom() async {
-        do {
-            _ = try await page.callJavaScript("MacDown2Preview.setZoom(factor)", arguments: ["factor": ViewZoom.factor(zoomPercent)])
-        } catch {
-            log.error("preview zoom failed: \(String(describing: error), privacy: .public)")
-        }
+        await call("MacDown2Preview.setZoom(factor)", ["factor": ViewZoom.factor(zoomPercent)], what: "zoom")
     }
 
     // Always sends the latest choice, so overlapping calls end on the last one (WebKit runs them in the order sent).
     private func applyStyle() async {
         let (light, dark) = style
-        do {
-            _ = try await page.callJavaScript("MacDown2Preview.setStyle(light, dark)", arguments: ["light": light, "dark": dark.map { $0 as Any } ?? NSNull()])
-        } catch {
-            log.error("preview style failed: \(String(describing: error), privacy: .public)")
-        }
+        await call("MacDown2Preview.setStyle(light, dark)", ["light": light, "dark": dark.map { $0 as Any } ?? NSNull()], what: "style")
     }
 
     private func handle(_ message: PreviewMessage) {
@@ -479,8 +483,7 @@ final class PreviewModel {
             previewEdit(token: token, edit: edit)
         case .resync(let token):
             guard token == bridgeToken, let lastMarkdown else { return }
-            debounce?.cancel()
-            Task { [weak self] in await self?.push(lastMarkdown) }
+            pushNow(lastMarkdown)
         }
     }
 
@@ -495,17 +498,13 @@ final class PreviewModel {
         let expected = editingEnabled ? editChain.expectedText(for: edit) : .failure(.stale)
         if case .success(let text) = expected, let new = onPreviewEdit?(edit, text) {
             editChain.accept(edit, result: new)
-            lastMarkdown = new
-            debounce?.cancel()  // a render of older text still waiting would otherwise land after this one
-            Task { [weak self] in await self?.push(new) }
+            pushNow(new)
             return
         }
         let reason: PreviewEditRefusal = if case .failure(let why) = expected { why } else { .stale }
         log.info("preview edit refused (burst \(edit.burst) on render \(edit.base), edit \(edit.seq)): \(reason.rawValue, privacy: .public)")
         editChain.refused(edit)
-        Task { [page] in
-            _ = try? await page.callJavaScript("MacDown2Preview.editRefused(kind, burst, seq)", arguments: ["kind": reason.rawValue, "burst": edit.burst, "seq": edit.seq])
-        }
+        Task { await call("MacDown2Preview.editRefused(kind, burst, seq)", ["kind": reason.rawValue, "burst": edit.burst, "seq": edit.seq]) }
     }
 
     /// Settings ▸ Rendering ▸ Edit in preview. The page gets it with every load too (`giveToken`).
@@ -524,11 +523,7 @@ final class PreviewModel {
             "structure": String(localized: "That change belongs in the editor."),
             "stale": String(localized: "The text changed meanwhile: the preview shows it again."),
         ]
-        do {
-            _ = try await page.callJavaScript("MacDown2Preview.setEditing({ enabled, hints })", arguments: ["enabled": editingEnabled, "hints": hints])
-        } catch {
-            log.error("preview editing setup failed: \(String(describing: error), privacy: .public)")
-        }
+        await call("MacDown2Preview.setEditing({ enabled, hints })", ["enabled": editingEnabled, "hints": hints], what: "editing setup")
     }
 
     /// The editor's selection changed; `read` gives its range and its text, read together. Looked at once per frame, the latest
@@ -564,7 +559,7 @@ final class PreviewModel {
         if let last = highlighted, last.version == request.version, last.from == request.from, last.to == request.to { return }
         if request.from < 0, highlighted.map({ $0.from < 0 }) ?? true { highlighted = request; return }
         highlighted = request
-        _ = try? await page.callJavaScript("MacDown2Preview.highlightSource(from, to, version)", arguments: ["from": request.from, "to": request.to, "version": request.version])
+        await call("MacDown2Preview.highlightSource(from, to, version)", ["from": request.from, "to": request.to, "version": request.version])
     }
 
     /// Only a click on the page we last loaded, on a render we sent and still know (`PreviewEditChain`, the same record edits and
@@ -578,12 +573,10 @@ final class PreviewModel {
         }
         if let text = editChain.text(ofRender: version), let new = onToggleTask?(task, checked, text) {
             // Render the new text now instead of after the next frame: a second click inside that window would be stale.
-            lastMarkdown = new
-            debounce?.cancel()  // a render of older text still waiting would otherwise land after this one
-            Task { [weak self] in await self?.push(new) }
+            pushNow(new)
         } else {
             log.info("preview task toggle refused (line \(task.line), version \(version))")
-            Task { [page] in _ = try? await page.callJavaScript("MacDown2Preview.resyncTasks()") }
+            Task { await call("MacDown2Preview.resyncTasks()") }
         }
     }
 
@@ -667,11 +660,7 @@ final class PreviewModel {
         let token = UUID().uuidString
         bridgeToken = token
         editChain.reset()
-        do {
-            _ = try await page.callJavaScript("MacDown2Preview.setTaskToken(token)", arguments: ["token": token])
-        } catch {
-            log.error("preview token failed: \(String(describing: error), privacy: .public)")
-        }
+        await call("MacDown2Preview.setTaskToken(token)", ["token": token], what: "token")
         await applyEditing()
     }
 
