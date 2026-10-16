@@ -67,7 +67,7 @@ public final class ExternalFileMonitor {
         let watcher = FolderWatcher(roots: [directory], ignore: ignore, debounce: 0.1, ignoreSelf: ignoreSelf) { [weak self] batch in
             // Only batches that touch the file's own directory or below can concern the file (the file's directory is
             // reported for every change of one of its entries, and for a sub-directory that changed).
-            guard batch.contains(where: { $0.fileKey == key || $0.fileKey.hasPrefix(key + "/") }) else { return }
+            guard batch.contains(where: { $0.fileKey.isPath(atOrUnder: key) }) else { return }
             Task { @MainActor in self?.eventsArrived() }
         }
         guard watcher.start() else { return false }
@@ -114,7 +114,7 @@ public final class ExternalFileMonitor {
     private func eventsArrived() {
         guard watcher != nil else { return }
         debouncer.submit { [weak self] in
-            guard let self, watcher != nil else { return }
+            guard let self else { return }  // `stop()` cancels the debouncer, so a closure that runs still has its watcher
             check()
             onSettled()
         }

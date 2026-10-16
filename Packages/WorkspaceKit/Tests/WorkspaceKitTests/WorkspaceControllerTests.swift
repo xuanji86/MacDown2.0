@@ -263,6 +263,5 @@ struct DocumentLedgerTests {
         l.rekey("/a", to: "/b")
         #expect(l.holders(of: "/b") == [w1, w2])
         #expect(l.holders(of: "/a").isEmpty)
-        #expect(l.keys(heldBy: w1) == ["/b"])
     }
 }

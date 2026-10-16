@@ -11,15 +11,9 @@ enum QmdMapping {
     /// this folder first, else the closest folder (a user's `~/notes` serves `~/notes/book`). nil = none covers it.
     // lazy: coverage is by folder only, a user collection whose mask leaves out .qmd/.markdown still counts; upgrade: match masks too
     static func covering(_ collections: [QmdCollection], realRoot: String) -> QmdCollection? {
-        let candidates = collections.map { (collection: $0, folder: realPath($0.path)) }.filter { contains($0.folder, realRoot) }
+        let candidates = collections.map { (collection: $0, folder: realPath($0.path)) }.filter { realRoot.isPath(atOrUnder: $0.folder) }
         if let own = candidates.first(where: { $0.collection.name.hasPrefix(ownPrefix) && $0.folder == realRoot }) { return own.collection }
         return candidates.max { $0.folder.count < $1.folder.count }?.collection
-    }
-
-    /// `folder` is `path` or one of its ancestors (both normalised, no trailing slash).
-    static func contains(_ folder: String, _ path: String) -> Bool {
-        let folder = folder.count > 1 && folder.hasSuffix("/") ? String(folder.dropLast()) : folder
-        return path == folder || path.hasPrefix(folder == "/" ? "/" : folder + "/")
     }
 
     /// `macdown2-<slug>-<hash>`: the folder's name in lowercase ASCII (other characters become "-") and 8 hex digits of its
@@ -57,7 +51,7 @@ enum QmdMapping {
         var path = result.file
         if path.hasPrefix("./") { path = QmdRunner.workingDirectory + path.dropFirst(2) }
         // Compared as qmd printed it (a realpath): `standardizingPath` would drop the `/private` of an existing `/private/var/…`.
-        guard path.hasPrefix("/"), !path.split(separator: "/").contains(".."), contains(realRoot, path) else { return nil }
+        guard path.hasPrefix("/"), !path.split(separator: "/").contains(".."), path.isPath(atOrUnder: realRoot) else { return nil }
         var base = workspace.path(percentEncoded: false)
         if base.count > 1, base.hasSuffix("/") { base.removeLast() }
         let file = URL(filePath: base + path.dropFirst(realRoot.count), directoryHint: .notDirectory)

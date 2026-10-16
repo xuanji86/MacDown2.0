@@ -20,7 +20,7 @@ public enum SearchScope {
             return !keys.enumerated().contains { other, otherKey in
                 guard other != index else { return false }
                 if otherKey == key { return other < index }  // the same folder twice: the first stays
-                return otherKey == "/" || key.hasPrefix(otherKey + "/")
+                return key.isPath(atOrUnder: otherKey)  // not the same folder (handled above): strictly inside
             }
         }.map(\.element)
     }

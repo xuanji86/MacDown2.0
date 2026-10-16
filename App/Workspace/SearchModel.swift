@@ -281,9 +281,9 @@ final class SearchModel {
     static func folder(of file: URL, in roots: [URL]) -> String {
         let dir = file.deletingLastPathComponent().fileKey
         for root in roots {
-            let key = root.fileKey, prefix = key == "/" ? "/" : key + "/"
-            if dir == key { return "" }
-            if dir.hasPrefix(prefix) { return String(dir.dropFirst(prefix.count)) }
+            let key = root.fileKey
+            // What follows the root: nothing, or "/rest" (just "rest" under "/", whose key already ends in the separator).
+            if dir.isPath(atOrUnder: key) { return String(dir.dropFirst(key.count).drop { $0 == "/" }) }
         }
         return dir
     }
