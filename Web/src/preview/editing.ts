@@ -27,8 +27,8 @@
 // Undo: each edit says whether it starts a new undo step. It continues the last one, as typing in the editor does, only while it is
 // next to the previous edit in the same block and the caret did not move in between (arrow keys, a click, a selection).
 import { post } from './bridge.ts';
-import { blockNodes, type BlockHandle } from './scroll.ts';
-import { lineOf, shown } from './shown.ts';
+import { elements, type BlockHandle } from './scroll.ts';
+import { blockAt, lineOf, shown } from './shown.ts';
 import {
   blockText, carryContext, edited, handleOf, insertionAt, literalEdit, mapBlock, NEWLINE, pointAt, pointIn, rebase, renderedBlock,
   shifted, sourceEdit, splitsPair, type BlockMapping, type BurstEdit, type Refusal, type SourceEdit,
@@ -136,7 +136,7 @@ function hint(kind: HintKind): void {
 
 // --- edit mode ----------------------------------------------------------------------------------------------------------------
 
-const elementOf = (h: BlockHandle): HTMLElement | null => (blockNodes(h).find((n) => n.nodeType === 1) as HTMLElement | undefined) ?? null;
+const elementOf = (h: BlockHandle): HTMLElement | null => elements(h)[0] ?? null;
 
 function enter(h: BlockHandle, el: HTMLElement, caret: Range | null): void {
   if (host !== el) leave();
@@ -646,7 +646,7 @@ function placeOf(m: BlockMapping, at: number): { k: number; after: boolean; exac
  *  page shows). */
 function reenterAt(at: number, trusted: boolean, end = at): void {
   const line = lineOf(shown.source, at);
-  const h = shown.blocks.find((b) => b.line0 <= line && line < b.line1);
+  const h = blockAt(line);
   if (!h) return;
   const el = elementOf(h);
   const m = mapBlock(h);
@@ -692,7 +692,7 @@ export function startEditing(): void {
 // Tests (and the app's Debug hooks) drive edit mode without a pointer and read what happened.
 export const editingForTests = {
   enterAt(line: number, at: number | null): boolean {
-    const h = shown.blocks.find((b) => b.line0 <= line && line < b.line1);
+    const h = blockAt(line);
     const el = h && elementOf(h);
     if (!h || !el) return false;
     lastEdit = null;

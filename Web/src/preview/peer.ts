@@ -6,6 +6,7 @@
 // is inserted, so the block patcher never sees it. A render drops it; the app sends the editor's selection again after each one.
 import { post } from './bridge.ts';
 import type { BlockHandle } from './scroll.ts';
+import { lastLE } from './scroll-map.ts';
 import { lineOf, linesRange, shown } from './shown.ts';
 import { handleOf, mapBlock, pointIn, type BlockMapping } from './source-map.ts';
 import { bridgeToken } from './tasks.ts';
@@ -51,15 +52,8 @@ function rangesIn(m: BlockMapping, from: number, to: number): Range[] {
 /** Blocks whose lines meet lines l0 ..= l1 (the footnote section has none). */
 function blocksOnLines(l0: number, l1: number): BlockHandle[] {
   const blocks = shown.blocks;
-  let lo = 0;
-  let hi = blocks.length;
-  while (lo < hi) {
-    const mid = (lo + hi) >> 1;
-    if (blocks[mid].line1 <= l0) lo = mid + 1;
-    else hi = mid;
-  }
   const out: BlockHandle[] = [];
-  for (let i = lo; i < blocks.length && blocks[i].line0 <= l1; i++) if (blocks[i].line0 < blocks[i].line1) out.push(blocks[i]);
+  for (let i = lastLE(blocks.length, (k) => blocks[k].line1, l0) + 1; i < blocks.length && blocks[i].line0 <= l1; i++) if (blocks[i].line0 < blocks[i].line1) out.push(blocks[i]);
   return out;
 }
 
