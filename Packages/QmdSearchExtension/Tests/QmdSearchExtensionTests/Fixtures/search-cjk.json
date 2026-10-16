@@ -1,0 +1,9 @@
+[
+  {
+    "score": 0.44,
+    "file": "/private/tmp/md2-qmd-fixture/ws/alpha.md",
+    "line": 8,
+    "title": "Alpha Notes",
+    "snippet": "@@ -7,3 @@ (6 before, 0 after)\n\nMore text about capacitor design and 中文测试 content.\n"
+  }
+]

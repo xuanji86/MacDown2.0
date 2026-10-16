@@ -1,0 +1,5 @@
+Collection: my notes
+  Path:     /private/tmp/md2-qmd-fixture/my notes
+  Pattern:  **/*.md
+  Include:  yes (default)
+  Update:   git pull

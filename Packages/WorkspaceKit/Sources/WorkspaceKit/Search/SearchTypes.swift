@@ -10,15 +10,20 @@ public struct SearchQuery: Sendable, Equatable {
     public var files: FileTreeOptions
     /// Most hits returned (one per matching line).
     public var limit: Int
+    /// Ask a provider that understands meaning (`SearchCapabilities.semantic`) rather than words; the built-in search never gets these.
+    public var isSemantic: Bool
 
     // lazy: 1,000 hits, then the stream ends with `SearchError.truncated`; upgrade: paging in the results list
     public static let defaultLimit = 1000
 
-    public init(text: String, isRegex: Bool = false, files: FileTreeOptions = FileTreeOptions(), limit: Int = SearchQuery.defaultLimit) {
+    public init(
+        text: String, isRegex: Bool = false, files: FileTreeOptions = FileTreeOptions(), limit: Int = SearchQuery.defaultLimit, isSemantic: Bool = false
+    ) {
         self.text = text
         self.isRegex = isRegex
         self.files = files
         self.limit = limit
+        self.isSemantic = isSemantic
     }
 
     /// Nothing to search for (blank, or only `-exclusions`): the UI does not start a search.

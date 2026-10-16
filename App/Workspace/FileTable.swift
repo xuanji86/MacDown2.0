@@ -1,4 +1,5 @@
 import AppKit
+import ExtensionAPI
 import QuickLookUI
 import SwiftUI
 import UniformTypeIdentifiers
@@ -400,12 +401,31 @@ final class FileTableCoordinator: NSObject, NSTableViewDataSource, NSTableViewDe
             if [.newFile, .rename, .addToFavorites, .removeFromFavorites].contains(action), !menu.items.isEmpty, !(menu.items.last?.isSeparatorItem ?? true) { menu.addItem(.separator()) }
             add(action)
         }
+        // Commands an extension's search source offers for this folder (qmd: "Disable qmd Index"); none while it is off.
+        let extensionActions = target.isDirectory ? AppSearch.providers.flatMap { $0.folderActions(for: target.url) } : []
+        if !extensionActions.isEmpty { menu.addItem(.separator()) }
+        for action in extensionActions {
+            let item = NSMenuItem(title: action.title, action: #selector(extensionMenuAction(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = ExtensionPayload(action)
+            menu.addItem(item)
+        }
         return menu
     }
 
     @objc private func menuAction(_ sender: NSMenuItem) {
         guard let p = sender.representedObject as? Payload else { return }
         model.perform(p.action, on: p.url, isDirectory: p.isDirectory)
+    }
+
+    private final class ExtensionPayload: NSObject {
+        let action: SearchFolderAction
+        init(_ action: SearchFolderAction) { self.action = action }
+    }
+
+    @objc private func extensionMenuAction(_ sender: NSMenuItem) {
+        guard let p = sender.representedObject as? ExtensionPayload else { return }
+        Task { await p.action.perform() }
     }
 
     private static func title(_ action: FileAction) -> String {
