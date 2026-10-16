@@ -16,6 +16,7 @@ declare const MacDown2: {
     probe(text: string, options: RenderOptionsLike, first: boolean, context?: Context | null): Probe[];
     render(text: string, options: RenderOptionsLike, first: boolean, context?: Context | null): string;
     context(source: string, options: RenderOptionsLike): Context;
+    readonly generation: number; // changes when the renderer's instances are rebuilt (a flavor registered)
   };
 };
 
@@ -223,11 +224,12 @@ const textOfHTML = (html: string): string => parsedText(html).text;
 // The document's definitions (link references, footnote labels), per text. Edits made here never change them: a definition is not a
 // block the page edits, and an edit that would make or unmake one changes the block's markup, which the page refuses. So the render
 // that catches up with a burst keeps them (`carryContext`); only a text from elsewhere (the editor, the disk) is parsed again.
-let context: { source: string; options: string; value: Context } | null = null;
+let context: { source: string; options: string; generation: number; value: Context } | null = null;
 function documentContext(options: RenderOptionsLike): Context {
-  if (context?.source === shown.source && context.options === shown.optionsJSON) return context.value;
+  const generation = MacDown2.inlineMap!.generation;
+  if (context?.source === shown.source && context.options === shown.optionsJSON && context.generation === generation) return context.value;
   const value = MacDown2.inlineMap!.context(shown.source, options);
-  context = { source: shown.source, options: shown.optionsJSON, value };
+  context = { source: shown.source, options: shown.optionsJSON, generation, value };
   return value;
 }
 
@@ -303,12 +305,24 @@ export function mapBlock(h: BlockHandle): BlockMapping | null {
   return { handle: h, texts, starts, text, offsets, widths: null, start, end, placed, context: c.context };
 }
 
+// The block last rendered here, with everything its render depends on. Typing renders the block as it stands and as it will be; the
+// next keystroke starts from the text this one made, so its "as it stands" is the render just done. The definitions are held by
+// identity: a document's are replaced as a whole (documentContext), never changed. `generation`: the renderer's instances are
+// rebuilt when a flavor registers, and a result never outlives the instances that made it.
+let lastRender: { text: string; first: boolean; options: string; generation: number; context: Context | null; value: Rendered } | null = null;
+
 /** The block's source `text` rendered on its own with the document's definitions (a `[^1]` typed must find the footnote defined
  *  elsewhere): its text and its elements. A text without `[` cannot use a definition, and is rendered without them. */
 export function renderedBlock(text: string, m: Pick<BlockMapping, 'handle'>): Rendered {
   const options = shown.options!;
-  const html = MacDown2.inlineMap!.render(text, options, m.handle.line0 === 0, text.includes('[') ? documentContext(options) : null);
-  return parsedText(html);
+  const first = m.handle.line0 === 0;
+  const context = text.includes('[') ? documentContext(options) : null;
+  const generation = MacDown2.inlineMap!.generation;
+  const r = lastRender;
+  if (r && r.text === text && r.first === first && r.options === shown.optionsJSON && r.generation === generation && r.context === context) return r.value;
+  const value = parsedText(MacDown2.inlineMap!.render(text, options, first, context));
+  lastRender = { text, first, options: shown.optionsJSON, generation, context, value };
+  return value;
 }
 
 /** A DOM point inside the block's text as a unit index and the text node it is in (a point between nodes, or in an element, is

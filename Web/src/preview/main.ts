@@ -14,7 +14,7 @@ import { renderMermaid, setMermaidStyle } from './mermaid-loader.ts';
 import { blockNodes, elements, pageYToLine, recordAnchor, scrollToLine as scrollBlocksToLine, startAnchoring, startScrollReporting, type BlockHandle } from './scroll.ts';
 import { alignSegments, splitBlocks, type Segment } from './split-html.ts';
 import { DEFAULT_STYLE, styleLinks } from './styles.ts';
-import { enableTaskCheckboxes, focusedTaskLine, restoreTaskFocus, setRenderVersion, startTaskToggling } from './tasks.ts';
+import { enableTaskCheckboxes, focusedTaskLine, restoreTaskFocus, startTaskToggling } from './tasks.ts';
 import { afterUpdate, beforeUpdate, busy, onForget, startEditing } from './editing.ts';
 import { clearHighlight, muteSelectionWhile, selectionStale, startSelectionReporting } from './peer.ts';
 import { shown, type TaskItem } from './shown.ts';
@@ -200,7 +200,6 @@ export function update(
     if (mode !== 'patch') doc().dataset.flavor = options.flavor;
     const t3 = performance.now();
     errorBar().hidden = true;
-    setRenderVersion(version);
     shown.source = md;
     shown.options = options as typeof shown.options;
     shown.optionsJSON = optionsJSON;

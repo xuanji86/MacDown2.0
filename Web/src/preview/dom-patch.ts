@@ -4,7 +4,7 @@
 //   common prefix + common suffix are cut away, the middle gets an LCS so unchanged blocks inside an edit
 //   (an inserted paragraph between two kept ones, a moved block) survive too.
 
-export interface PatchPlan {
+interface PatchPlan {
   prefix: number; // leading blocks identical in old and new
   suffix: number; // trailing blocks identical in old and new
   matches: Array<[oldIndex: number, newIndex: number]>; // LCS pairs inside the middle, ascending in both
