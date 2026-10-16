@@ -23,10 +23,23 @@ struct PreviewNavigationDecider: WebPage.NavigationDeciding {
 
     func decidePolicy(for action: WebPage.NavigationAction, preferences: inout WebPage.NavigationPreferences) async -> WKNavigationActionPolicy {
         guard let url = action.request.url, !action.shouldPerformDownload else { return .cancel }
+        // Quarto real render: only Quarto's own server (its page, its live reload) and blank frames; a link the user clicks to anything else goes
+        // to the system as usual, everything else (a script navigating to another site, frames) is cancelled.
+        if let origin = root.externalOrigin {
+            if Self.sameOrigin(url, origin) || url.scheme?.lowercased() == "about" { return .allow }
+            if action.navigationType == .linkActivated, let scheme = url.scheme?.lowercased(), ["http", "https", "mailto"].contains(scheme) {
+                await MainActor.run { _ = NSWorkspace.shared.open(url) }
+            }
+            return .cancel
+        }
         let decision = policy.decide(url, isLinkActivation: action.navigationType == .linkActivated)
         if decision == .allow { return .allow }
         perform(decision, for: url)
         return .cancel
+    }
+
+    static func sameOrigin(_ a: URL, _ b: URL) -> Bool {
+        a.scheme?.lowercased() == b.scheme?.lowercased() && a.host()?.lowercased() == b.host()?.lowercased() && a.port == b.port
     }
 
     /// `createIn` is the document's own folder (nil while it is unsaved: a link to a missing note then does nothing).

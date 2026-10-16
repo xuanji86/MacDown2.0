@@ -36,6 +36,8 @@ final class MarkdownDocument: NSDocument, ObservableObject {
     let editedFlag = EditedFlag()
     /// Encoding, line ending and BOM the file is saved back in; shown in the status bar.
     let format = DocumentFormat()
+    /// Quarto real render of this document, while the user has it on (PLAN 4.6.2); stopped when the document closes.
+    let alternatePreview = AlternatePreviewState()
     /// Set only while `reopen(as:)` re-reads the file.
     private var encodingOverride: TextEncoding?
 
@@ -198,7 +200,11 @@ final class MarkdownDocument: NSDocument, ObservableObject {
 
     override var fileURL: URL? {
         didSet {
-            MainActor.assumeIsolated { restartExternalMonitor() }  // AppKit sets the URL on the main thread
+            MainActor.assumeIsolated {  // AppKit sets the URL on the main thread
+                restartExternalMonitor()
+                // Renamed, moved, saved as: the real render would go on with the old file. Stopped; the user switches it on again.
+                if fileURL?.standardizedFileURL != oldValue?.standardizedFileURL { alternatePreview.switchOff() }
+            }
             // A first save turns the untitled key into the file's: the tab, the ledger and the recents follow.
             guard let new = fileURL, let old = oldValue ?? untitledID.map(URL.untitled), old.fileKey != new.fileKey else { return }
             NotificationCenter.default.post(name: .markdownDocumentMoved, object: self, userInfo: ["old": old, "new": new])
@@ -348,6 +354,7 @@ final class MarkdownDocument: NSDocument, ObservableObject {
     }
 
     override func close() {
+        alternatePreview.switchOff()
         externalMonitor?.stop()
         externalMonitor = nil
         dismissExternalPrompt()

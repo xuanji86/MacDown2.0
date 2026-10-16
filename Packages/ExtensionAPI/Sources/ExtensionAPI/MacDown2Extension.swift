@@ -67,12 +67,16 @@ public protocol DocumentFlavor: Sendable {
     func auxiliaryFiles(for markdown: String, readFile: (String) -> String?) -> [String: String]
     /// A label for the status bar and the preview ("Quarto · Approximate Preview") when the flavor is an approximation; nil for none.
     var badge: FlavorBadge? { get }
+    /// A renderer run by an external tool that the user can switch the preview to (Quarto real render); nil = none. Read on the main
+    /// actor each time the preview is drawn, so a mode that is switched off in the extension's settings disappears at once.
+    @MainActor var alternatePreviewMode: (any AlternatePreviewMode)? { get }
 }
 
 extension DocumentFlavor {
     public func editorDecorations(visibleLines: [Substring], firstLine: Int) -> [DecorationSpan] { [] }
     public func auxiliaryFiles(for markdown: String, readFile: (String) -> String?) -> [String: String] { [:] }
     public var badge: FlavorBadge? { nil }
+    @MainActor public var alternatePreviewMode: (any AlternatePreviewMode)? { nil }
 }
 
 /// One styled stretch of a document line. `token` is the raw value of an editor `TokenKind` (themes style them by name;
@@ -129,5 +133,7 @@ public final class ExtensionSettingsStore {
     public func set(_ value: Bool, for key: String) { defaults.set(value, forKey: prefix + key) }
     public func string(_ key: String) -> String? { defaults.string(forKey: prefix + key) }
     /// nil removes the value.
-    public func set(_ value: String?, for key: String) { defaults.set(value, forKey: prefix + key) }
+    public func set(_ value: String?, for key: String) {
+        if let value { defaults.set(value, forKey: prefix + key) } else { defaults.removeObject(forKey: prefix + key) }
+    }
 }

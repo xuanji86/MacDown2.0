@@ -23,7 +23,8 @@ import WorkspaceKit
 ///                                         origin), or the main screen's visible frame ("max": what zoom gives), once
 ///   MACDOWN2_TEST_EDIT_TEXT=<text>        <text> is appended to the first open file document, as if typed (it becomes unsaved), ...
 ///   MACDOWN2_TEST_EDIT_AFTER=<secs>       ... after this many seconds (default 2): the way to get a dirty document without input
-///   MACDOWN2_TEST_PROMPT_ANSWER=keep|reload  answer the "changed on disk" sheet this way ...
+///   MACDOWN2_TEST_PROMPT_ANSWER=keep|reload  answer the "changed on disk" sheet this way (and the Quarto "run this document's
+///                                         code?" sheet: keep = Cancel, reload = Render) ...
 ///   MACDOWN2_TEST_PROMPT_DELAY=<secs>     ... after this many seconds (default 4; the sheet stays up that long to be photographed)
 ///   MACDOWN2_TEST_TOGGLE_TASK_LINE=<n>    the preview PAGE clicks the task checkbox on source line n, with its own JavaScript
 ///                                         (see `toggleTaskThroughPage`); `_DELAY`, `_LAYOUT=previewOnly`, `_UNDO=1` and `_SAVE=afterToggle|afterUndo` refine it

@@ -71,6 +71,16 @@
         }
       }
     },
+    "Approximate" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "近似"
+          }
+        }
+      }
+    },
     "Click into a paragraph, heading, list or table in the preview to type, delete or use an input method there; the change goes into the source and undoes like typing in the editor. Line breaks, formatting and anything the preview cannot map to the source stay in the editor. A selection in either pane is highlighted in the other." : {
       "localizations" : {
         "zh-Hans" : {
@@ -101,6 +111,16 @@
         }
       }
     },
+    "Done" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "完成"
+          }
+        }
+      }
+    },
     "Edit in preview" : {
       "localizations" : {
         "zh-Hans" : {
@@ -121,12 +141,32 @@
         }
       }
     },
+    "Last rendered %@" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "上次渲染 %@"
+          }
+        }
+      }
+    },
     "Line breaks and new paragraphs are made in the editor." : {
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "换行和分段请在编辑区里操作。"
+          }
+        }
+      }
+    },
+    "Log" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "日志"
           }
         }
       }
@@ -171,12 +211,32 @@
         }
       }
     },
+    "Real rendering is not available" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法使用真渲染"
+          }
+        }
+      }
+    },
     "Render Preview" : {
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "渲染预览"
+          }
+        }
+      }
+    },
+    "Rendering…" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在渲染…"
           }
         }
       }
@@ -1291,6 +1351,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "无法打开此链接"
+          }
+        }
+      }
+    },
+    "Starting…" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在启动…"
           }
         }
       }
@@ -3743,6 +3813,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "无序列表标记"
+          }
+        }
+      }
+    },
+    "Unsaved changes are not rendered yet" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "未保存的修改尚未渲染"
           }
         }
       }

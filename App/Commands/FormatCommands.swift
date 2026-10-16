@@ -72,6 +72,11 @@ struct FormatCommands: Commands {
             Button("Render Preview") { actions?.renderPreview() }
                 .keyboardShortcut("r")
                 .disabled(actions == nil)
+            // Only for a document with a real render (a .qmd while Quarto's real render is on).
+            if let alternate = actions?.alternatePreview {
+                Toggle(alternate.title, isOn: Binding(get: { alternate.isOn }, set: { _ in alternate.toggle() }))
+                    .keyboardShortcut("r", modifiers: [.command, .option])
+            }
             // One level for the editor font and the preview (global). "+" is ⌘⇧= on a US keyboard; ⌘= zooms in as well (`ZoomInAlias`).
             Button("Zoom In") { zoomPercent = ViewZoom.zoomedIn(from: zoomPercent) }
                 .keyboardShortcut("+")
