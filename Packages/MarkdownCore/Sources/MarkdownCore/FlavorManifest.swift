@@ -11,6 +11,9 @@ public struct FlavorManifest: Sendable {
         public var settingKey: String
     }
 
+    /// The document type of plain Markdown, which no flavor claims.
+    public static let markdownUTType = "net.daringfireball.markdown"
+
     public var entries: [FlavorID: Entry]
 
     public init(data: Data) throws {
@@ -30,5 +33,14 @@ public struct FlavorManifest: Sendable {
             return (id, entry.chunks)
         }
         return (.markdown, [])
+    }
+
+    /// Puts the flavor `utType` resolves to (see `resolve`) and its render chunks into `options`; returns the extra stylesheets the
+    /// flavor's page needs. The one setup Quick Look and the command line share.
+    public func renderSetup(_ options: inout RenderOptions, utType: String, isEnabled: (String) -> Bool) -> [String] {
+        let (flavor, chunks) = resolve(utType: utType, isEnabled: isEnabled)
+        options.flavor = flavor
+        options.renderChunks = chunks
+        return entries[flavor]?.stylesheets ?? []
     }
 }
