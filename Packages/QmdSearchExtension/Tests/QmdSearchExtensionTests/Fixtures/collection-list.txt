@@ -1,0 +1,12 @@
+Collections (2):
+
+macdown2-ws-0badf00d (qmd://macdown2-ws-0badf00d/) [excluded]
+  Pattern:  **/*.{md,markdown,qmd}
+  Files:    4
+  Updated:  1s ago
+
+my notes (qmd://my notes/)
+  Pattern:  **/*.md
+  Files:    1
+  Updated:  1s ago
+

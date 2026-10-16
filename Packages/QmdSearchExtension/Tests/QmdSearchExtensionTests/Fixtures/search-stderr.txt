@@ -1,0 +1,1 @@
+warning: --full-path could not resolve 1 of 4 results on disk (moved or deleted since indexing); showing qmd:// + docid instead. Run 'qmd update' to refresh the index.

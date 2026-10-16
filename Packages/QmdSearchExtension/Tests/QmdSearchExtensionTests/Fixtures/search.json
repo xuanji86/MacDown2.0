@@ -1,0 +1,31 @@
+[
+  {
+    "docid": "#2b1596",
+    "score": 0,
+    "file": "qmd://macdown2-ws-0badf00d/doomed.md",
+    "line": 1,
+    "title": "doomed",
+    "snippet": "@@ -1,2 @@ (0 before, 0 after)\ndoomed capacitor\n"
+  },
+  {
+    "score": 0,
+    "file": "/private/tmp/md2-qmd-fixture/ws/alpha.md",
+    "line": 3,
+    "title": "Alpha Notes",
+    "snippet": "@@ -2,4 @@ (1 before, 4 after)\n\nThis file talks about the quantum flux capacitor.\nIt has several lines.\n"
+  },
+  {
+    "score": 0,
+    "file": "/private/tmp/md2-qmd-fixture/ws/notes/gamma.markdown",
+    "line": 1,
+    "title": "gamma",
+    "snippet": "@@ -1,2 @@ (0 before, 0 after)\nGamma document with nothing special except capacitor once.\n"
+  },
+  {
+    "score": 0,
+    "file": "/private/tmp/md2-qmd-fixture/ws/notes/beta.qmd",
+    "line": 7,
+    "title": "beta",
+    "snippet": "@@ -6,3 @@ (5 before, 0 after)\n\nThe flux capacitor appears here too, inside a qmd file.\n"
+  }
+]

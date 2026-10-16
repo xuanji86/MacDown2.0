@@ -170,6 +170,7 @@ PACKAGES = {
     "WorkspaceKit": "Packages/WorkspaceKit/Sources/WorkspaceKit",
     "ExtensionAPI": "Packages/ExtensionAPI/Sources/ExtensionAPI",
     "QuartoExtension": "Packages/QuartoExtension/Sources/QuartoExtension",
+    "QmdSearchExtension": "Packages/QmdSearchExtension/Sources/QmdSearchExtension",
 }
 STRINGS_LINE = re.compile(r'^"((?:[^"\\]|\\.)*)"\s*=\s*"((?:[^"\\]|\\.)*)";\s*$')
 
