@@ -1,3 +1,4 @@
+import ExtensionAPI
 import SwiftUI
 import WorkspaceKit
 
@@ -15,6 +16,7 @@ struct SearchPage: View {
         let search = model.search
         VStack(spacing: 0) {
             SearchField(search: search, sidebar: model.sidebar, focus: $focus, submit: submit)
+            if search.supportsSemantic { SemanticSetupLine(search: search) }
             SearchStatusLine(search: search)
             if search.groups.isEmpty {
                 Spacer(minLength: 0)
@@ -67,11 +69,11 @@ struct SearchPage: View {
         .accessibilityLabel("Search Results")
     }
 
-    /// Return in the field: a semantic search when a provider can do one and the results are not one yet (PLAN 4.12); else
-    /// the selected result, else the first one.
+    /// Return in the field: a semantic search when a provider can do one (and has it set up) and the results are not one yet
+    /// (PLAN 4.12); else the selected result, else the first one.
     private func submit() {
         let search = model.search
-        if search.supportsSemantic, !search.isSemantic, !search.isRegex {
+        if search.supportsSemantic, search.semanticSetup == .ready, !search.isSemantic, !search.isRegex {
             search.startSemantic()
         } else if let hit = search.selectedHit ?? search.hits.first {
             open(hit, true)
@@ -114,14 +116,15 @@ private struct SearchField: View {
                 .accessibilityLabel("Clear Search")
             }
             if search.supportsSemantic {
+                let setup = search.semanticSetup
                 Button { search.startSemantic() } label: {
                     Image(systemName: "sparkles")
                         .font(.system(size: 11))
                         .foregroundStyle(search.isSemantic ? Color.accentColor : Color.secondary)
                 }
                 .buttonStyle(.plain)
-                .disabled(search.isRegex)
-                .help("Search by meaning: also finds documents that say the same thing in other words (Return in the field does the same)")
+                .disabled(search.isRegex || setup != .ready)
+                .help(semanticHelp(setup))
                 .accessibilityLabel("Semantic Search")
             }
             Button { search.isRegex.toggle() } label: {
@@ -144,6 +147,57 @@ private struct SearchField: View {
         .background(RoundedRectangle(cornerRadius: 8).fill(Color.primary.opacity(0.06)))
         .padding(.horizontal, 10)
         .padding(.bottom, 6)
+    }
+
+    /// While the setup runs (or after it failed) the tooltip says what is going on.
+    private func semanticHelp(_ setup: SemanticSetup) -> Text {
+        switch setup {
+        case .ready: Text("Search by meaning: also finds documents that say the same thing in other words (Return in the field does the same)")
+        case .preparing(let text), .failed(let text): Text(verbatim: text)
+        }
+    }
+}
+
+/// While a provider sets semantic search up (qmd downloads its models and embeds the folder): what it is doing, with Cancel.
+/// After a failure (or Cancel): why, with Retry. Keyword search works all the while.
+private struct SemanticSetupLine: View {
+    let search: SearchModel
+
+    var body: some View {
+        switch search.semanticSetup {
+        case .ready:
+            EmptyView()
+        case .preparing(let text):
+            row {
+                ProgressView().controlSize(.mini)
+                message(text)
+                Button("Cancel") { search.cancelSemanticSetup() }
+                    .controlSize(.mini)
+                    .accessibilityLabel("Cancel Semantic Search Setup")
+            }
+        case .failed(let text):
+            row {
+                Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange).accessibilityHidden(true)
+                message(text)
+                Button("Retry") { search.retrySemanticSetup() }
+                    .controlSize(.mini)
+                    .accessibilityLabel("Retry Semantic Search Setup")
+            }
+        }
+    }
+
+    private func row(@ViewBuilder _ content: () -> some View) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) { content() }
+            .font(.system(size: 11))
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 14)
+            .padding(.bottom, 4)
+            .accessibilityElement(children: .contain)
+    }
+
+    private func message(_ text: String) -> some View {
+        Text(verbatim: text).fixedSize(horizontal: false, vertical: true).frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 

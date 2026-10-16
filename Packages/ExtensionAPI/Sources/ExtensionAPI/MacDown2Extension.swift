@@ -25,10 +25,14 @@ public protocol MacDown2Extension: AnyObject {
     func activate(host: any ExtensionHost) async
     /// Idempotent: stops everything this extension started. Registrations are revoked by the host.
     func deactivate() async
+    /// The app is quitting: kill every process this extension started, before returning (there is no later). External tools run
+    /// in process groups of their own, so they would outlive the app otherwise.
+    func terminate()
     func settingsPane() -> AnyView?
 }
 
 extension MacDown2Extension {
+    public func terminate() {}
     public func settingsPane() -> AnyView? { nil }
     public static var disabledHint: LocalizedStringResource? { nil }
 }

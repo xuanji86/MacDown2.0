@@ -26,11 +26,15 @@ public final class QmdSearchExtension: MacDown2Extension {
             environment: host.toolEnvironment,
             options: { await settings.options },
             consent: { await QmdConsent.ask($0) },
-            decline: { await settings.decline($0) }
+            decline: { await settings.decline($0) },
+            rememberSetup: { await settings.rememberSetup($0, done: $1) }
         ), semantic: settings.semantic)
         settings.onSemanticChange = { [weak provider] in provider?.setSemantic($0) }
         settings.onEmbedSettingsChange = { [weak provider] in
             if let engine = provider?.engine { Task { await engine.updateEmbedLoop() } }
+        }
+        settings.onSetupSettingsChange = { [weak provider] in
+            if let engine = provider?.engine { Task { await engine.semanticSettingsChanged() } }
         }
         self.settings = settings
         self.provider = provider
@@ -43,6 +47,8 @@ public final class QmdSearchExtension: MacDown2Extension {
         settings = nil
         await provider?.shutdown()
     }
+
+    public func terminate() { provider?.terminateNow() }
 
     public func settingsPane() -> AnyView? {
         guard let settings, let provider else { return nil }
@@ -60,12 +66,15 @@ final class QmdSettings {
         static let rerank = "rerank"
         static let autoEmbed = "autoEmbed"
         static let declined = "declinedFolders"
+        static let semanticReady = "semanticReady"
     }
 
     @ObservationIgnored private let store: ExtensionSettingsStore
     @ObservationIgnored var onSemanticChange: ((Bool) -> Void)?
     /// Semantic search or "embed when idle" was switched.
     @ObservationIgnored var onEmbedSettingsChange: (() -> Void)?
+    /// Semantic search or reranking was switched: what the semantic setup needs may have changed.
+    @ObservationIgnored var onSetupSettingsChange: (() -> Void)?
 
     var manualPath: String { didSet { store.set(manualPath.isEmpty ? nil : manualPath, for: Key.path) } }
     var semantic: Bool {
@@ -73,9 +82,15 @@ final class QmdSettings {
             store.set(semantic, for: Key.semantic)
             onSemanticChange?(semantic)
             onEmbedSettingsChange?()
+            onSetupSettingsChange?()
         }
     }
-    var rerank: Bool { didSet { store.set(rerank, for: Key.rerank) } }
+    var rerank: Bool {
+        didSet {
+            store.set(rerank, for: Key.rerank)
+            onSetupSettingsChange?()
+        }
+    }
     var autoEmbed: Bool {
         didSet {
             store.set(autoEmbed, for: Key.autoEmbed)
@@ -83,6 +98,8 @@ final class QmdSettings {
         }
     }
     private(set) var declinedFolders: Set<String>
+    /// Collections whose semantic setup finished (models downloaded, embedded).
+    @ObservationIgnored private(set) var semanticReady: Set<String>
 
     init(store: ExtensionSettingsStore) {
         self.store = store
@@ -91,10 +108,17 @@ final class QmdSettings {
         rerank = store.bool(Key.rerank) ?? false
         autoEmbed = store.bool(Key.autoEmbed) ?? false
         declinedFolders = Set((store.string(Key.declined) ?? "").split(separator: "\n").map(String.init))
+        semanticReady = Set((store.string(Key.semanticReady) ?? "").split(separator: "\n").map(String.init))
     }
 
     var options: QmdOptions {
-        QmdOptions(manualPath: manualPath, semantic: semantic, rerank: rerank, autoEmbed: autoEmbed, declinedFolders: declinedFolders)
+        QmdOptions(manualPath: manualPath, semantic: semantic, rerank: rerank, autoEmbed: autoEmbed, declinedFolders: declinedFolders, semanticReady: semanticReady)
+    }
+
+    func rememberSetup(_ collection: String, done: Bool) {
+        let before = semanticReady
+        if done { semanticReady.insert(collection) } else { semanticReady.remove(collection) }
+        if semanticReady != before { store.set(semanticReady.isEmpty ? nil : semanticReady.sorted().joined(separator: "\n"), for: Key.semanticReady) }
     }
 
     func decline(_ realRoot: String) {

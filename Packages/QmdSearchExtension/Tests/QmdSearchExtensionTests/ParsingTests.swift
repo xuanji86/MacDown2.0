@@ -99,6 +99,9 @@ struct ParsingTests {
         #expect(QmdRunner.gist(of: stderr, status: 1) == #"Error: No model file found at "/nonexistent/gen.gguf""#)
         #expect(QmdRunner.gist(of: "Collection not found: nope\n", status: 1) == "Collection not found: nope")
         #expect(QmdRunner.gist(of: "", status: 3) == L10n.exitStatus(3))
+        // `qmd embed` without its model (2.8.3): a cursor escape, the message, then a hint.
+        let embed = "\u{1B}[?25lNo model file found at \"/nonexistent/embed.gguf\"\nIf qmd still behaves unexpectedly, run 'qmd doctor' for diagnostics.\n"
+        #expect(QmdRunner.gist(of: embed, status: 1) == #"No model file found at "/nonexistent/embed.gguf""#)
     }
 }
 

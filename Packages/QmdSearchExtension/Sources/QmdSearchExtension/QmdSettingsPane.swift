@@ -26,7 +26,7 @@ struct QmdSettingsPane: View {
                 Button { Task { await check(force: true) } } label: { Text("Check Again", bundle: .module) }
             }
             Toggle(isOn: $settings.semantic) { Text("Semantic search", bundle: .module) }
-            caption(Text("Return in the search field, or the sparkles button, asks qmd for documents with a similar meaning. The first semantic search downloads about 2 GB of models into qmd’s cache and each one takes seconds.", bundle: .module))
+            caption(Text("Return in the search field, or the sparkles button, asks qmd for documents with a similar meaning. Turning this on sets it up in the background: qmd downloads about 1.6 GB of models into its cache (~/.cache/qmd/models; reranking adds about 0.6 GB) and embeds each folder you search. The search panel shows the progress, and keyword search works meanwhile. Each semantic search then takes seconds.", bundle: .module))
             if settings.semantic {
                 Toggle(isOn: $settings.rerank) { Text("Rerank results (another model, slower)", bundle: .module) }
                 Toggle(isOn: $settings.autoEmbed) { Text("Update embeddings while the Mac is idle", bundle: .module) }

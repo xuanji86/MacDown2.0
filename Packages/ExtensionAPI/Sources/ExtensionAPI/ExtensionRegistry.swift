@@ -51,6 +51,11 @@ public final class ExtensionRegistry {
         if enabled { await activate(ext) } else { await deactivate(ext) }
     }
 
+    /// The app is quitting: every active extension stops its processes now.
+    public func terminate() {
+        for ext in extensions where active.contains(type(of: ext).id) { ext.terminate() }
+    }
+
     // `active` is updated before awaiting so a quick toggle cannot activate twice.
     private func activate(_ ext: any MacDown2Extension) async {
         let id = type(of: ext).id
