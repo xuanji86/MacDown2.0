@@ -7,33 +7,28 @@ tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 node "$root/Web/build.mjs" "$tmp"
 diff -r "$tmp" "$res" || { echo "error: $res is stale; run 'make web' and commit the result" >&2; exit 1; }
+
+# forbid <ERE> <what> <file>...: none of the files (in $res) may contain the pattern; the error says "<file> contains <what>".
+forbid() {
+  pattern=$1; what=$2; shift 2
+  for f in "$@"; do
+    if grep -q -E -e "$pattern" "$res/$f"; then echo "error: $f contains $what" >&2; exit 1; fi
+  done
+}
+# require <file> <pattern> <what>: the file (in $res) must contain the pattern; the error says "<file> does not contain <what>".
+require() { grep -q -e "$2" "$res/$1" || { echo "error: $1 does not contain $3" >&2; exit 1; }; }
+
 # Chunk boundary (PLAN 4.1.2): no Quarto code, and no markdown-it-attrs, in the main bundle or the preview page's own script.
-for bundle in render.bundle.js preview.bundle.js; do
-  if grep -q -e quarto_callout -e quarto_include -e pandoc_div -e curly_attributes -e 'quarto-' "$res/$bundle"; then
-    echo "error: $bundle contains Quarto code; it belongs in quarto.chunk.js" >&2; exit 1
-  fi
-done
+forbid 'quarto_callout|quarto_include|pandoc_div|curly_attributes|quarto-' 'Quarto code; it belongs in quarto.chunk.js' render.bundle.js preview.bundle.js
 # Same for Mermaid: `flowchart-v2` is one of its diagram ids, so it only occurs where Mermaid itself is bundled.
-for bundle in render.bundle.js preview.bundle.js; do
-  if grep -q flowchart-v2 "$res/$bundle"; then
-    echo "error: $bundle contains Mermaid; it belongs in mermaid.chunk.js" >&2; exit 1
-  fi
-done
+forbid flowchart-v2 'Mermaid; it belongs in mermaid.chunk.js' render.bundle.js preview.bundle.js
 # The sanitizer (parse5) is a chunk of its own: `abruptClosingOfEmptyComment` is one of its parse-error ids, so it only occurs where
 # parse5 is bundled. The main bundle fails closed without the chunk; it must not carry it.
-for bundle in render.bundle.js preview.bundle.js quarto.chunk.js mermaid.chunk.js; do
-  if grep -q abruptClosingOfEmptyComment "$res/$bundle"; then
-    echo "error: $bundle contains parse5; it belongs in sanitize.chunk.js" >&2; exit 1
-  fi
-done
-grep -q abruptClosingOfEmptyComment "$res/sanitize.chunk.js" || { echo "error: sanitize.chunk.js does not contain parse5" >&2; exit 1; }
+forbid abruptClosingOfEmptyComment 'parse5; it belongs in sanitize.chunk.js' render.bundle.js preview.bundle.js quarto.chunk.js mermaid.chunk.js
+require sanitize.chunk.js abruptClosingOfEmptyComment parse5
 # elkjs is EPL-2.0 without a GPL secondary-licence notice: not shippable under GPL-3.0 (build.mjs stubs it out).
-for f in mermaid.chunk.js THIRD_PARTY_LICENSES.txt; do
-  if grep -q -e 'org\.eclipse\.elk' -e elkjs "$res/$f"; then
-    echo "error: $f contains elkjs (EPL-2.0, not GPL-3.0 compatible)" >&2; exit 1
-  fi
-done
-grep -q flowchart-v2 "$res/mermaid.chunk.js" || { echo "error: mermaid.chunk.js does not contain Mermaid" >&2; exit 1; }
+forbid 'org\.eclipse\.elk|elkjs' 'elkjs (EPL-2.0, not GPL-3.0 compatible)' mermaid.chunk.js THIRD_PARTY_LICENSES.txt
+require mermaid.chunk.js flowchart-v2 Mermaid
 # Main bundle budget (PLAN 4.1.2: <= 800 KB minified).
 size=$(wc -c < "$res/render.bundle.js")
 [ "$size" -le $((800 * 1024)) ] || { echo "error: render.bundle.js is $size bytes, over its 800 KB budget" >&2; exit 1; }
