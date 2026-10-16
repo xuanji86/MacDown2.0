@@ -15,7 +15,8 @@ enum CopyHTML {
     /// frames, event handlers and script URLs a hostile document carries are removed (the preview has a CSP instead).
     /// `fileURL` decides the flavor (a .qmd renders with the Quarto chunk while that extension is on) and where includes are read.
     static func render(_ markdown: String, options: RenderOptions = RenderSettings.current, fileURL: URL? = nil) async throws -> String {
-        let renderer = try renderer ?? JSCRenderer()
+        let renderer: JSCRenderer
+        if let cached = self.renderer { renderer = cached } else { renderer = try await .makeOffMain() }
         self.renderer = renderer
         return try await renderer.render(markdown, options: AppExtensions.renderOptions(options, markdown: markdown, fileURL: fileURL).forExport).html
     }
@@ -30,5 +31,13 @@ enum CopyHTML {
             log.error("copy html failed: \(String(describing: error), privacy: .public)")
             NSSound.beep()
         }
+    }
+}
+
+extension JSCRenderer {
+    /// A renderer made off the main actor: a JSContext created on the main thread puts its timers on the main run loop, which then waits
+    /// on the VM lock while a large render holds it (and loading the bundle would hold the main thread too).
+    static func makeOffMain() async throws -> JSCRenderer {
+        try await Task.detached { try JSCRenderer() }.value
     }
 }
