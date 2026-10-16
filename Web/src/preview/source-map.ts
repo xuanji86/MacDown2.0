@@ -303,12 +303,22 @@ export function mapBlock(h: BlockHandle): BlockMapping | null {
   return { handle: h, texts, starts, text, offsets, widths: null, start, end, placed, context: c.context };
 }
 
+// The block last rendered here, with everything its render depends on. Typing renders the block as it stands and as it will be; the
+// next keystroke starts from the text this one made, so its "as it stands" is the render just done. The definitions are held by
+// identity: a document's are replaced as a whole (documentContext), never changed.
+let lastRender: { text: string; first: boolean; options: string; context: Context | null; value: Rendered } | null = null;
+
 /** The block's source `text` rendered on its own with the document's definitions (a `[^1]` typed must find the footnote defined
  *  elsewhere): its text and its elements. A text without `[` cannot use a definition, and is rendered without them. */
 export function renderedBlock(text: string, m: Pick<BlockMapping, 'handle'>): Rendered {
   const options = shown.options!;
-  const html = MacDown2.inlineMap!.render(text, options, m.handle.line0 === 0, text.includes('[') ? documentContext(options) : null);
-  return parsedText(html);
+  const first = m.handle.line0 === 0;
+  const context = text.includes('[') ? documentContext(options) : null;
+  const r = lastRender;
+  if (r && r.text === text && r.first === first && r.options === shown.optionsJSON && r.context === context) return r.value;
+  const value = parsedText(MacDown2.inlineMap!.render(text, options, first, context));
+  lastRender = { text, first, options: shown.optionsJSON, context, value };
+  return value;
 }
 
 /** A DOM point inside the block's text as a unit index and the text node it is in (a point between nodes, or in an element, is
