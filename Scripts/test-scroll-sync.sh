@@ -3,6 +3,7 @@
 # The app target has no unit-test bundle yet, so the ping-pong rules are checked here.
 set -eu
 root=$(cd "$(dirname "$0")/.." && pwd)
+. "$root/Scripts/lib.sh"
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 
@@ -36,9 +37,6 @@ if failures > 0 { exit(1) }
 print("scroll sync gate: all checks passed")
 SWIFT
 
-# CLT alone may lack the swift runtime bits; prefer full Xcode like the Makefile does.
-if xcode-select -p | grep -q CommandLineTools && [ -d /Applications/Xcode.app/Contents/Developer ]; then
-  export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
-fi
+use_full_xcode  # CLT alone may lack the swift runtime bits
 swiftc -o "$tmp/check" "$root/App/Document/ScrollSyncGate.swift" "$tmp/main.swift"
 "$tmp/check"

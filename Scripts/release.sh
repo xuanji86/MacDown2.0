@@ -14,6 +14,7 @@
 # Sparkle EdDSA: sign_update reads the private key from the login keychain (made once with Sparkle's
 # `generate_keys`). Without it the dry run still works but the appcast item is unsigned and --publish refuses.
 set -euo pipefail
+. "$(dirname "$0")/lib.sh"
 cd "$(dirname "$0")/.."
 
 REPO=xuanji86/MacDown2.0
@@ -37,8 +38,7 @@ done
 TAG="v$VERSION"
 BUILD_NUMBER=$(git rev-list --count HEAD)
 
-# Full Xcode is needed for xcodebuild even when xcode-select points at the Command Line Tools (same as the Makefile).
-if [[ "$(xcode-select -p)" == *CommandLineTools* ]]; then export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer; fi
+use_full_xcode
 
 DERIVED=build/release-derived
 OUT=build/release/$VERSION
@@ -82,12 +82,12 @@ done < <(find "$APP_PATH" -type f | sort)
 # Guard against the loop silently checking nothing: these must have been among the files seen.
 [ -f "$APP_PATH/Contents/MacOS/$APP" ] && [ -d "$APP_PATH/Contents/PlugIns/MacDown2QuickLook.appex" ] \
   && [ -f "$APP_PATH/Contents/Frameworks/Sparkle.framework/Sparkle" ] || die "expected app / appex / Sparkle binaries missing"
-# The command line tool (cask `binary` and the "Install Command Line Tool…" menu both point at it) must be there and universal;
-# its web assets are the app's own bundle, reached through a symlink, so a missing link would only show up at run time.
+# The command line tool (cask `binary` and the "Install Command Line Tool…" menu both point at it) must be there and a Mach-O file
+# (the loop above has then checked that it is universal); its web assets are the app's own bundle, reached through a symlink, so a
+# missing link would only show up at run time.
 CLI_TOOL=$APP_PATH/Contents/Helpers/macdown2
 [ -x "$CLI_TOOL" ] || die "Contents/Helpers/macdown2 is missing or not executable"
-CLI_ARCHS=" $(lipo -archs "$CLI_TOOL") "
-[[ "$CLI_ARCHS" == *" arm64 "* && "$CLI_ARCHS" == *" x86_64 "* ]] || die "Contents/Helpers/macdown2 is not universal (arm64 + x86_64): ->$CLI_ARCHS"
+[[ "$(file -bL "$CLI_TOOL")" == Mach-O* ]] || die "Contents/Helpers/macdown2 is not a Mach-O binary"
 [ -f "$APP_PATH/Contents/Helpers/WebAssets_WebAssets.bundle/Contents/Resources/Resources/render.bundle.js" ] || die "Contents/Helpers/WebAssets_WebAssets.bundle does not resolve to the app's web assets"
 [ "$MACHO_COUNT" -ge 8 ] || die "only $MACHO_COUNT Mach-O files found; expected app, appex, CLI, Sparkle and its helpers"
 

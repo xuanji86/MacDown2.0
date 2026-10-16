@@ -34,7 +34,8 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-APP="${MACDOWN2_APP:-$ROOT_DIR/build/DerivedData/Build/Products/Debug/MacDown2.app}"
+. "$ROOT_DIR/Scripts/lib.sh"
+APP="$(app_path)"
 STATE_DIR="${TMPDIR:-/tmp}/macdown2-isolated-state"
 SUITE_PREFIX="macdown2-iso-"
 TEMP_PREFIX="macdown2-isolated."
@@ -43,11 +44,8 @@ REAL_DOMAIN="io.github.xuanji86.MacDown2"
 die() { echo "run-isolated: $*" >&2; exit 1; }
 
 winids() {  # prints "<id> <w> <h>" lines for the pid; builds the CoreGraphics helper on first use
-  local tool="$ROOT_DIR/build/winid"
-  if [ ! -x "$tool" ] || [ "$ROOT_DIR/Scripts/winid.swift" -nt "$tool" ]; then
-    mkdir -p "$ROOT_DIR/build"
-    swiftc -O "$ROOT_DIR/Scripts/winid.swift" -o "$tool" >&2
-  fi
+  local tool
+  tool="$(swift_tool winid)" || return 1
   "$tool" "$1"
 }
 
@@ -93,10 +91,8 @@ stop() {
 
 if [ "${1:-}" = "--stop" ]; then stop "${2:-}"; exit 0; fi
 [ -d "$APP" ] || die "no app at $APP (run \`make app\`, or set MACDOWN2_APP)"
-# Only a Debug build honours the isolation variables; a Release bundle would ignore them and open the copies in the user's
-# real preferences domain. The Debug configuration marks its Info.plist (MACDOWN2_ISOLATION_SUPPORTED in the project).
-[ "$(/usr/libexec/PlistBuddy -c 'Print :MacDown2IsolationSupported' "$APP/Contents/Info.plist" 2>/dev/null || true)" = "YES" ] \
-  || die "$APP is not a Debug build with isolation support (Info.plist has no MacDown2IsolationSupported=YES); refusing to launch. Run \`make app\`."
+# A Release bundle would ignore the isolation variables and open the copies in the user's real preferences domain.
+require_isolation_build "$APP" "$APP is not a Debug build with isolation support (Info.plist has no MacDown2IsolationSupported=YES); refusing to launch. Run \`make app\`."
 
 suite="$SUITE_PREFIX$(uuidgen | tr 'A-Z' 'a-z')"
 root="$(mktemp -d "${TMPDIR:-/tmp}/${TEMP_PREFIX}XXXXXX")"

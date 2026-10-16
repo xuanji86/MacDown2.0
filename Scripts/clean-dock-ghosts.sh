@@ -2,11 +2,9 @@
 # Short-lived GUI processes started from a terminal (osascript above all) leave dead Dock tiles named after the terminal
 # app on macOS 27. Restart the Dock only when an app shows more tiles than its running instances / pinned tile.
 # Never fails the build. The tiles are read with Scripts/dock-tiles.swift, not osascript, which would add a ghost itself.
-cd "$(dirname "$0")/.." || exit 0
-tool=build/dock-tiles
-if [ ! -x "$tool" ] || [ Scripts/dock-tiles.swift -nt "$tool" ]; then
-  mkdir -p build && swiftc -O Scripts/dock-tiles.swift -o "$tool" 2>/dev/null || exit 0
-fi
+ROOT_DIR=$(cd "$(dirname "$0")/.." && pwd) || exit 0
+. "$ROOT_DIR/Scripts/lib.sh"
+tool=$(swift_tool dock-tiles 2>/dev/null) || exit 0
 dock=$("$tool" "$(pgrep -x Dock)" 2>/dev/null) || exit 0
 running=$(lsappinfo list 2>/dev/null | awk -F'"' '/^ *[0-9]+\) "/{print $2}')
 pinned=$(defaults read com.apple.dock persistent-apps 2>/dev/null | awk -F' = ' '/"file-label"/{gsub(/[";]/,"",$2); print $2}')
