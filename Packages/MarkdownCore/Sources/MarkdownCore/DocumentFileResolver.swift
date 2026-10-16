@@ -20,9 +20,18 @@ public enum DocumentFileResolver {
 
         let base = root.resolvingSymlinksInPath().standardizedFileURL
         let file = parts.reduce(base) { $0.appending(path: String($1), directoryHint: .inferFromPath) }.resolvingSymlinksInPath()
-        let prefix = base.path.hasSuffix("/") ? base.path : base.path + "/"
-        guard file.path.hasPrefix(prefix) else { return .forbidden }
+        guard file.isInside(base) else { return .forbidden }
         guard (try? file.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile == true else { return .notFound }
         return .file(file)
+    }
+}
+
+extension URL {
+    /// Whether this file URL lies under `root`: its path starts with the root's path and a `/`, so `/a/bc` is not inside `/a/b`, and a
+    /// root with a trailing slash or `/` itself works. `orSame` also accepts the root's own path. A path comparison only: both sides
+    /// must be standardized and symlink-resolved by the caller, which is what makes the answer about the real location.
+    func isInside(_ root: URL, orSame: Bool = false) -> Bool {
+        let base = root.path
+        return (orSame && path == base) || path.hasPrefix(base.hasSuffix("/") ? base : base + "/")
     }
 }

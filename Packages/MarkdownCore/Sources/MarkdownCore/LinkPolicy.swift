@@ -104,18 +104,14 @@ public struct LinkPolicy: Sendable {
         let parent = requested.deletingLastPathComponent().resolvingSymlinksInPath()
         var isDirectory: ObjCBool = false
         guard FileManager.default.fileExists(atPath: parent.path, isDirectory: &isDirectory), isDirectory.boolValue else { return nil }
-        let base = createIn.standardizedFileURL.resolvingSymlinksInPath().path
-        guard parent.path == base || parent.path.hasPrefix(base.hasSuffix("/") ? base : base + "/") else { return nil }
+        guard parent.isInside(createIn.standardizedFileURL.resolvingSymlinksInPath(), orSame: true) else { return nil }
         let target = parent.appending(path: name, directoryHint: .notDirectory)
         guard (try? FileManager.default.destinationOfSymbolicLink(atPath: target.path)) == nil else { return nil }
         return target
     }
 
     private func isInsideRoots(_ file: URL) -> Bool {
-        roots.contains { root in
-            let base = root.standardizedFileURL.resolvingSymlinksInPath().path
-            return file.path.hasPrefix(base.hasSuffix("/") ? base : base + "/")
-        }
+        roots.contains { file.isInside($0.standardizedFileURL.resolvingSymlinksInPath()) }
     }
 
     // MARK: Executables
