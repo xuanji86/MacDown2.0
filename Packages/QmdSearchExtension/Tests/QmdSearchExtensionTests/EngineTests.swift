@@ -134,7 +134,7 @@ struct EngineTests {
         let provider = makeProvider(qmd: qmd, environment: try FakeEnvironment(), updateInterval: .zero)
         _ = try await collect(provider.search(SearchQuery(text: "x"), in: workspace))
         #expect(!qmd.commands.contains(["update"]))
-        #expect(await provider.engine.status.updatesBlockedBy == ["repo"])
+        #expect(await provider.engine.updatesBlockedBy == ["repo"])
     }
 
     @Test func semanticSearchUsesQueryAndFailsWithAClearMessage() async throws {

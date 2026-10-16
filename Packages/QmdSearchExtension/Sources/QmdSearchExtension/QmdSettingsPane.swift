@@ -17,8 +17,7 @@ struct QmdSettingsPane: View {
             } label: {
                 Text("qmd", bundle: .module)
             }
-            if case .notFound = tool { installHint }
-            if case .unsupported = tool { installHint }
+            if needsInstall { installHint }
             HStack {
                 TextField(text: $settings.manualPath, prompt: Text("Found on your login shell’s PATH", bundle: .module)) {
                     Text("Path to qmd", bundle: .module)
@@ -58,9 +57,15 @@ struct QmdSettingsPane: View {
         switch tool {
         case nil: L10n.looking
         case .found(let path, let version): "\(path) · \(version)"
-        case .notFound(let manual): manual.map(L10n.notExecutable) ?? L10n.notInstalled
-        case .unsupported(let path, let version): L10n.tooOld(path: path, version: version)
         case .broken(_, let message): message
+        case let tool?: L10n.note(for: tool)
+        }
+    }
+
+    private var needsInstall: Bool {
+        switch tool {
+        case .notFound?, .unsupported?: true
+        default: false
         }
     }
 
@@ -80,7 +85,7 @@ struct QmdSettingsPane: View {
     private func check(force: Bool) async {
         if force { tool = nil }
         tool = await engine.detect(force: force)
-        blockedBy = await engine.status.updatesBlockedBy
+        blockedBy = await engine.updatesBlockedBy
     }
 
     private func embedNow() async {

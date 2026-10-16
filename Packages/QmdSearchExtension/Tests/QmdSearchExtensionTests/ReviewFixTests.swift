@@ -15,7 +15,7 @@ struct ChangingQmdTests {
         qmd.answer = standardAnswers(collections: [("mine", real, nil), ("repo", "/repo", "git pull")])
         _ = try await collect(provider.search(SearchQuery(text: "x"), in: workspace))
         #expect(!qmd.commands.contains(["update"]))
-        #expect(await provider.engine.status.updatesBlockedBy == ["repo"])
+        #expect(await provider.engine.updatesBlockedBy == ["repo"])
     }
 
     @Test func aFailedUpdateIsTriedAgain() async throws {

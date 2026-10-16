@@ -29,6 +29,9 @@ public final class QmdSearchExtension: MacDown2Extension {
             decline: { await settings.decline($0) }
         ), semantic: settings.semantic)
         settings.onSemanticChange = { [weak provider] in provider?.setSemantic($0) }
+        settings.onEmbedSettingsChange = { [weak provider] in
+            if let engine = provider?.engine { Task { await engine.updateEmbedLoop() } }
+        }
         self.settings = settings
         self.provider = provider
         host.register(searchProvider: provider)
@@ -61,16 +64,24 @@ final class QmdSettings {
 
     @ObservationIgnored private let store: ExtensionSettingsStore
     @ObservationIgnored var onSemanticChange: ((Bool) -> Void)?
+    /// Semantic search or "embed when idle" was switched.
+    @ObservationIgnored var onEmbedSettingsChange: (() -> Void)?
 
     var manualPath: String { didSet { store.set(manualPath.isEmpty ? nil : manualPath, for: Key.path) } }
     var semantic: Bool {
         didSet {
             store.set(semantic, for: Key.semantic)
             onSemanticChange?(semantic)
+            onEmbedSettingsChange?()
         }
     }
     var rerank: Bool { didSet { store.set(rerank, for: Key.rerank) } }
-    var autoEmbed: Bool { didSet { store.set(autoEmbed, for: Key.autoEmbed) } }
+    var autoEmbed: Bool {
+        didSet {
+            store.set(autoEmbed, for: Key.autoEmbed)
+            onEmbedSettingsChange?()
+        }
+    }
     private(set) var declinedFolders: Set<String>
 
     init(store: ExtensionSettingsStore) {

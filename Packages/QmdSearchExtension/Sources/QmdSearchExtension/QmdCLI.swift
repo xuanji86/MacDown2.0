@@ -9,7 +9,6 @@ let qmdLog = Logger(subsystem: "io.github.xuanji86.MacDown2", category: "qmd")
 struct QmdOutput: Sendable, Equatable {
     var stdout: Data
     var stderr: String
-    var status: Int32
 }
 
 enum QmdError: Error, Equatable, LocalizedError {
@@ -63,15 +62,11 @@ struct QmdRunner: Sendable {
         defer { unlink(errorFile) }
         let spawner = makeSpawner(environment)
         let argv = ["-c", Self.shellScript, errorFile] + (utility ? Self.utilityPrefix : []) + [executable] + arguments
-        let output: ProcessOutput = try await withThrowingTaskGroup(of: ProcessOutput?.self) { group in
-            group.addTask { try await spawner.run(executable: Self.shell, arguments: argv, directory: Self.workingDirectory) }
-            group.addTask {
-                try await Task.sleep(for: timeout)
-                return nil
-            }
-            defer { group.cancelAll() }  // kills qmd's process group when the timeout (or the caller's cancel) wins
-            guard let first = try await group.next(), let output = first else { throw QmdError.timedOut(seconds: timeout.components.seconds) }
-            return output
+        let output: ProcessOutput
+        do {
+            output = try await withTimeout(timeout) { try await spawner.run(executable: Self.shell, arguments: argv, directory: Self.workingDirectory) }
+        } catch is TimeoutError {
+            throw QmdError.timedOut(seconds: timeout.components.seconds)
         }
         let stderr = Self.readTail(errorFile)
         let command = arguments.first ?? ""
@@ -80,7 +75,7 @@ struct QmdRunner: Sendable {
             qmdLog.error("qmd \(command, privacy: .public) exited with status \(output.status)")
             throw QmdError.failed(status: output.status, message: Self.gist(of: stderr, status: output.status))
         }
-        return QmdOutput(stdout: output.stdout, stderr: stderr, status: output.status)
+        return QmdOutput(stdout: output.stdout, stderr: stderr)
     }
 
     private static func readTail(_ path: String) -> String {
@@ -105,15 +100,14 @@ struct QmdRunner: Sendable {
 enum QmdParse {
     /// qmd 2.8.3 is the version these parsers were checked against; older ones are treated as not installed.
     // lazy: one floor for everything, the one version verified; upgrade: probe the features (json `line`, `collection exclude`) instead
-    static let minimumVersion = [2, 8, 0]
+    static let minimumVersion: ToolVersion = [2, 8, 0]
 
     /// `qmd 2.8.3 (facd35e)` → [2, 8, 3].
-    static func version(_ text: String) -> [Int]? {
-        guard let match = text.firstMatch(of: /(\d+)\.(\d+)\.(\d+)/) else { return nil }
-        return [Int(match.1), Int(match.2), Int(match.3)].compactMap(\.self)
+    static func version(_ text: String) -> ToolVersion? {
+        text.firstMatch(of: /\d+\.\d+\.\d+/).flatMap { ToolVersion($0.output) }
     }
 
-    static func isSupported(_ version: [Int]) -> Bool { version.lexicographicallyPrecedes(minimumVersion) == false }
+    static func isSupported(_ version: ToolVersion) -> Bool { version.isAtLeast(minimumVersion) }
 
     /// Collection names from `qmd collection list` (no `--format json` there: it is ignored and the text comes back).
     /// A collection is a line `name (qmd://name/)`, `[excluded]` after it when it is left out of default queries; its
@@ -180,11 +174,4 @@ struct QmdCollection: Sendable, Equatable {
     var includedByDefault: Bool
     /// `qmd update` runs a shell command (`git pull`, …) for it before re-indexing.
     var hasUpdateCommand: Bool
-}
-
-/// realpath(3): what qmd stores and reports (`/private/tmp/…`, symlinks resolved). The path itself when it does not exist.
-func realPath(_ path: String) -> String {
-    var buffer = [CChar](repeating: 0, count: Int(PATH_MAX))
-    guard realpath(path, &buffer) != nil else { return path }
-    return String(decoding: buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
 }
