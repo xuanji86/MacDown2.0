@@ -22,7 +22,7 @@
 // its character sits in the page. A block that differs at all is unmappable as a whole.
 import type { MarkdownIt, StateInline, Token } from 'markdown-it';
 import { alignKept } from './align.ts';
-import { build, onFlavorRegistered, optionsKey, type RenderOptions } from './core.ts';
+import { build, onFlavorRegistered, optionsKey, resetTeX, type RenderOptions } from './core.ts';
 
 /** Definitions the block cannot see on its own: link reference definitions and footnote labels of the whole document. */
 interface BlockContext {
@@ -477,7 +477,7 @@ function probeBlock(text: string, options: RenderOptions, first: boolean, contex
       try {
         html = md.renderer.render(body, md.options, env);
       } finally {
-        if (o.extensions.includes('math')) md.render('', { outline: [] });
+        resetTeX(md, o);
       }
       probes.push({ html, sentinels, originals, offsets });
       for (const [t, c] of contents) t.content = c;
@@ -499,7 +499,7 @@ function parseBlock(text: string, options: RenderOptions, first: boolean, contex
   try {
     tokens = md.parse(text, env);
   } finally {
-    if (o.extensions.includes('math')) md.render('', { outline: [] }); // KaTeX's global macros reset, as renderResult does
+    resetTeX(md, o);
   }
   return { md, o, track, env, tokens };
 }
@@ -517,7 +517,7 @@ function renderBlock(text: string, options: RenderOptions, first: boolean, conte
   try {
     return md.renderer.render(withoutFootnotes(tokens), md.options, env);
   } finally {
-    if (o.extensions.includes('math')) md.render('', { outline: [] });
+    resetTeX(md, o);
   }
 }
 

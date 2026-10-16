@@ -298,6 +298,13 @@ export function tasksOf(tokens: Token[], lines: string[]): TaskItem[] {
   return tasks;
 }
 
+/** The KaTeX plugin clears the macros a formula defined with `\gdef` when `md.render` finishes; code that calls `parse` and
+ *  `renderer.render` itself runs an empty render to get the same reset. Always, not only when the text mentions `\gdef`: it costs
+ *  under a microsecond (parsing a paragraph takes some 50 of them), and a skipped reset would leak a macro into every later render. */
+export function resetTeX(md: MarkdownIt, options: Pick<RenderOptions, 'extensions'>): void {
+  if (options.extensions.includes('math')) md.render('', { outline: [] });
+}
+
 export function renderResult(source: string, options: RenderOptions): RenderResult {
   const md = instance(options);
   const env: Env = { outline: [], files: options.files };
@@ -307,9 +314,7 @@ export function renderResult(source: string, options: RenderOptions): RenderResu
     tokens = md.parse(source, env);
     html = md.renderer.render(tokens, md.options, env);
   } finally {
-    // The KaTeX plugin clears macros defined with \gdef when `md.render` finishes, but we call parse and
-    // renderer.render ourselves, so run an empty render to get the same reset.
-    if (options.extensions.includes('math')) md.render('', { outline: [] });
+    resetTeX(md, options);
   }
   const lines = source.split('\n');
   const blocks = blocksOf(tokens, lines);
