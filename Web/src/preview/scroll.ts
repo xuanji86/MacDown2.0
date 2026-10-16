@@ -63,7 +63,7 @@ function leafAnchor(leaves: HTMLElement[], i: number): Anchor {
 }
 
 // y of the top of source line `line` (fractional ok), in page coordinates.
-export function lineToPageY(blocks: BlockHandle[], line: number): number {
+function lineToPageY(blocks: BlockHandle[], line: number): number {
   const n = blocks.length;
   const y = lineToY(line, n, (i) => blockAnchor(blocks, i));
   const hit = lastLE(n, (i) => blocks[i].line0, line);

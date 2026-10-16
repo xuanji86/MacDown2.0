@@ -25,13 +25,13 @@ import { alignKept } from './align.ts';
 import { build, onFlavorRegistered, optionsKey, type RenderOptions } from './core.ts';
 
 /** Definitions the block cannot see on its own: link reference definitions and footnote labels of the whole document. */
-export interface BlockContext {
+interface BlockContext {
   references?: Record<string, unknown>;
   labels?: Record<string, number>;
 }
 
 /** The block rendered with code point `sentinels[i]` in place of the UTF-16 unit `originals[i]` found at block offset `offsets[i]`. */
-export interface InlineProbe {
+interface InlineProbe {
   html: string;
   sentinels: number[];
   originals: string;
@@ -357,7 +357,7 @@ function instrument(md: MarkdownIt, track: Track): void {
 /** Where each unit of an inline token's content sits in the block: the content is the block's lines `map[0]`.. with their
  *  container prefix (quote marks, list indentation) removed and the whole trimmed, so each content line is the end of its source
  *  line (the first trimmed at the start, the last at the end, a heading's closing `#`s gone). -1 where that does not hold. */
-export function contentOffsets(content: string, map: [number, number], lines: string[], lineStarts: number[]): Int32Array {
+function contentOffsets(content: string, map: [number, number], lines: string[], lineStarts: number[]): Int32Array {
   const out = new Int32Array(content.length).fill(-1);
   const parts = content.split('\n');
   const [a, b] = map;
@@ -410,7 +410,7 @@ function closingSequenceEnd(line: string): number {
  *  standing in for the rest of the document; `first`: the block is the document's first (only it may open front matter). Returns
  *  one probe per batch of placed characters (one, unless a block places more characters than there are free private-use code
  *  points, about 137 000), or an empty list when nothing could be placed. */
-export function probeBlock(text: string, options: RenderOptions, first: boolean, context?: BlockContext | null): InlineProbe[] {
+function probeBlock(text: string, options: RenderOptions, first: boolean, context?: BlockContext | null): InlineProbe[] {
   const { md, o, track, env, tokens } = parseBlock(text, options, first, context);
   const lines = text.split('\n');
   const lineStarts: number[] = [];
@@ -512,7 +512,7 @@ function withoutFootnotes(tokens: Token[]): Token[] {
 
 /** The block `text` rendered on its own exactly as `probeBlock` renders it, without sentinels: what the page checks an edit
  *  against before making it (the block must show what the user typed, nothing else). */
-export function renderBlock(text: string, options: RenderOptions, first: boolean, context?: BlockContext | null): string {
+function renderBlock(text: string, options: RenderOptions, first: boolean, context?: BlockContext | null): string {
   const { md, o, env, tokens } = parseBlock(text, options, first, context);
   try {
     return md.renderer.render(withoutFootnotes(tokens), md.options, env);

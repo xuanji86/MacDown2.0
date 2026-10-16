@@ -35,7 +35,7 @@ import {
 } from './source-map.ts';
 import { bridgeToken } from './tasks.ts';
 
-export type HintKind = Refusal | 'paste' | 'structure' | 'stale';
+type HintKind = Refusal | 'paste' | 'structure' | 'stale';
 type Hints = Partial<Record<HintKind, string>>;
 
 // Blocks whose text may be edited here: the inline-text blocks. Code, math, HTML blocks, rules, diagrams, [TOC] are not.

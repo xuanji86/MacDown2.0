@@ -33,7 +33,7 @@
 // inside a section that is most of the text, a change to the definitions that most sections would render again for, or more
 // re-parsing than the text is long (then the next renders are whole too, for a while: backing off).
 import type { MarkdownIt, RendererRule, StateBlock, StateCore, Token } from 'markdown-it';
-import { alignSegments, hashRange, splitBlocks, type Segment } from '../preview/split-html.ts';
+import { alignSegments, FOOTNOTES, hashRange, splitBlocks, type Segment } from '../preview/split-html.ts';
 import {
   blocksOf,
   build,
@@ -41,7 +41,6 @@ import {
   definesTeXMacros,
   onFlavorRegistered,
   optionsKey,
-  plainText,
   renderResult,
   tasksOf,
   type AnnotateHooks,
@@ -55,7 +54,7 @@ import { TOC, tocList } from './plugins/toc.ts';
 import { LRU, ownCopy } from './lru.ts';
 import { dedupeSlug, hash53, slugBase, textStats, type TextStats } from './text.ts';
 
-export type IncrementalResult = RenderResult & { segments?: Segment[] | null };
+type IncrementalResult = RenderResult & { segments?: Segment[] | null };
 
 // lazy: only plain Markdown; upgrade = a flavor declares which of its rules are section-safe (Quarto would need its div
 // depth, attribute and caption rules checked at cuts, and its include files in the context key).
@@ -899,7 +898,7 @@ function assemble(mode: Mode, placed: Placed[]): IncrementalResult | string {
     if (t.fill?.key !== fillKey) {
       const html = fillTail(t, offsets);
       // the markup's structure (line numbers do not change it), and alignSegments' test for the footnote section
-      t.balanced ??= splitBlocks(html) !== null && html.startsWith('<hr class="footnotes-sep">');
+      t.balanced ??= splitBlocks(html) !== null && html.startsWith(FOOTNOTES);
       t.fill = { key: fillKey, html, hash: t.balanced ? hashRange(html, 0, html.length, [], 0, 0) : null };
     }
     tail = t.fill.html;
@@ -1027,7 +1026,7 @@ const isBlank = (s: string, a: number, b: number): boolean => {
 const startsSection = (c: number): boolean =>
   c !== 32 && c !== 9 && c !== 45 && c !== 43 && c !== 42 && !(c >= 48 && c <= 57) && c !== 58 && c !== 123;
 
-export interface ScanOptions { frontMatter: boolean; math: boolean; html: boolean }
+interface ScanOptions { frontMatter: boolean; math: boolean; html: boolean }
 type Open = { marker: number; len: number; close?: RegExp };
 
 const HTML_RAW = /^<(script|pre|style|textarea)(?=\s|>|$)/i; // markdown-it's HTML block type 1

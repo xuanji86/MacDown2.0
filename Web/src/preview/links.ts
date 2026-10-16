@@ -40,7 +40,7 @@ export function stripActiveContent(root: ParentNode): void {
 
 // In-page anchors scroll the page ourselves instead of navigating: works for heading ids, ids on any element and the
 // old `<a name="x">` form, never reloads, never leaves history entries, and a missing target is a no-op, not a blank page.
-export function scrollToFragment(fragment: string): boolean {
+function scrollToFragment(fragment: string): boolean {
   let id = fragment;
   try {
     id = decodeURIComponent(fragment);

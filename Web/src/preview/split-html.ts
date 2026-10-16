@@ -151,7 +151,7 @@ export function splitBlocks(html: string): Segment[] | null {
   return segments;
 }
 
-const FOOTNOTES = '<hr class="footnotes-sep">';
+export const FOOTNOTES = '<hr class="footnotes-sep">';
 
 // Lines the renderer's `blocks` up with segments: one segment per block, plus the footnote section (the
 // `<hr class="footnotes-sep"><section class="footnotes">` pair, which has no block) merged into a single

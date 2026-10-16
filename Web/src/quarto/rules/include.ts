@@ -9,7 +9,7 @@
 import type { MarkdownIt, StateBlock, Token } from 'markdown-it';
 import { escapeHtml } from '../escape.ts';
 
-export const MAX_DEPTH = 5;
+const MAX_DEPTH = 5;
 
 const INCLUDE = /^\{\{<\s*include\s+(?:"([^"]+)"|'([^']+)'|(\S+?))\s*>\}\}\s*$/;
 
@@ -17,7 +17,7 @@ type IncludeEnv = { files?: Record<string, string>; includeStack?: string[]; qua
 
 /** Path of `target` (as written in an include) relative to the document folder, given the folder of the file that
  *  contains it (`''` = the document folder). null: absolute, a URL, or outside the document folder. */
-export function resolveInclude(fromDir: string, target: string): string | null {
+function resolveInclude(fromDir: string, target: string): string | null {
   if (/^[a-z][a-z0-9+.-]*:/i.test(target) || target.startsWith('/') || target.includes('\0') || target.includes('\\')) return null;
   const parts = fromDir ? fromDir.split('/') : [];
   for (const seg of target.split('/')) {

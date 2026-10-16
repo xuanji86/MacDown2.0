@@ -2,7 +2,7 @@
 // by the app for its menu). Pure so it can be tested without a DOM.
 import registry from './preview-styles/styles.json' with { type: 'json' };
 
-export interface StyleLink {
+interface StyleLink {
   kind: 'style' | 'hljs';
   href: string;
   media?: string;
