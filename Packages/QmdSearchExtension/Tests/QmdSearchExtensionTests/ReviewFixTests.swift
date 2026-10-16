@@ -86,4 +86,44 @@ struct ChangingQmdTests {
         #expect(try await provider.prepare(workspace: workspace) == .unavailable(""))
         #expect(asked.values.count == 2)
     }
+
+    @Test func twoSearchesOnAStaleFolderShareOneUpdate() async throws {
+        let workspace = try temporaryFolder()
+        let normal = standardAnswers(collections: [("mine", realPath(workspace.path), nil)])
+        let qmd = FakeQmd(answer: { args in
+            if args == ["update"] { usleep(300_000) }  // slow enough for the second search to arrive meanwhile
+            return normal(args)
+        })
+        let provider = makeProvider(qmd: qmd, environment: try FakeEnvironment())
+        #expect(try await provider.prepare(workspace: workspace) == .ready)
+        async let first = collect(provider.search(SearchQuery(text: "x"), in: workspace))
+        async let second = collect(provider.search(SearchQuery(text: "y"), in: workspace))
+        _ = try await (first, second)
+        #expect(qmd.commands.filter { $0 == ["update"] }.count == 1)
+    }
+
+    @Test func theLimitIsAppliedAfterScopeFilteringAndReportsTruncation() async throws {
+        let parent = try temporaryFolder("notes")
+        let workspace = parent.appending(path: "book", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
+        let real = realPath(workspace.path)
+        let search = "[" + (0..<3).map { #"{"file":"\#(real)/c\#($0).md","line":1}"# }.joined(separator: ",") + "]"
+        let qmd = FakeQmd(answer: standardAnswers(collections: [("notes", realPath(parent.path), nil)], search: search))
+        let provider = makeProvider(qmd: qmd, environment: try FakeEnvironment())
+        var hits: [SearchHit] = []
+        await #expect(throws: SearchError.truncated(.hits(2))) {
+            for try await hit in provider.search(SearchQuery(text: "x", limit: 2), in: workspace) { hits.append(hit) }
+        }
+        #expect(hits.map(\.file.lastPathComponent) == ["c0.md", "c1.md"])
+        #expect(try await collect(provider.search(SearchQuery(text: "x", limit: 3), in: workspace)).count == 3)
+    }
+
+    @Test func aFullPageDroppedByIgnoreRulesIsJustNoMatches() async throws {
+        let workspace = try temporaryFolder()
+        let real = realPath(workspace.path)
+        let ignored = "[" + (0..<50).map { #"{"file":"\#(real)/_site/p\#($0).md","line":1}"# }.joined(separator: ",") + "]"
+        let qmd = FakeQmd(answer: standardAnswers(collections: [("mine", real, nil)], search: ignored))
+        let provider = makeProvider(qmd: qmd, environment: try FakeEnvironment())
+        #expect(try await collect(provider.search(SearchQuery(text: "x"), in: workspace)).isEmpty)
+    }
 }

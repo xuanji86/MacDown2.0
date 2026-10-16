@@ -282,14 +282,15 @@ actor QmdEngine {
         guard case .ready(let prepared) = slots[realRoot], prepared.dirty else { return }
         if let last = prepared.lastUpdate, ContinuousClock.now - last < deps.updateInterval { return }
         if let updateTask { return await updateTask.value }
-        guard let runner = try? await runner() else { return }
-        let task = Task { await self.update(runner) }
+        // Registered before any suspension: a second search (another window) joins this one instead of starting its own.
+        let task = Task { await self.update() }
         updateTask = task
         await task.value
-        updateTask = nil
+        if updateTask == task { updateTask = nil }
     }
 
-    private func update(_ runner: QmdRunner) async {
+    private func update() async {
+        guard let runner = try? await runner() else { return }
         let now = ContinuousClock.now
         let ready = slots.compactMap { key, slot -> String? in
             if case .ready = slot { return key }
@@ -321,11 +322,12 @@ actor QmdEngine {
 
     // MARK: Searching
 
-    func search(_ query: SearchQuery, in workspace: URL) async throws -> [SearchHit] {
-        guard await prepare(workspace) == .ready else { return [] }
+    /// The hits (at most `query.limit`) and whether more were cut off.
+    func search(_ query: SearchQuery, in workspace: URL) async throws -> (hits: [SearchHit], truncated: Bool) {
+        guard await prepare(workspace) == .ready else { return ([], false) }
         let realRoot = realPath(workspace.path(percentEncoded: false))
         await refresh(realRoot)
-        guard case .ready(let prepared) = slots[realRoot] else { return [] }
+        guard case .ready(let prepared) = slots[realRoot] else { return ([], false) }
         let runner = try await runner()
         let semantic = query.isSemantic
         // A parent folder's collection: qmd ranks the whole collection, so ask for more and keep this folder's.
@@ -343,12 +345,13 @@ actor QmdEngine {
         // The sidebar's ignore rules apply here too (qmd's mask knows nothing of `_site`, `*_files`, …).
         let base = workspace.pathComponents.count
         let results = try QmdParse.results(output.stdout)
-        let hits = results.compactMap {
+        let inWorkspace = results.compactMap {
             QmdMapping.hit($0, workspace: workspace, realRoot: realRoot, query: query.text, source: QmdSearchProvider.providerID)
-        }.filter { !query.files.ignore.ignores(components: Array($0.file.pathComponents.dropFirst(base)), lastIsDirectory: false) }
+        }
         // Every one of a full page was elsewhere in the parent collection: this folder's matches may be further down.
-        if hits.isEmpty, results.count >= count { throw QmdError.failed(status: 0, message: L10n.crowdedOut) }
-        return hits
+        if prepared.parent, inWorkspace.isEmpty, results.count >= count { throw QmdError.failed(status: 0, message: L10n.crowdedOut) }
+        let hits = inWorkspace.filter { !query.files.ignore.ignores(components: Array($0.file.pathComponents.dropFirst(base)), lastIsDirectory: false) }
+        return (Array(hits.prefix(query.limit)), hits.count > query.limit)
     }
 
     // MARK: Disabling a folder's index

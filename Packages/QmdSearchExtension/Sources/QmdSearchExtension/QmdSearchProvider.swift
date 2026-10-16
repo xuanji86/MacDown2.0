@@ -44,16 +44,18 @@ public final class QmdSearchProvider: SearchProvider, Sendable {
 
     public func prepare(workspace: URL) async throws -> SearchReadiness { await engine.prepare(workspace) }
 
-    /// The whole result list arrives at once (qmd prints it at the end). Ends with the qmd error when the run failed (for a
-    /// semantic search the message says so); ends quietly when cancelled.
+    /// The whole result list arrives at once (qmd prints it at the end). Ends with `SearchError.truncated` after the hits when
+    /// more than `query.limit` were found, with the qmd error when the run failed (for a semantic search the message says
+    /// so); ends quietly when cancelled.
     public func search(_ query: SearchQuery, in workspace: URL) -> AsyncThrowingStream<SearchHit, any Error> {
         AsyncThrowingStream(bufferingPolicy: .unbounded) { continuation in
             let id = UUID()
             let engine = engine
             let task = Task {
                 do {
-                    for hit in try await engine.search(query, in: workspace) { continuation.yield(hit) }
-                    continuation.finish()
+                    let (hits, truncated) = try await engine.search(query, in: workspace)
+                    for hit in hits { continuation.yield(hit) }
+                    continuation.finish(throwing: truncated ? SearchError.truncated(.hits(query.limit)) : nil)
                 } catch {
                     continuation.finish(throwing: Task.isCancelled ? nil : error)
                 }
