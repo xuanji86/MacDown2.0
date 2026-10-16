@@ -250,6 +250,77 @@ struct SetupTests {
         #expect(rig.embeds == 2 && rig.remembered.values == ["mine"])
     }
 
+    @Test func theAppsOwnEmbedsTakeTurnsSoQmdsLockNeverFailsASetup() async throws {
+        let one = try temporaryFolder("one"), two = try temporaryFolder("two")
+        let normal = standardAnswers(collections: [("a", realPath(one.path), nil), ("b", realPath(two.path), nil)])
+        let (running, peak) = (Box(0), Box(0))
+        // Like qmd's global embed lock: once two embeds overlapped, the late one only prints the notice.
+        let qmd = FakeQmd(answer: { args in
+            guard args.first == "embed" else { return normal(args) }
+            return peak.value > 1 ? .init(stdout: "Another embed process is already running. Skipping.\n") : .init(stdout: "Done\n")
+        })
+        qmd.delay = { args in
+            guard args.first == "embed" else { return }
+            running.value += 1
+            peak.value = max(peak.value, running.value)
+            try? await Task.sleep(for: .milliseconds(150))
+            running.value -= 1
+        }
+        let provider = makeProvider(qmd: qmd, environment: try FakeEnvironment(), options: QmdOptions(semantic: true))
+        // A two-folder workspace: both folders' setups start at once, and "Update Embeddings Now" is pressed meanwhile.
+        async let first = provider.prepare(workspace: one)
+        async let second = provider.prepare(workspace: two)
+        _ = try await (first, second)
+        let manual = Task { await provider.engine.embed() }
+        for name in ["a", "b"] {
+            #expect(await eventually({ await provider.engine.setupState(name) }, { if case .preparing? = $0 { false } else { true } }) == .ready)
+        }
+        #expect(await manual.value == nil)
+        #expect(peak.value == 1)
+        #expect(qmd.commands.filter { $0.first == "embed" }.count == 4)
+    }
+
+    @Test func switchingRerankOnDuringTheWarmUpFetchesTheRerankerBeforeReady() async throws {
+        let rig = try Rig()
+        let gate = Gate()
+        rig.qmd.delay = { args in if args.first == "query", args.last?.hasPrefix("macdown2 setup") == true { await gate.wait() } }
+        _ = try await rig.provider.prepare(workspace: rig.workspace)
+        _ = await eventually({ gate.waited }, { $0 == 1 })  // warming up with --no-rerank
+        rig.options.value.rerank = true
+        await rig.engine.semanticSettingsChanged()
+        #expect(await rig.state() == .preparing(L10n.setupText(.loading)))  // still the same setup
+        gate.pass()
+        #expect(await eventually(rig.state, { $0 == .ready }) == .ready)
+        let warmUps = rig.queries.filter { $0.last?.hasPrefix("macdown2 setup") == true }
+        #expect(warmUps.count == 2)
+        #expect(warmUps.first?.contains("--no-rerank") == true && warmUps.last?.contains("--no-rerank") == false)
+        #expect(rig.embeds == 1)
+    }
+
+    @Test func cancellingASetupThatWaitsBehindAnotherEmbedStopsAtOnce() async throws {
+        let rig = try Rig(semantic: false)
+        _ = try await rig.provider.prepare(workspace: rig.workspace)
+        let gate = Gate()
+        rig.qmd.delay = { args in if args.first == "embed" { await gate.wait() } }
+        let manual = Task { await rig.engine.embed() }  // "Update Embeddings Now", held by qmd
+        _ = await eventually({ gate.waited }, { $0 == 1 })
+
+        rig.options.value.semantic = true
+        rig.provider.setSemantic(true)
+        await rig.engine.semanticSettingsChanged()
+        let waiting = SemanticSetup.preparing(L10n.setupText(.embedding(files: 1)))
+        #expect(await eventually(rig.state, { $0 == waiting }) == waiting)  // waiting for its turn
+        await MainActor.run { rig.provider.cancelSemanticSetup(for: rig.workspace) }
+        let stopped = SemanticSetup.failed(L10n.setupStopped)
+        #expect(await eventually(rig.board, { $0 == stopped }, timeout: .seconds(1)) == stopped)
+        #expect(gate.waited == 1 && rig.embeds == 1)  // the other embed still runs; the setup never started its own
+
+        gate.pass()
+        #expect(await manual.value == nil)
+        await MainActor.run { rig.provider.retrySemanticSetup(for: rig.workspace) }
+        #expect(await eventually(rig.board, { $0 == .ready }) == .ready)
+    }
+
     @Test func semanticOffNeverSetsUp() async throws {
         let rig = try Rig(semantic: false)
         _ = try await rig.provider.prepare(workspace: rig.workspace)

@@ -117,6 +117,10 @@ actor QmdEngine {
     private(set) var updatesBlockedBy: [String] = []
     private var updateTask: Task<Void, Never>?
     private var embedTask: Task<String?, Never>?
+    /// qmd lets one `embed` run at a time (another prints a notice and does nothing), so every embed this app starts (setups,
+    /// "Update Embeddings Now", idle) waits its turn here, first come first served.
+    private var embedTurnTaken = false
+    private var embedTurnQueue: [(id: UUID, resume: CheckedContinuation<Void, any Error>)] = []
     private var embedLoop: Task<Void, Never>?
     /// Counts `updateEmbedLoop` calls, so only the one that read the newest settings acts.
     private var embedLoopCheck = 0
@@ -527,24 +531,63 @@ actor QmdEngine {
 
     private func setUp(_ collection: String, id: UUID) async throws {
         let runner = try await runner()
-        // qmd runs one `embed` at a time and a second one only prints a notice: let ours finish first.
-        if let embedTask { _ = await embedTask.value }
-        try Task.checkCancellation()
         let files = slots.values.lazy.compactMap { slot -> Int?? in
             if case .ready(let p) = slot, p.collection == collection { return p.files }
             return nil
         }.first ?? nil
         setStep(collection, id: id, .embedding(files: files))
-        let embed = try await runner.run(["embed", "-c", collection], timeout: Self.setupTimeout, utility: true)
+        // Waiting for another embed of ours is cancellable: Cancel stops the setup at once.
+        try await takeEmbedTurn()
+        let embed: QmdOutput
+        do {
+            defer { passEmbedTurn() }
+            embed = try await runner.run(["embed", "-c", collection], timeout: Self.setupTimeout, utility: true)
+        }
+        // Only someone else's embed (the user's own `qmd embed`) can hold qmd's lock now.
         if String(decoding: embed.stdout, as: UTF8.self).contains(Self.embedBusy) { throw QmdError.failed(status: 0, message: L10n.embedBusy) }
         try Task.checkCancellation()
         setStep(collection, id: id, .loading)
         // A text no document holds: a strong keyword match would skip the expansion model (and the cache key is new each time).
-        var arguments = ["query", "-c", collection, "-n", "1", "--format", "json"]
-        if await !deps.options().rerank { arguments.append("--no-rerank") }
-        arguments += ["--", "macdown2 setup \(id.uuidString.prefix(8).lowercased())"]
-        _ = try await runner.run(arguments, timeout: Self.setupTimeout)
+        // Reranking switched on while it ran: once more with the reranker, so it is there before the first reranked search.
+        var rerank = await deps.options().rerank
+        while true {
+            var arguments = ["query", "-c", collection, "-n", "1", "--format", "json"]
+            if !rerank { arguments.append("--no-rerank") }
+            arguments += ["--", "macdown2 setup \(UUID().uuidString.prefix(8).lowercased())"]
+            _ = try await runner.run(arguments, timeout: Self.setupTimeout)
+            try Task.checkCancellation()
+            let now = await deps.options().rerank
+            if rerank || !now { break }
+            rerank = now
+        }
+    }
+
+    /// Waits for the app's previous `qmd embed` to end (throws when the waiting task is cancelled). Each turn taken is passed on
+    /// with `passEmbedTurn`.
+    private func takeEmbedTurn() async throws {
         try Task.checkCancellation()
+        guard embedTurnTaken else {
+            embedTurnTaken = true
+            return
+        }
+        let id = UUID()
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (resume: CheckedContinuation<Void, any Error>) in
+                if Task.isCancelled { resume.resume(throwing: CancellationError()) } else { embedTurnQueue.append((id, resume)) }
+            }
+        } onCancel: {
+            Task { await self.leaveEmbedQueue(id) }
+        }
+    }
+
+    private func leaveEmbedQueue(_ id: UUID) {
+        guard let index = embedTurnQueue.firstIndex(where: { $0.id == id }) else { return }
+        embedTurnQueue.remove(at: index).resume.resume(throwing: CancellationError())
+    }
+
+    /// The next waiting embed goes (the turn stays taken), or the turn is free.
+    private func passEmbedTurn() {
+        if embedTurnQueue.isEmpty { embedTurnTaken = false } else { embedTurnQueue.removeFirst().resume.resume() }
     }
 
     private func setStep(_ collection: String, id: UUID, _ step: SetupStep) {
@@ -660,9 +703,6 @@ actor QmdEngine {
     /// `qmd embed -c` for every prepared collection, at utility priority. Returns the error text, nil on success.
     func embed() async -> String? {
         if let embedTask { return await embedTask.value }
-        // One `qmd embed` at a time (qmd skips a second one): a running setup embeds first.
-        for job in setupJobs.values { await job.task.value }
-        if let embedTask { return await embedTask.value }
         let names = Set(slots.values.compactMap { slot -> String? in
             if case .ready(let p) = slot { return p.collection }
             return nil
@@ -673,6 +713,8 @@ actor QmdEngine {
         let task = Task { () -> String? in
             for name in names.sorted() {
                 do {
+                    try await self.takeEmbedTurn()
+                    defer { self.passEmbedTurn() }
                     _ = try await runner.run(["embed", "-c", name], timeout: Self.embedTimeout, utility: true)
                 } catch {
                     return error.localizedDescription
