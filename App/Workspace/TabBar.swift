@@ -18,9 +18,7 @@ struct TabDragItem: Codable, Transferable {
 struct TabBar: View {
     let model: WindowModel
     @AppStorage(ToolbarStyle.key) private var toolbarStyle = ToolbarStyle.default
-    @AppStorage(AppearanceKey.editorTheme) private var themeName = AppearanceDefault.editorTheme
-    @AppStorage(AppearanceKey.editorThemeFollowsSystem) private var followsSystem = false
-    @Environment(\.colorScheme) private var colorScheme
+    @CurrentEditorTheme private var theme: EditorTheme
     @State private var dropTarget: String?
 
 
@@ -34,7 +32,6 @@ struct TabBar: View {
         let compact = toolbarStyle == .minimal
         let height = toolbarStyle.tabBarHeight
         // The active tab is painted in the editor's colours (it grows out of the editor), whatever the system appearance is.
-        let theme = UserThemeFolder.resolve(name: themeName, followSystem: followsSystem, systemIsDark: colorScheme == .dark)
         let activeFill = Color(nsColor: theme.background), activeInk = Color(nsColor: theme.text)
         ScrollViewReader { proxy in
         ScrollView(.horizontal) {

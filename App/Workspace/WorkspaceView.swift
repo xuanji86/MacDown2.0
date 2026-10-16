@@ -209,11 +209,7 @@ extension FocusedValues {
 /// A window with no tab (the last one was closed, or a restored window had none): the way in is Open (Cmd-O, Finder, Open Recent),
 /// a new Markdown document (Cmd-N) or the sidebar. Drawn in the editor theme's colours, so it reads as the empty editor area.
 private struct EmptyWorkspaceView: View {
-    @AppStorage(AppearanceKey.editorTheme) private var themeName = AppearanceDefault.editorTheme
-    @AppStorage(AppearanceKey.editorThemeFollowsSystem) private var followsSystem = false
-    @Environment(\.colorScheme) private var colorScheme
-
-    private var theme: EditorTheme { UserThemeFolder.resolve(name: themeName, followSystem: followsSystem, systemIsDark: colorScheme == .dark) }
+    @CurrentEditorTheme private var theme: EditorTheme
 
     var body: some View {
         let ink = Color(nsColor: theme.text)
