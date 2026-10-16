@@ -13,39 +13,40 @@ struct FormatCommands: Commands {
 
     private func item(_ title: LocalizedStringKey, _ command: MarkdownCommand) -> some View {
         Button(title) { actions?.editor.perform(command) }
+            .keyboardShortcut(command.shortcut)
             .disabled(actions?.editorEnabled != true)
     }
 
     var body: some Commands {
         CommandGroup(replacing: .textFormatting) {
-            item("Bold", .bold).keyboardShortcut("b")
-            item("Italic", .italic).keyboardShortcut("i")
-            item("Underline", .underline).keyboardShortcut("u")
-            item("Strikethrough", .strikethrough).keyboardShortcut("x", modifiers: [.command, .shift])
-            item("Highlight", .highlight).keyboardShortcut("h", modifiers: [.command, .shift])
-            item("Inline Code", .inlineCode).keyboardShortcut("k")
-            item("Comment", .comment).keyboardShortcut("/")
+            item("Bold", .bold)
+            item("Italic", .italic)
+            item("Underline", .underline)
+            item("Strikethrough", .strikethrough)
+            item("Highlight", .highlight)
+            item("Inline Code", .inlineCode)
+            item("Comment", .comment)
             Divider()
-            item("Paragraph", .paragraph).keyboardShortcut("0", modifiers: [.command, .option])  // ⌘0 is View > Actual Size
+            item("Paragraph", .paragraph)  // ⌘0 is View > Actual Size
             ForEach(1...6, id: \.self) { level in
-                item("Heading \(level)", .heading(level)).keyboardShortcut(KeyEquivalent(Character("\(level)")))
+                item("Heading \(level)", .heading(level))
             }
             Divider()
-            item("Unordered List", .unorderedList).keyboardShortcut("u", modifiers: [.command, .shift])
-            item("Ordered List", .orderedList).keyboardShortcut("o", modifiers: [.command, .shift])
-            item("Blockquote", .blockquote).keyboardShortcut("b", modifiers: [.command, .shift])
-            item("Code Block", .codeBlock).keyboardShortcut("k", modifiers: [.command, .option])
+            item("Unordered List", .unorderedList)
+            item("Ordered List", .orderedList)
+            item("Blockquote", .blockquote)
+            item("Code Block", .codeBlock)
             item("Insert Page Break", .pageBreak)
             Divider()
-            item("Link", .link).keyboardShortcut("k", modifiers: [.command, .shift])
-            item("Image", .image).keyboardShortcut("i", modifiers: [.command, .shift])
+            item("Link", .link)
+            item("Image", .image)
             Divider()
-            item("Indent", .indent).keyboardShortcut("]")
-            item("Unindent", .outdent).keyboardShortcut("[")
+            item("Indent", .indent)
+            item("Unindent", .outdent)
         }
         CommandGroup(after: .pasteboard) {
             Button("Copy HTML") { actions?.copyHTML() }
-                .keyboardShortcut("c", modifiers: [.command, .option])
+                .keyboardShortcut(.copyHTML)
                 .disabled(actions == nil)
         }
         CommandGroup(after: .textEditing) {
@@ -64,7 +65,7 @@ struct FormatCommands: Commands {
                 .keyboardShortcut("o", modifiers: [.command, .control])
                 .disabled(workspace == nil)
             Button("Cycle Editor and Preview") { actions?.cycleLayout() }
-                .keyboardShortcut("l", modifiers: [.command, .control])
+                .keyboardShortcut(.cycleLayout)
                 .disabled(actions == nil)
             let statusBarTitle: LocalizedStringKey = showsStatusBar ? "Hide Status Bar" : "Show Status Bar"
             Button(statusBarTitle) { showsStatusBar.toggle() }
@@ -88,6 +89,43 @@ struct FormatCommands: Commands {
                 .keyboardShortcut("0")
                 .disabled(actions == nil || ViewZoom.clamped(zoomPercent) == ViewZoom.actualSize)
         }
+    }
+}
+
+/// The Format menu's key equivalents: the menu items take them from here, and the toolbar's tooltips show them.
+extension MarkdownCommand {
+    var shortcut: KeyboardShortcut? {
+        switch self {
+        case .bold: KeyboardShortcut("b")
+        case .italic: KeyboardShortcut("i")
+        case .underline: KeyboardShortcut("u")
+        case .strikethrough: KeyboardShortcut("x", modifiers: [.command, .shift])
+        case .highlight: KeyboardShortcut("h", modifiers: [.command, .shift])
+        case .inlineCode: KeyboardShortcut("k")
+        case .comment: KeyboardShortcut("/")
+        case .paragraph: KeyboardShortcut("0", modifiers: [.command, .option])  // ⌘0 is View > Actual Size
+        case .heading(let level): KeyboardShortcut(KeyEquivalent(Character("\(level)")))
+        case .unorderedList: KeyboardShortcut("u", modifiers: [.command, .shift])
+        case .orderedList: KeyboardShortcut("o", modifiers: [.command, .shift])
+        case .blockquote: KeyboardShortcut("b", modifiers: [.command, .shift])
+        case .codeBlock: KeyboardShortcut("k", modifiers: [.command, .option])
+        case .pageBreak: nil
+        case .link: KeyboardShortcut("k", modifiers: [.command, .shift])
+        case .image: KeyboardShortcut("i", modifiers: [.command, .shift])
+        case .indent: KeyboardShortcut("]")
+        case .outdent: KeyboardShortcut("[")
+        }
+    }
+}
+
+extension KeyboardShortcut {
+    static let copyHTML = KeyboardShortcut("c", modifiers: [.command, .option])
+    static let cycleLayout = KeyboardShortcut("l", modifiers: [.command, .control])
+
+    /// As menus write it: modifiers in the system's order (⌃⌥⇧⌘), then the key.
+    var label: String {
+        let marks: [(EventModifiers, String)] = [(.control, "⌃"), (.option, "⌥"), (.shift, "⇧"), (.command, "⌘")]
+        return marks.filter { modifiers.contains($0.0) }.map(\.1).joined() + String(key.character).uppercased()
     }
 }
 
