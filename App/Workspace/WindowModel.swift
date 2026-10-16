@@ -115,15 +115,10 @@ final class WindowModel {
 
     /// Workspace chip > Add Folder…
     func addWorkspaceFolders() {
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = false
-        panel.canChooseDirectories = true
-        panel.allowsMultipleSelection = true
-        panel.prompt = String(localized: "Add")
-        let done: (NSApplication.ModalResponse) -> Void = { [sidebar] response in
+        let panel = NSOpenPanel.folderPicker(prompt: String(localized: "Add"), multiple: true)
+        panel.present(on: window) { [sidebar] response in
             if response == .OK { sidebar.openFolders(panel.urls) }
         }
-        if let window { panel.beginSheetModal(for: window, completionHandler: done) } else { panel.begin(completionHandler: done) }
     }
 
     func revealWorkspaceInFinder() {

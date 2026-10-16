@@ -442,19 +442,15 @@ final class WorkspaceRegistry: DocumentBackend {
             log.error("open \(url.path, privacy: .public) failed: \(String(describing: error), privacy: .public)")
             let alert = NSAlert(error: error)
             alert.messageText = String(localized: "Could not open “\(url.lastPathComponent)”")
-            if let window = model.window { alert.beginSheetModal(for: window) } else { alert.runModal() }
+            alert.present(on: model.window)
         }
     }
 
     /// File > Open Folder… (Cmd-Shift-O): the front window enters workspace mode with the chosen folder(s), replacing the
     /// folders it had; with no window, a new one.
     func showOpenFolderPanel() {
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = false
-        panel.canChooseDirectories = true
-        panel.allowsMultipleSelection = true
-        panel.prompt = String(localized: "Open")
-        let done: (NSApplication.ModalResponse) -> Void = { [self] response in
+        let panel = NSOpenPanel.folderPicker(prompt: String(localized: "Open"), multiple: true)
+        panel.present(on: orderedModels().first?.window) { [self] response in
             guard response == .OK else { return }
             if let front = orderedModels().first {
                 front.sidebar.openFolders(panel.urls, replacing: true)
@@ -463,7 +459,6 @@ final class WorkspaceRegistry: DocumentBackend {
                 open(panel.urls)
             }
         }
-        if let window = orderedModels().first?.window { panel.beginSheetModal(for: window, completionHandler: done) } else { panel.begin(completionHandler: done) }
     }
 
     // MARK: Sidebar file operations
@@ -547,10 +542,9 @@ final class WorkspaceRegistry: DocumentBackend {
         panel.allowedContentTypes = [.markdown, .quarto]
         panel.allowsMultipleSelection = true
         panel.canChooseDirectories = false
-        let done: (NSApplication.ModalResponse) -> Void = { [self] response in
+        panel.present(on: orderedModels().first?.window) { [self] response in
             if response == .OK { open(panel.urls) }
         }
-        if let window = orderedModels().first?.window { panel.beginSheetModal(for: window, completionHandler: done) } else { panel.begin(completionHandler: done) }
     }
 
     // MARK: Quit

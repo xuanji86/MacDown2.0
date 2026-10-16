@@ -355,7 +355,7 @@ final class SidebarModel {
             let alert = NSAlert()
             alert.messageText = stores.favoritesAreFull ? String(localized: "Favorites are full") : String(localized: "Could not add to favorites")
             alert.informativeText = stores.favoritesAreFull ? String(localized: "Remove a favorite first, then add this one.") : url.path
-            present(alert)
+            alert.present(on: window())
         }
     }
 
@@ -425,11 +425,7 @@ final class SidebarModel {
 
     // MARK: Alerts
 
-    private func present(_ error: any Error, title: String) { present(NSAlert.fileOperation(error, title: title)) }
-
-    private func present(_ alert: NSAlert) {
-        if let window = window() { alert.beginSheetModal(for: window) } else { alert.runModal() }
-    }
+    private func present(_ error: any Error, title: String) { NSAlert.fileOperation(error, title: title).present(on: window()) }
 }
 
 extension NSAlert {

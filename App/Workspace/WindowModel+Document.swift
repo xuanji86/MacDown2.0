@@ -34,7 +34,7 @@ extension WindowModel {
         panel.directoryURL = url.deletingLastPathComponent()
         let base = url.deletingPathExtension().lastPathComponent
         panel.nameFieldStringValue = String(localized: "\(base) copy") + "." + url.pathExtension
-        panel.beginSheetModal(for: window) { response in
+        panel.present(on: window) { response in
             guard response == .OK, let target = panel.url else { return }
             Self.writeDuplicate(of: document, to: target, in: window)
         }

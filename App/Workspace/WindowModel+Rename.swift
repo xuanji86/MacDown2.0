@@ -81,19 +81,14 @@ extension WindowModel {
     /// "Other…": a folder panel; the popover opens again with the choice.
     func chooseFolder(for draft: RenameDraft) {
         draft.pickingFolder = true
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = false
-        panel.canChooseDirectories = true
+        let panel = NSOpenPanel.folderPicker(prompt: String(localized: "Choose"), multiple: false)
         panel.canCreateDirectories = true
-        panel.allowsMultipleSelection = false
         panel.directoryURL = draft.folder
-        panel.prompt = String(localized: "Choose")
-        let done: (NSApplication.ModalResponse) -> Void = { [self] response in
+        panel.present(on: window) { [self] response in
             if response == .OK, let folder = panel.url, AppDefaults.isolation?.allows(folder) ?? true { draft.folder = folder }
             draft.pickingFolder = false
             renameDraft = draft
         }
-        if let window { panel.beginSheetModal(for: window, completionHandler: done) } else { panel.begin(completionHandler: done) }
     }
 
     /// Does what the draft says: rename and/or move through the registry (extension kept, a taken name refused), the first save
@@ -115,7 +110,7 @@ extension WindowModel {
                 log.error("rename failed: \(String(describing: error), privacy: .public)")
                 let title = draft.isUntitled ? String(localized: "Could not save “\(name)”") : String(localized: "Could not rename “\(url.lastPathComponent)”")
                 let alert = NSAlert.fileOperation(error, title: title)
-                if let window { alert.beginSheetModal(for: window) { _ in } } else { alert.runModal() }
+                alert.present(on: window)
             }
         }
     }

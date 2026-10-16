@@ -79,17 +79,14 @@ enum DocumentExport {
         panel.nameFieldStringValue = (name?.deletingPathExtension().lastPathComponent ?? "Untitled") + "." + (type.preferredFilenameExtension ?? "")
         panel.directoryURL = name?.deletingLastPathComponent()
         panel.accessoryView = accessory
-        let response: NSApplication.ModalResponse = await withCheckedContinuation { continuation in
-            if let window { panel.beginSheetModal(for: window) { continuation.resume(returning: $0) } } else { panel.begin { continuation.resume(returning: $0) } }
-        }
-        return response == .OK ? panel.url : nil
+        return await panel.response(on: window) == .OK ? panel.url : nil
     }
 
     private static func fail(_ message: String, _ error: any Error, window: NSWindow?) {
         log.error("\(message, privacy: .public): \(String(describing: error), privacy: .public)")
         let alert = NSAlert(error: error)
         alert.messageText = message
-        if let window { alert.beginSheetModal(for: window) } else { alert.runModal() }
+        alert.present(on: window)
     }
 }
 
