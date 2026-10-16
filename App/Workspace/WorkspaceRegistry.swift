@@ -147,8 +147,8 @@ final class WorkspaceRegistry: DocumentBackend {
         sheetHost[url.fileKey] = window
         defer { sheetHost[url.fileKey] = nil }
         return await withCheckedContinuation { continuation in
-            let reply = CloseReply(continuation)
-            doc.canClose(withDelegate: reply, shouldClose: #selector(CloseReply.document(_:shouldClose:contextInfo:)), contextInfo: nil)
+            let reply = SelfRetainingReply { continuation.resume(returning: $0) }
+            doc.canClose(withDelegate: reply, shouldClose: #selector(SelfRetainingReply.document(_:shouldClose:contextInfo:)), contextInfo: nil)
         }
     }
 
@@ -313,12 +313,17 @@ final class WorkspaceRegistry: DocumentBackend {
         openPermitted(urls, layout: LayoutHints.take(for: urls.map(\.fileKey), in: Self.layoutHintDirectory), lines: [:])
     }
 
+    /// Opens that wait for a window to come up (`drainPending`); the last layout hint wins, and so does the last line of a file.
+    private func enqueue(_ urls: [URL], layout: SplitMode?, lines: [String: Int]) {
+        pendingURLs += urls
+        pendingLayout = layout ?? pendingLayout
+        pendingLines.merge(lines) { _, new in new }
+    }
+
     /// `urls` have passed `AppDefaults.permitsOpening`. `lines` (1-based, by `fileKey`) are a deep link's.
     private func openPermitted(_ urls: [URL], layout: SplitMode?, lines: [String: Int]) {
         if models.isEmpty || !restoreQueue.isEmpty {  // launching: the windows are still coming
-            pendingURLs += urls
-            pendingLayout = layout ?? pendingLayout
-            pendingLines.merge(lines) { _, new in new }
+            enqueue(urls, layout: layout, lines: lines)
             if launchGraceOver, models.isEmpty { requestWindow() }
             return
         }
@@ -396,9 +401,7 @@ final class WorkspaceRegistry: DocumentBackend {
         switch plan.target {
         case .window(let id): if let model = models[id] { perform(plan, in: model, layout: layout, lines: lines) }
         case .newWindow:
-            pendingURLs += urls
-            pendingLayout = layout ?? pendingLayout
-            pendingLines.merge(lines) { _, new in new }
+            enqueue(urls, layout: layout, lines: lines)
             requestWindow()
         }
     }
@@ -560,38 +563,22 @@ final class WorkspaceRegistry: DocumentBackend {
     /// Cmd-Q with unsaved documents: the system review (they are window-less, so the sheets go to `sheetWindow`).
     func reviewForTermination(reply: @escaping @MainActor (Bool) -> Void) {
         persist()
-        let delegate = ReviewReply { [self] proceed in
+        let delegate = SelfRetainingReply { [self] proceed in
             if proceed { isTerminating = true }
             reply(proceed)
         }
         NSDocumentController.shared.reviewUnsavedDocuments(
             withAlertTitle: nil, cancellable: true, delegate: delegate,
-            didReviewAllSelector: #selector(ReviewReply.documentController(_:didReviewAll:contextInfo:)), contextInfo: nil
+            didReviewAllSelector: #selector(SelfRetainingReply.documentController(_:didReviewAll:contextInfo:)), contextInfo: nil
         )
     }
 }
 
-/// Target of `canClose(withDelegate:)`: AppKit does not retain delegates, so the object keeps itself alive until it is called.
+/// Target of `canClose(withDelegate:)` and `reviewUnsavedDocuments`: AppKit does not retain delegates, so the object keeps itself alive
+/// until it is called, and passes on the answer.
 @MainActor
-private final class CloseReply: NSObject {
-    private static var live: [ObjectIdentifier: CloseReply] = [:]
-    private let continuation: CheckedContinuation<Bool, Never>
-
-    init(_ continuation: CheckedContinuation<Bool, Never>) {
-        self.continuation = continuation
-        super.init()
-        Self.live[ObjectIdentifier(self)] = self
-    }
-
-    @objc func document(_ doc: NSDocument, shouldClose: Bool, contextInfo: UnsafeMutableRawPointer?) {
-        Self.live[ObjectIdentifier(self)] = nil
-        continuation.resume(returning: shouldClose)
-    }
-}
-
-@MainActor
-private final class ReviewReply: NSObject {
-    private static var live: [ObjectIdentifier: ReviewReply] = [:]
+private final class SelfRetainingReply: NSObject {
+    private static var live: [ObjectIdentifier: SelfRetainingReply] = [:]
     private let done: @MainActor (Bool) -> Void
 
     init(_ done: @escaping @MainActor (Bool) -> Void) {
@@ -600,10 +587,14 @@ private final class ReviewReply: NSObject {
         Self.live[ObjectIdentifier(self)] = self
     }
 
-    @objc func documentController(_ controller: NSDocumentController, didReviewAll: Bool, contextInfo: UnsafeMutableRawPointer?) {
+    private func answer(_ yes: Bool) {
         Self.live[ObjectIdentifier(self)] = nil
-        done(didReviewAll)
+        done(yes)
     }
+
+    @objc func document(_ doc: NSDocument, shouldClose: Bool, contextInfo: UnsafeMutableRawPointer?) { answer(shouldClose) }
+
+    @objc func documentController(_ controller: NSDocumentController, didReviewAll: Bool, contextInfo: UnsafeMutableRawPointer?) { answer(didReviewAll) }
 }
 
 /// File > Open Recent: the system's list of recent documents, as something a SwiftUI menu can observe.
