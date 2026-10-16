@@ -111,6 +111,15 @@ private struct UpdateReport: Decodable {
     }
 }
 
+extension Duration {
+    /// One refresh interval of the main screen (8 ms at 120 Hz); ~16 ms when it is unknown. What the panes wait for to coalesce
+    /// the changes of one frame into one delivery.
+    @MainActor static var displayFrame: Duration {
+        let seconds = NSScreen.main?.minimumRefreshInterval ?? 0
+        return .seconds(seconds > 0 ? seconds : 1.0 / 60)
+    }
+}
+
 /// Owns the `WebPage` that shows `preview.html` and pushes Markdown into it.
 @MainActor @Observable
 final class PreviewModel {
@@ -357,18 +366,12 @@ final class PreviewModel {
         lastMarkdown = markdown
         debounce?.cancel()
         statsTask?.cancel()  // this render brings its own counts
-        let frame = Self.frameInterval
+        let frame = Duration.displayFrame
         debounce = Task { [weak self] in
             try? await Task.sleep(for: frame)
             guard !Task.isCancelled else { return }
             await self?.push(markdown)
         }
-    }
-
-    /// One refresh interval of the main screen (8 ms at 120 Hz); ~16 ms when it is unknown.
-    private static var frameInterval: Duration {
-        let seconds = NSScreen.main?.minimumRefreshInterval ?? 0
-        return .seconds(seconds > 0 ? seconds : 1.0 / 60)
     }
 
     /// Scrolls the preview so `line` (0-based, fractional ok) is at the top. Instant; the page does not echo it back
@@ -532,7 +535,7 @@ final class PreviewModel {
     func showEditorSelection(read: @escaping () -> (NSRange, String)?) {
         pendingSelection = read
         guard selectionTask == nil else { return }
-        let frame = Self.frameInterval
+        let frame = Duration.displayFrame
         selectionTask = Task { [weak self] in
             try? await Task.sleep(for: frame)
             guard let self else { return }

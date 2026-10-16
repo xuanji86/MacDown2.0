@@ -57,11 +57,12 @@ final class ScrollSyncController {
         scheduleFrame()
     }
 
-    /// Latest line wins; at most one delivery per ~frame however fast the reports come in.
+    /// Latest line wins; at most one delivery per display frame however fast the reports come in.
     private func scheduleFrame() {
         guard frame == nil else { return }
+        let interval = Duration.displayFrame
         frame = Task { [weak self] in
-            try? await Task.sleep(for: .milliseconds(16))
+            try? await Task.sleep(for: interval)
             guard !Task.isCancelled, let self else { return }
             frame = nil
             // Checked at delivery, not when queued: turning sync off stops scrolling at once (MacDown #441).
