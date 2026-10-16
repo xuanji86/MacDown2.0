@@ -160,7 +160,7 @@ function patch(html: string, segs: Segment[], lines: Lines[], st: State): number
   return created;
 }
 
-// Renders `md` into article#doc and returns the metadata JSON ({blocks, outline, stats, perf}) without the html.
+// Renders `md` into article#doc and returns the metadata JSON ({outline, stats, blockCount, perf}) without the html.
 // `version` is the app's counter for this render; checkbox clicks carry it back so the app knows which text the page shows.
 // `edit`: when the text is made of this page's preview edits, the base render and number of the last one it contains (editing.ts);
 // while the page shows more than that, or an input method is composing, the render is held back and `{deferred: true}` returned.
@@ -214,7 +214,7 @@ export function update(
     anchorAfterRender();
     renderMermaid(doc()); // async; draws the diagrams that are new in the DOM, the metadata below does not wait for it
     const ms = (a: number, b: number): number => Math.round((b - a) * 100) / 100;
-    return JSON.stringify({ ...meta, perf: { mode, created, render: ms(t0, t1), split: ms(t1, t2), apply: ms(t2, t3), patch: ms(t1, t3), total: ms(t0, t3) } });
+    return JSON.stringify({ outline: meta.outline, stats: meta.stats, blockCount: meta.blocks.length, perf: { mode, created, render: ms(t0, t1), split: ms(t1, t2), apply: ms(t2, t3), patch: ms(t1, t3), total: ms(t0, t3) } });
   } catch (e) {
     afterUpdate(false); // the old content stays
     const message = errorText(e);

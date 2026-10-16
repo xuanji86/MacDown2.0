@@ -93,6 +93,24 @@ struct PreviewMetadata: Decodable, Equatable {
     var stats: TextStats
 }
 
+/// What `MacDown2Preview.update` returns (`Web/src/preview/main.ts`): either `deferred`, an `error`, or the render's metadata and timings.
+private struct UpdateReport: Decodable {
+    var deferred: Bool?
+    var error: String?
+    var outline: [OutlineItem]?
+    var stats: TextStats?
+    var blockCount: Int?
+    var perf: Perf?
+
+    struct Perf: Decodable {
+        var mode: String?
+        var render: Double?
+        var patch: Double?
+        var split: Double?
+        var apply: Double?
+    }
+}
+
 /// Owns the `WebPage` that shows `preview.html` and pushes Markdown into it.
 @MainActor @Observable
 final class PreviewModel {
@@ -695,27 +713,28 @@ final class PreviewModel {
                     ]
                 )
                 let elapsed = ContinuousClock.now - started
-                // Render failures are reported over the bridge (`handle`); success carries blocks/outline/stats/perf.
-                let meta = (result as? String).flatMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any] }
-                if meta?["deferred"] as? Bool == true {
+                // Render failures are reported over the bridge (`handle`); success carries outline/stats/blockCount/perf.
+                let report = (result as? String).flatMap { try? JSONDecoder().decode(UpdateReport.self, from: Data($0.utf8)) }
+                if report?.deferred == true {
                     // Held back by the page: it still shows the previous render (and more).
                     if rebuild { needsRebuild = true }
                     log.info("preview update held back by the page (edit in flight)")
-                } else if meta?["error"] == nil {
+                } else if report?.error == nil {
                     // A render that started before `clear()` / a document switch must not publish: its text is not the pane's any more.
-                    if epoch == clearEpoch, let decoded = try? JSONDecoder().decode(PreviewMetadata.self, from: Data((result as? String ?? "").utf8)) {
+                    if epoch == clearEpoch, let outline = report?.outline, let stats = report?.stats {
+                        let decoded = PreviewMetadata(outline: outline, stats: stats)
                         if decoded != metadata { metadata = decoded }
                         editChain.landed(version: version, mark: mark)
                         if editorSelection != nil { await applyEditorSelection() }  // the render dropped the page's highlight
                     }
-                    let perf = meta?["perf"] as? [String: Any]
+                    let perf = report?.perf
                     let ms = Double(elapsed.components.attoseconds) / 1e15 + Double(elapsed.components.seconds) * 1000
-                    let mode = perf?["mode"] as? String ?? "?"
-                    let jsRender = perf?["render"] as? Double ?? -1
-                    let jsPatch = perf?["patch"] as? Double ?? -1
-                    let jsSplit = perf?["split"] as? Double ?? -1
-                    let jsApply = perf?["apply"] as? Double ?? -1
-                    let blocks = (meta?["blocks"] as? [Any])?.count ?? -1
+                    let mode = perf?.mode ?? "?"
+                    let jsRender = perf?.render ?? -1
+                    let jsPatch = perf?.patch ?? -1
+                    let jsSplit = perf?.split ?? -1
+                    let jsApply = perf?.apply ?? -1
+                    let blocks = report?.blockCount ?? -1
                     log.info("preview updated: mode=\(mode, privacy: .public) swift_to_done_ms=\(ms, format: .fixed(precision: 1)) js_render_ms=\(jsRender, format: .fixed(precision: 1)) js_patch_ms=\(jsPatch, format: .fixed(precision: 1)) (split \(jsSplit, format: .fixed(precision: 1)) apply \(jsApply, format: .fixed(precision: 1))) blocks=\(blocks) bytes=\(next.utf8.count)")
                 }
             } catch {
