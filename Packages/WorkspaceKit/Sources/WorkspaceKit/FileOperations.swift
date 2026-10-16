@@ -21,15 +21,7 @@ public enum FileOperations {
         return directory.appending(path: ext.map { "\(stem).\($0)" } ?? stem, directoryHint: isDirectory ? .isDirectory : .notDirectory)
     }
 
-    /// `Untitled.md`, then `Untitled 2.md`, `Untitled 3.md`… the first one that does not exist. Only a preview of the
-    /// name: `createFile` / `createFolder` claim a name atomically.
-    public static func uniqueChild(in directory: URL, base: String, ext: String?, isDirectory: Bool, fileManager: FileManager = .default) -> URL {
-        var n = 1
-        while fileManager.fileExists(atPath: candidate(n, in: directory, base: base, ext: ext, isDirectory: isDirectory).path) { n += 1 }
-        return candidate(n, in: directory, base: base, ext: ext, isDirectory: isDirectory)
-    }
-
-    /// Creates the first free name with an exclusive create (`O_EXCL` / `mkdir`): losing a race to another process moves
+    /// Creates the first free name (`Untitled.md`, `Untitled 2.md`, …) with an exclusive create (`O_EXCL` / `mkdir`): losing a race to another process moves
     /// on to the next name instead of overwriting what it made.
     private static func createExclusively(in directory: URL, base: String, ext: String?, isDirectory: Bool) throws -> URL {
         for n in 1...10_000 {
@@ -150,6 +142,14 @@ public enum FileOperations {
         let key = url.fileKey
         let real = realPath(key)
         return real == key ? key : URL(fileURLWithPath: real).fileKey
+    }
+}
+
+extension FileManager {
+    /// Whether `path` exists and is a directory (a symlink to one counts: it is followed).
+    func isDirectory(atPath path: String) -> Bool {
+        var isDirectory: ObjCBool = false
+        return fileExists(atPath: path, isDirectory: &isDirectory) && isDirectory.boolValue
     }
 }
 

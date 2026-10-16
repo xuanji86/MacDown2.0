@@ -49,7 +49,7 @@ public final class EditorSession {
             self.document = document
             self.storage = storage
             self.session = session
-            sync = ExternalTextSync(document: document, text: storage.string)
+            sync = ExternalTextSync(text: storage.string)
             subscription = document.textChanges.sink { [weak self] text in
                 MainActor.assumeIsolated { self?.modelDidChange(to: text) }
             }
@@ -89,7 +89,7 @@ public final class EditorSession {
 
         /// Model -> storage, for a change that did not come from this storage.
         func modelDidChange(to modelText: String) {
-            guard let document, let text = sync.reloadText(document: document, modelText: modelText) else { return }
+            guard document != nil, let text = sync.reloadText(modelText: modelText) else { return }
             if let session, let textView = session.textView {
                 if isShown {
                     // Keeps the first visible source line, not the pixel offset: a change above the viewport changes heights.

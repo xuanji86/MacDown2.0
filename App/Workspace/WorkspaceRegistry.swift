@@ -470,7 +470,7 @@ final class WorkspaceRegistry: DocumentBackend {
     private func tabs(under url: URL) -> [(model: WindowModel, tab: URL)] {
         let key = url.fileKey
         return orderedModels().flatMap { model in
-            model.controller.session.tabs.filter { $0.id == key || $0.id.hasPrefix(key + "/") }.map { (model, $0.url) }
+            model.controller.session.tabs.filter { $0.id.isPath(atOrUnder: key) }.map { (model, $0.url) }
         }
     }
 

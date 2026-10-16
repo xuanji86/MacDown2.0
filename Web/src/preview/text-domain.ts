@@ -2,7 +2,7 @@
 // up rather than copies from the source (KaTeX output, footnote reference numbers, the [TOC] list, diagrams) and what never shows
 // as text (scripts, styles, templates). Written against the few DOM members it needs, so the node tests can run it on parse5 trees.
 
-export interface DomainNode {
+interface DomainNode {
   nodeType: number;
   childNodes: ArrayLike<DomainNode>;
   /** text nodes */

@@ -3,7 +3,7 @@
 //
 // A click does not edit anything here. It posts {token, line, mark, column, checked, version} to the app: `line` is the source
 // line of the element holding the checkbox (data-line, kept current by the patcher), `mark` / `column` where the renderer found its
-// `[ ]` (the render's task list, shown.ts), `checked` the state the user asked for, `version` the render the page shows (main.ts
+// `[ ]` (the render's task list, shown.ts), `checked` the state the user asked for, `version` the render the page shows (shown.ts; main.ts
 // passes the app's counter into every update). The app checks the token, that version against the renders it sent (their text), that
 // the text has a `[ ]` / `[x]` there and that its editor still holds that text; it edits the source, and the next render brings the
 // new state in through the normal block patch. One listener on the document serves every checkbox,
@@ -14,7 +14,6 @@ import { shown } from './shown.ts';
 const BOX = 'input.task-list-item-checkbox';
 
 let token: string | null = null; // set by the app after each load; nothing is clickable before that
-let version = 0; // the render the page shows; 0 = none yet
 
 export function setTaskToken(value: string | null): void {
   token = value;
@@ -23,10 +22,6 @@ export function setTaskToken(value: string | null): void {
 /** The app's per-load token (every message that asks for something carries it); null before the app handed it over. */
 export function bridgeToken(): string | null {
   return token;
-}
-
-export function setRenderVersion(value: number): void {
-  version = value;
 }
 
 // The source line a checkbox belongs to: its paragraph in a loose item, its list item otherwise. Null when the line is
@@ -80,6 +75,6 @@ export function startTaskToggling(): void {
       return;
     }
     const task = shown.tasks.find((t) => t.line === line);
-    post({ type: 'toggleTask', token, line, mark: task?.mark ?? -1, column: task?.column ?? -1, checked: box.checked, version });
+    post({ type: 'toggleTask', token, line, mark: task?.mark ?? -1, column: task?.column ?? -1, checked: box.checked, version: shown.version });
   });
 }

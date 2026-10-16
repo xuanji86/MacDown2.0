@@ -14,7 +14,7 @@ const INLINE = /^(?:\{([A-Za-z][\w+-]*)\}|(r))\s+(\S[\s\S]*)$/; // `{python} exp
 const HLJS_ALIAS: Record<string, string> = { ojs: 'javascript', jl: 'julia' };
 const MAX_OPTION_VALUE = 80; // lazy: long option values (fig-cap prose) are cut in the header table; the code view is unaffected
 
-export interface CellMeta {
+interface CellMeta {
   lang: string;
   options: [string, string][];
   inner: Token; // an ordinary fence (language + code without the option lines) the core renderer highlights

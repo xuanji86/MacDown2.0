@@ -14,10 +14,11 @@
 # Env: MD2_VM (VM name, default md2-test; each name has its own state in build/vm/<name>/), MACDOWN2_APP (the app to install).
 set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
+. "$ROOT_DIR/Scripts/lib.sh"
 VM="${MD2_VM:-md2-test}"
 IMAGE="ghcr.io/cirruslabs/macos-tahoe-vanilla:latest"
 STATE="$ROOT_DIR/build/vm/$VM"
-APP="${MACDOWN2_APP:-$ROOT_DIR/build/DerivedData/Build/Products/Debug/MacDown2.app}"
+APP="$(app_path)"
 KEY="$STATE/id_ed25519"
 # The VM's host key changes with every reset or reused address: none is remembered. The VM's own key only (an agent with many
 # keys would use up the server's tries first); no connection sharing from the user's ssh config.
@@ -86,8 +87,7 @@ install_app() {
   [ "$(state)" = running ] || die "the VM is not running (Scripts/vm/vm.sh up)"
   [ -d "$APP" ] || die "no app at $APP (make app)"
   # The tests drive it through its control socket, which only a Debug build has (as Scripts/run-isolated.sh checks).
-  [ "$(/usr/libexec/PlistBuddy -c 'Print :MacDown2IsolationSupported' "$APP/Contents/Info.plist" 2>/dev/null || true)" = YES ] \
-    || die "$APP is not a Debug build with isolation support"
+  require_isolation_build "$APP" "$APP is not a Debug build with isolation support"
   in_vm 'pkill -x MacDown2 || true; rm -rf ~/Applications/MacDown2.app ~/Applications/.md2-install && mkdir -p ~/Applications/.md2-install'
   # A tar stream keeps the bundle's symbolic links; whatever the bundle is called here, it is MacDown2.app in the VM.
   tar -C "$(dirname "$APP")" -cf - "$(basename "$APP")" | ssh "${SSH_OPTS[@]}" -i "$KEY" -o BatchMode=yes "admin@$(ip)" 'tar -xf - -C ~/Applications/.md2-install'

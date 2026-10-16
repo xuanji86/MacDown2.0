@@ -18,6 +18,15 @@ extension URL {
     }
 }
 
+extension String {
+    /// Whether this path is `root` or lies inside it: `/a/b` and `/a/b/c` are inside `/a/b` and `/`, `/a/bc` is not inside
+    /// `/a/b`. `fileKey`-style paths (standardized); a trailing slash on `root` is ignored.
+    public func isPath(atOrUnder root: String) -> Bool {
+        let root = root != "/" && root.hasSuffix("/") ? String(root.dropLast()) : root
+        return self == root || hasPrefix(root == "/" ? "/" : root + "/")
+    }
+}
+
 extension URL {
     /// The identity of an untitled document's tab (never a real location).
     public static func untitled(_ id: UUID) -> URL { URL(string: "untitled:\(id.uuidString.lowercased())")! }

@@ -51,14 +51,14 @@ const languages = {
 };
 for (const [name, def] of Object.entries(languages)) hljs.registerLanguage(name, def);
 
-export interface CodeOptions { highlight: boolean; lineNumbers: boolean }
+interface CodeOptions { highlight: boolean; lineNumbers: boolean }
 
 // Highlighting is a pure function of (language, code) and the costliest part of rendering a code-heavy document, so its
 // output is kept across renders: typing elsewhere re-renders a block, not its code.
 // lazy: a fixed character budget shared by all documents; upgrade = per-document budgets if one big file evicts another.
 const highlighted = new LRU<string>(4 * 1024 * 1024);
 
-export const highlightCode = (code: string, language: string): string =>
+const highlightCode = (code: string, language: string): string =>
   highlighted.getOrSet(`${language}\n${code}`, () => hljs.highlight(code, { language, ignoreIllegals: true }).value, (html) => code.length + html.length);
 
 // Wraps each line in <span class="line">, closing and reopening hljs spans that cross a line break.

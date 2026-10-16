@@ -6,7 +6,7 @@ struct FolderWatcherPureTests {
     private let roots = [FolderWatcher.Root(given: "/var/proj", resolved: "/private/var/proj")]
 
     private func affected(_ events: [(String, Bool)]) -> Set<String> {
-        FolderWatcher.affectedDirectories(events.map { FolderWatcher.Event(path: $0.0, isDirectory: $0.1) }, roots: roots, ignore: .default)
+        FolderWatcher.analyze(events.map { FolderWatcher.Event(path: $0.0, isDirectory: $0.1) }, roots: roots, ignore: .default).directories
     }
 
     @Test func aFileEventAffectsItsParentInTheCallersSpelling() {

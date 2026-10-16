@@ -22,8 +22,6 @@ public final class DocumentLedger {
 
     public func holders(of key: String) -> Set<UUID> { holders[key] ?? [] }
 
-    public func keys(heldBy window: UUID) -> Set<String> { Set(holders.filter { $0.value.contains(window) }.keys) }
-
     /// The file behind `old` now lives at `new` (rename / move).
     public func rekey(_ old: String, to new: String) {
         guard old != new, let ids = holders.removeValue(forKey: old) else { return }

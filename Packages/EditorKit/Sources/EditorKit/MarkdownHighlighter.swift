@@ -26,6 +26,9 @@ final class MarkdownHighlighter {
     /// Text the point transformer reads from (old text for `willChangeContent`, new text for `didChangeContent`).
     private var pointSource: NSString = ""
 
+    /// The last `row(ofOffset:in:)` answer: an offset and its 0-based line.
+    private var rowCursor: (offset: Int, row: Int)?
+
     /// Ranges (current coordinates) still to invalidate; flushed on the next main-queue turn because styling must
     /// not run inside `NSTextStorage`'s processEditing.
     private var pendingInvalidation = IndexSet()
@@ -118,6 +121,7 @@ final class MarkdownHighlighter {
         guard !isStopped, storage.editedMask.contains(.editedCharacters) else { return }  // our own attribute writes
         let started = ContinuousClock.now
         defer { lastEditHandling = ContinuousClock.now - started }
+        rowCursor = nil
         let edited = storage.editedRange
         let delta = storage.changeInLength
         send(edit: NSRange(location: edited.location, length: edited.length - delta), delta: delta, newText: snapshot())
@@ -251,7 +255,7 @@ final class MarkdownHighlighter {
         var lines = block.split(separator: "\n", omittingEmptySubsequences: false)
         if block.hasSuffix("\n") { lines.removeLast() }  // the empty piece after the final newline
         guard !lines.isEmpty else { return }
-        let firstLine = Point.at(utf16Offset: lineRange.location, in: text).map { Int($0.row) } ?? 0
+        let firstLine = row(ofOffset: lineRange.location, in: text)
         var starts: [Int] = []
         var offset = lineRange.location
         for line in lines {
@@ -267,6 +271,17 @@ final class MarkdownHighlighter {
                 paint(style, in: clipped)
             }
         }
+    }
+
+    /// 0-based line of `offset`, counted from where the last answer was when that lies before it: chunks are styled front to back as the
+    /// user scrolls, so each one costs the lines since the previous chunk, not the whole text above it. Any edit to the characters
+    /// forgets the cursor (`storageDidEdit`).
+    private func row(ofOffset offset: Int, in text: NSString) -> Int {
+        var (start, row) = (0, 0)
+        if let rowCursor, rowCursor.offset <= offset { (start, row) = rowCursor }
+        row += text.newlines(in: NSRange(location: start, length: offset - start)).count
+        rowCursor = (offset, row)
+        return row
     }
 
     // MARK: tree-sitter points
@@ -303,15 +318,24 @@ extension Point {
     static func at(utf16Offset offset: Int, in text: NSString) -> Point? {
         guard offset >= 0, offset <= text.length else { return nil }
         // lazy: O(n) per call (two per edit, ~0.3 ms at 1 MB); keep a line-start table when 10 MB+ documents matter
-        var row = 0, lineStart = 0, i = 0
+        let (row, lineStart) = text.newlines(in: NSRange(location: 0, length: offset))
+        return Point(row: row, column: (offset - (lineStart ?? 0)) * 2)
+    }
+}
+
+extension NSString {
+    /// How many "\n" lie in `range`, and the offset just after the last one (nil when there is none). Read in blocks, at memchr
+    /// speed. The one newline counter behind `Point.at`, `MarkdownTextView.lineIndex` and the highlighter's row cursor.
+    func newlines(in range: NSRange) -> (count: Int, lineStart: Int?) {
+        var count = 0, lineStart: Int?, i = range.location
         var buffer = [unichar](repeating: 0, count: 4096)
-        while i < offset {
-            let n = min(buffer.count, offset - i)
-            text.getCharacters(&buffer, range: NSRange(location: i, length: n))
-            for k in 0..<n where buffer[k] == 0x0A { row += 1; lineStart = i + k + 1 }
+        while i < NSMaxRange(range) {
+            let n = min(buffer.count, NSMaxRange(range) - i)
+            getCharacters(&buffer, range: NSRange(location: i, length: n))
+            for k in 0..<n where buffer[k] == 0x0A { count += 1; lineStart = i + k + 1 }
             i += n
         }
-        return Point(row: row, column: (offset - lineStart) * 2)
+        return (count, lineStart)
     }
 }
 

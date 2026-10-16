@@ -62,26 +62,40 @@ function leafAnchor(leaves: HTMLElement[], i: number): Anchor {
   return { line0: Number(el.getAttribute('data-line')), line1: Number(el.getAttribute('data-line-end')), ...boxOf(el) };
 }
 
+// `f` per index, measured once per lookup: the binary searches and the checks after them ask for the same blocks again, each ask is a
+// layout read, and nothing changes the layout while a lookup runs.
+function memo<T>(f: (i: number) => T): (i: number) => T {
+  const seen = new Map<number, T>();
+  return (i) => {
+    let v = seen.get(i);
+    if (v === undefined) seen.set(i, (v = f(i)));
+    return v;
+  };
+}
+
 // y of the top of source line `line` (fractional ok), in page coordinates.
 export function lineToPageY(blocks: BlockHandle[], line: number): number {
   const n = blocks.length;
-  const y = lineToY(line, n, (i) => blockAnchor(blocks, i));
+  const y = lineToY(line, n, memo((i) => blockAnchor(blocks, i)));
   const hit = lastLE(n, (i) => blocks[i].line0, line);
   if (hit < 0 || line >= blocks[hit].line1) return y;
   const leaves = leavesOf(blocks[hit]);
-  if (leaves.length < 2 || line < leafAnchor(leaves, 0).line0 || line >= leafAnchor(leaves, leaves.length - 1).line1) return y;
-  return lineToY(line, leaves.length, (i) => leafAnchor(leaves, i));
+  const at = memo((i) => leafAnchor(leaves, i));
+  if (leaves.length < 2 || line < at(0).line0 || line >= at(leaves.length - 1).line1) return y;
+  return lineToY(line, leaves.length, at);
 }
 
 // Source line at page height `y`.
 export function pageYToLine(blocks: BlockHandle[], y: number): number {
   const n = blocks.length;
-  const line = yToLine(y, n, (i) => blockAnchor(blocks, i));
-  const hit = lastLE(n, (i) => blockAnchor(blocks, i).top, y);
-  if (hit < 0 || y >= blockAnchor(blocks, hit).bottom) return line;
+  const at = memo((i) => blockAnchor(blocks, i));
+  const line = yToLine(y, n, at);
+  const hit = lastLE(n, (i) => at(i).top, y);
+  if (hit < 0 || y >= at(hit).bottom) return line;
   const leaves = leavesOf(blocks[hit]);
-  if (leaves.length < 2 || y < leafAnchor(leaves, 0).top || y >= leafAnchor(leaves, leaves.length - 1).bottom) return line;
-  return yToLine(y, leaves.length, (i) => leafAnchor(leaves, i));
+  const leaf = memo((i) => leafAnchor(leaves, i));
+  if (leaves.length < 2 || y < leaf(0).top || y >= leaf(leaves.length - 1).bottom) return line;
+  return yToLine(y, leaves.length, leaf);
 }
 
 // Scroll anchoring. WebKit has none (and the preview style switches Chrome's off), so when the layout moves under a

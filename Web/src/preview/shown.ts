@@ -1,6 +1,7 @@
 // What the page shows right now, for the parts that work on it after a render (source map, selection, editing): the Markdown and
 // options of the render that was last applied to the DOM, its version, its blocks and its task checkboxes. main.ts keeps it current.
 import type { BlockHandle } from './scroll.ts';
+import { lastLE } from './scroll-map.ts';
 
 export interface RenderOptionsLike {
   flavor: string;
@@ -37,14 +38,14 @@ export function lineStarts(source: string): Int32Array {
 /** 0-based line of `offset` in `source`. */
 export function lineOf(source: string, offset: number): number {
   const at = lineStarts(source);
-  let lo = 0;
-  let hi = at.length - 1;
-  while (lo < hi) {
-    const mid = (lo + hi + 1) >> 1;
-    if (at[mid] <= offset) lo = mid;
-    else hi = mid - 1;
-  }
-  return lo;
+  return Math.max(0, lastLE(at.length, (i) => at[i], offset));
+}
+
+/** The block whose source lines hold `line` (the footnote section and comment-only blocks have lines of none). */
+export function blockAt(line: number): BlockHandle | undefined {
+  const blocks = shown.blocks;
+  const h = blocks[lastLE(blocks.length, (i) => blocks[i].line0, line)];
+  return h && line < h.line1 ? h : undefined;
 }
 
 /** [start, end) of the source lines line0 ..< line1, without the last line's newline. */

@@ -14,6 +14,7 @@
 # Sparkle EdDSA: sign_update reads the private key from the login keychain (made once with Sparkle's
 # `generate_keys`). Without it the dry run still works but the appcast item is unsigned and --publish refuses.
 set -euo pipefail
+. "$(dirname "$0")/lib.sh"
 cd "$(dirname "$0")/.."
 
 REPO=xuanji86/MacDown2.0
@@ -37,8 +38,7 @@ done
 TAG="v$VERSION"
 BUILD_NUMBER=$(git rev-list --count HEAD)
 
-# Full Xcode is needed for xcodebuild even when xcode-select points at the Command Line Tools (same as the Makefile).
-if [[ "$(xcode-select -p)" == *CommandLineTools* ]]; then export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer; fi
+use_full_xcode
 
 DERIVED=build/release-derived
 OUT=build/release/$VERSION
@@ -72,22 +72,27 @@ APP_PATH=$STAGE/$APP.app
 # ---- 1b. Universal binary: every Mach-O in the bundle (app, Quick Look appex, Sparkle framework / Autoupdate /
 #          Updater.app / XPC services) must carry both arm64 and x86_64 (Intel Macs that run macOS 26 are supported).
 step "Checking architectures (arm64 + x86_64)"
+# universal_archs <file>: prints " <archs> " and succeeds only when both arm64 and x86_64 are there.
+universal_archs() {
+  local archs=" $(lipo -archs "$1") "
+  printf '%s' "$archs"
+  [[ "$archs" == *" arm64 "* && "$archs" == *" x86_64 "* ]]
+}
 MACHO_COUNT=0
 while IFS= read -r f; do
   [[ "$(file -b "$f")" == Mach-O* ]] || continue
-  archs=" $(lipo -archs "$f") "
-  [[ "$archs" == *" arm64 "* && "$archs" == *" x86_64 "* ]] || die "not universal (arm64 + x86_64): ${f#"$APP_PATH"/} ->$archs"
+  archs=$(universal_archs "$f") || die "not universal (arm64 + x86_64): ${f#"$APP_PATH"/} ->$archs"
   MACHO_COUNT=$((MACHO_COUNT + 1)); echo "  ${archs# } ${f#"$APP_PATH"/}"
 done < <(find "$APP_PATH" -type f | sort)
 # Guard against the loop silently checking nothing: these must have been among the files seen.
 [ -f "$APP_PATH/Contents/MacOS/$APP" ] && [ -d "$APP_PATH/Contents/PlugIns/MacDown2QuickLook.appex" ] \
   && [ -f "$APP_PATH/Contents/Frameworks/Sparkle.framework/Sparkle" ] || die "expected app / appex / Sparkle binaries missing"
-# The command line tool (cask `binary` and the "Install Command Line Tool…" menu both point at it) must be there and universal;
-# its web assets are the app's own bundle, reached through a symlink, so a missing link would only show up at run time.
+# The command line tool (cask `binary` and the "Install Command Line Tool…" menu both point at it) must be there and universal,
+# checked here by name as well because the loop above skips symlinks; its web assets are the app's own bundle, reached through a
+# symlink, so a missing link would only show up at run time.
 CLI_TOOL=$APP_PATH/Contents/Helpers/macdown2
 [ -x "$CLI_TOOL" ] || die "Contents/Helpers/macdown2 is missing or not executable"
-CLI_ARCHS=" $(lipo -archs "$CLI_TOOL") "
-[[ "$CLI_ARCHS" == *" arm64 "* && "$CLI_ARCHS" == *" x86_64 "* ]] || die "Contents/Helpers/macdown2 is not universal (arm64 + x86_64): ->$CLI_ARCHS"
+CLI_ARCHS=$(universal_archs "$CLI_TOOL") || die "Contents/Helpers/macdown2 is not universal (arm64 + x86_64): ->$CLI_ARCHS"
 [ -f "$APP_PATH/Contents/Helpers/WebAssets_WebAssets.bundle/Contents/Resources/Resources/render.bundle.js" ] || die "Contents/Helpers/WebAssets_WebAssets.bundle does not resolve to the app's web assets"
 [ "$MACHO_COUNT" -ge 8 ] || die "only $MACHO_COUNT Mach-O files found; expected app, appex, CLI, Sparkle and its helpers"
 
