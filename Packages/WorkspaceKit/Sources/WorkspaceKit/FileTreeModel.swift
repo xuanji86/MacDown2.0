@@ -6,11 +6,13 @@ public struct FileNode: Sendable, Equatable, Identifiable {
     public let isDirectory: Bool
     /// A folder holding `_quarto.yml` / `_quarto.yaml` (the Q badge; the UI shows it only while the Quarto extension is on).
     public let isQuartoProject: Bool
-    public var id: String { url.fileKey }
+    /// `url.fileKey`, computed once: the tree reads it for every row of every redraw, and standardizing a path is not free.
+    public let id: String
     public var name: String { url.lastPathComponent }
 
     public init(url: URL, isDirectory: Bool, isQuartoProject: Bool = false) {
         self.url = url
+        id = url.fileKey
         self.isDirectory = isDirectory
         self.isQuartoProject = isQuartoProject
     }
@@ -59,10 +61,7 @@ public enum DirectoryLister {
         for url in urls {
             let values = try? url.resourceValues(forKeys: Set(keys))
             var isDirectory = values?.isDirectory ?? false
-            if values?.isSymbolicLink == true {  // a link to a folder browses like a folder
-                var target: ObjCBool = false
-                isDirectory = FileManager.default.fileExists(atPath: url.path, isDirectory: &target) && target.boolValue
-            }
+            if values?.isSymbolicLink == true { isDirectory = FileManager.default.isDirectory(atPath: url.path) }  // a link to a folder browses like a folder
             if values?.isPackage == true { isDirectory = false }  // .app, .pages: a file as far as the user is concerned
             if options.includes(name: url.lastPathComponent, isDirectory: isDirectory) {
                 // Built from `directory`, not taken from the listing, so a node's spelling always extends its parent's.
@@ -102,8 +101,7 @@ public struct DirectoryListing: Sendable {
     }
 
     public static func read(_ directory: URL, options: FileTreeOptions) -> DirectoryListing {
-        var isDirectory: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: directory.path, isDirectory: &isDirectory), isDirectory.boolValue else {
+        guard FileManager.default.isDirectory(atPath: directory.path) else {
             return DirectoryListing(directory: directory, nodes: nil, exists: false)
         }
         return DirectoryListing(directory: directory, nodes: try? DirectoryLister.list(directory, options: options), exists: true)
@@ -213,9 +211,7 @@ public struct FileTreeModel: Sendable {
     /// Installs listings read elsewhere (`DirectoryListing.read`). A directory that is gone is dropped with everything
     /// below it; one outside the roots (the roots changed while it was being read) is ignored.
     public mutating func apply(_ read: [DirectoryListing]) {
-        for item in read where isUnderRoot(item.directory) {
-            if item.exists { setChildren(item.nodes ?? [], of: item.directory, readable: item.nodes != nil) } else { drop(item.directory.fileKey) }
-        }
+        for item in read where isUnderRoot(item.directory) { install(item) }
     }
 
     /// Crawler results: only directories that are still unread (a listing that arrived meanwhile is newer).
@@ -264,14 +260,10 @@ public struct FileTreeModel: Sendable {
 
     public var expandedDirectories: [URL] { expanded.sorted().map { URL(fileURLWithPath: $0, isDirectory: true) } }
 
-    private mutating func relist(_ directory: URL) {
-        var isDirectory: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: directory.path, isDirectory: &isDirectory), isDirectory.boolValue else {
-            drop(directory.fileKey)
-            return
-        }
-        let listed = try? DirectoryLister.list(directory, options: options)
-        setChildren(listed ?? [], of: directory, readable: listed != nil)
+    private mutating func relist(_ directory: URL) { install(DirectoryListing.read(directory, options: options)) }
+
+    private mutating func install(_ item: DirectoryListing) {
+        if item.exists { setChildren(item.nodes ?? [], of: item.directory, readable: item.nodes != nil) } else { drop(item.directory.fileKey) }
     }
 
     // MARK: Expansion
@@ -325,21 +317,25 @@ public struct FileTreeModel: Sendable {
         let needle = query.trimmingCharacters(in: .whitespaces)
         guard !needle.isEmpty else { return FilterResult(rows: rows(showRoots: showRoots), matchCount: 0) }
         var count = 0
-        func matches(_ name: String) -> Bool { name.range(of: needle, options: [.caseInsensitive, .diacriticInsensitive]) != nil }
-        func visit(_ node: FileNode, depth: Int) -> [Row] {
-            var below: [Row] = []
-            if node.isDirectory { for child in listings[node.id] ?? [] { below += visit(child, depth: depth + 1) } }
-            let own = matches(node.name)
-            if own { count += 1 }
-            guard own || !below.isEmpty else { return [] }
-            return [Row(node: node, depth: depth, isExpanded: !below.isEmpty)] + below
-        }
         var out: [Row] = []
+        // Appends the node's row, then what matches below it; the row stays only if the node or something below it matched.
+        func visit(_ node: FileNode, depth: Int) {
+            let at = out.count
+            out.append(Row(node: node, depth: depth, isExpanded: false))
+            if node.isDirectory { for child in listings[node.id] ?? [] { visit(child, depth: depth + 1) } }
+            let own = SidebarContent.matchesName(node.name, needle)
+            if own { count += 1 }
+            if out.count > at + 1 {
+                out[at] = Row(node: node, depth: depth, isExpanded: true)
+            } else if !own {
+                out.removeLast()
+            }
+        }
         for root in roots {
             if showRoots {
-                out += visit(rootNode(root), depth: 0)
+                visit(rootNode(root), depth: 0)
             } else {
-                for child in listings[root.fileKey] ?? [] { out += visit(child, depth: 0) }
+                for child in listings[root.fileKey] ?? [] { visit(child, depth: 0) }
             }
         }
         return FilterResult(rows: out, matchCount: count)
