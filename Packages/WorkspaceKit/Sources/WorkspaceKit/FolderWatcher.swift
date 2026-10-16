@@ -143,10 +143,6 @@ public final class FolderWatcher: @unchecked Sendable {
         }
     }
 
-    static func affectedDirectories(_ events: [Event], roots: [Root], ignore: IgnoreRules) -> Set<String> {
-        analyze(events, roots: roots, ignore: ignore).directories
-    }
-
     /// Maps raw events to the directories (in the caller's spelling of the root) whose listing may have changed:
     /// the parent of every item, plus the item itself when it is a directory. Ignored paths yield nothing. An event
     /// that says "something below here was missed" or "the root moved" also names the subtree to read again.

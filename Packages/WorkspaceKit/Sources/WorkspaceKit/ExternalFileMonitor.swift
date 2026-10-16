@@ -114,7 +114,7 @@ public final class ExternalFileMonitor {
     private func eventsArrived() {
         guard watcher != nil else { return }
         debouncer.submit { [weak self] in
-            guard let self, watcher != nil else { return }
+            guard let self else { return }  // `stop()` cancels the debouncer, so a closure that runs still has its watcher
             check()
             onSettled()
         }
