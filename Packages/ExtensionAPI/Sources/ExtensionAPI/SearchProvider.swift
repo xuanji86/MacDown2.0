@@ -40,6 +40,16 @@ public enum SearchReadiness: Sendable, Equatable {
     case unavailable(String)
 }
 
+/// Whether a provider's semantic search can run in a folder yet. A provider may have to set it up in the background first
+/// (qmd downloads its models and embeds the folder); keyword search is not affected meanwhile.
+public enum SemanticSetup: Sendable, Equatable {
+    case ready
+    /// Being set up; the text says what is happening now ("Downloading qmd’s models: 430 MB of 1.6 GB").
+    case preparing(String)
+    /// The setup failed or was stopped; the text says why. `retrySemanticSetup` starts it again.
+    case failed(String)
+}
+
 /// A source of search results for the sidebar's search panel. The core ships `BuiltinSearchBackend`; an optional extension
 /// may add more, each result is badged with `badge`.
 public protocol SearchProvider: Sendable {
@@ -55,10 +65,20 @@ public protocol SearchProvider: Sendable {
     func cancelAll() async
     /// Commands for `folder` in the sidebar's context menu. Called while the menu is built, so it must answer from memory.
     func folderActions(for folder: URL) -> [SearchFolderAction]
+    /// Whether a semantic search in `workspace` can run now. Read while the search page is drawn, so it must answer from
+    /// memory; observable in practice (the page follows the setup's progress).
+    @MainActor func semanticSetup(for workspace: URL) -> SemanticSetup
+    /// Starts the semantic setup of `workspace` again after it failed or was stopped.
+    @MainActor func retrySemanticSetup(for workspace: URL)
+    /// Stops a running semantic setup of `workspace` (its processes are killed); it then reads as failed, with a retry.
+    @MainActor func cancelSemanticSetup(for workspace: URL)
 }
 
 extension SearchProvider {
     public func folderActions(for folder: URL) -> [SearchFolderAction] { [] }
+    @MainActor public func semanticSetup(for workspace: URL) -> SemanticSetup { .ready }
+    @MainActor public func retrySemanticSetup(for workspace: URL) {}
+    @MainActor public func cancelSemanticSetup(for workspace: URL) {}
 
     /// This provider can answer `query`.
     public func canRun(_ query: SearchQuery) -> Bool { capabilities.isSuperset(of: query.requiredCapabilities) }

@@ -30,6 +30,28 @@ enum L10n {
     static var badOutput: String { String(localized: "qmd’s answer could not be read", bundle: .module) }
     static func exitStatus(_ status: Int32) -> String { String(localized: "qmd exited with status \(status)", bundle: .module) }
 
+    // Semantic setup (the search panel's line under the field).
+    static var semanticNotReady: String { String(localized: "Semantic search is still being set up; keyword search works meanwhile.", bundle: .module) }
+    static var setupStopped: String { String(localized: "Semantic search setup was stopped.", bundle: .module) }
+    static func setupFailed(_ message: String) -> String { String(localized: "Semantic search setup failed: \(message)", bundle: .module) }
+    static var embedBusy: String { String(localized: "another “qmd embed” is running; try again when it has finished", bundle: .module) }
+
+    static func setupText(_ step: QmdEngine.SetupStep) -> String {
+        switch step {
+        case .starting: String(localized: "Preparing semantic search…", bundle: .module)
+        case .embedding(nil): String(localized: "Preparing semantic search: embedding the folder’s documents…", bundle: .module)
+        case .embedding(1?): String(localized: "Preparing semantic search: embedding 1 document…", bundle: .module)
+        case .embedding(let files?): String(localized: "Preparing semantic search: embedding \(files) documents…", bundle: .module)
+        case .loading: String(localized: "Preparing semantic search: loading the models…", bundle: .module)
+        }
+    }
+
+    static func downloadingText(done: Int64, total: Int64) -> String {
+        let format = ByteCountFormatter()
+        format.countStyle = .file
+        return String(localized: "Preparing semantic search: downloading qmd’s models (\(format.string(fromByteCount: done)) of \(format.string(fromByteCount: total)))…", bundle: .module)
+    }
+
     // Consent sheet.
     static func consentTitle(folder: String, collection: String) -> String {
         String(localized: "Register “\(folder)” as qmd collection “\(collection)”?", bundle: .module)

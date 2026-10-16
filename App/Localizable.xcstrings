@@ -4036,6 +4036,36 @@
           }
         }
       }
+    },
+    "Retry" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "重试"
+          }
+        }
+      }
+    },
+    "Cancel Semantic Search Setup" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "取消语义搜索的准备"
+          }
+        }
+      }
+    },
+    "Retry Semantic Search Setup" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "重新准备语义搜索"
+          }
+        }
+      }
     }
   },
   "version" : "1.0"

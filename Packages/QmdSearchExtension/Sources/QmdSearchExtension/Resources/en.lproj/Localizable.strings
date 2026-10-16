@@ -10,7 +10,7 @@
 "Register “%@” as qmd collection “%@”?" = "Register “%@” as qmd collection “%@”?";
 "Register" = "Register";
 "Rerank results (another model, slower)" = "Rerank results (another model, slower)";
-"Return in the search field, or the sparkles button, asks qmd for documents with a similar meaning. The first semantic search downloads about 2 GB of models into qmd’s cache and each one takes seconds." = "Return in the search field, or the sparkles button, asks qmd for documents with a similar meaning. The first semantic search downloads about 2 GB of models into qmd’s cache and each one takes seconds.";
+"Return in the search field, or the sparkles button, asks qmd for documents with a similar meaning. Turning this on sets it up in the background: qmd downloads about 1.6 GB of models into its cache (~/.cache/qmd/models; reranking adds about 0.6 GB) and embeds each folder you search. The search panel shows the progress, and keyword search works meanwhile. Each semantic search then takes seconds." = "Return in the search field, or the sparkles button, asks qmd for documents with a similar meaning. Turning this on sets it up in the background: qmd downloads about 1.6 GB of models into its cache (~/.cache/qmd/models; reranking adds about 0.6 GB) and embeds each folder you search. The search panel shows the progress, and keyword search works meanwhile. Each semantic search then takes seconds.";
 "Searches folders with your installed qmd (keyword and optional semantic search) instead of the built-in search." = "Searches folders with your installed qmd (keyword and optional semantic search) instead of the built-in search.";
 "Semantic search failed: %@" = "Semantic search failed: %@";
 "Semantic search" = "Semantic search";
@@ -31,3 +31,13 @@
 "qmd’s answer could not be read" = "qmd’s answer could not be read";
 "qmd’s best matches are all outside this folder (its collection covers a parent folder)" = "qmd’s best matches are all outside this folder (its collection covers a parent folder)";
 "“%@” is not an executable qmd; the built-in search is used." = "“%@” is not an executable qmd; the built-in search is used.";
+"Semantic search is still being set up; keyword search works meanwhile." = "Semantic search is still being set up; keyword search works meanwhile.";
+"Semantic search setup was stopped." = "Semantic search setup was stopped.";
+"Semantic search setup failed: %@" = "Semantic search setup failed: %@";
+"another “qmd embed” is running; try again when it has finished" = "another “qmd embed” is running; try again when it has finished";
+"Preparing semantic search…" = "Preparing semantic search…";
+"Preparing semantic search: embedding 1 document…" = "Preparing semantic search: embedding 1 document…";
+"Preparing semantic search: embedding %lld documents…" = "Preparing semantic search: embedding %lld documents…";
+"Preparing semantic search: loading the models…" = "Preparing semantic search: loading the models…";
+"Preparing semantic search: downloading qmd’s models (%@ of %@)…" = "Preparing semantic search: downloading qmd’s models (%@ of %@)…";
+"Preparing semantic search: embedding the folder’s documents…" = "Preparing semantic search: embedding the folder’s documents…";

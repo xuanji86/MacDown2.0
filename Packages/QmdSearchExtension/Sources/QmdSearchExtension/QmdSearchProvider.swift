@@ -14,6 +14,8 @@ public final class QmdSearchProvider: SearchProvider, Sendable {
     public var capabilities: SearchCapabilities { flags.withLock { $0.semantic } ? [.keyword, .semantic] : .keyword }
 
     let engine: QmdEngine
+    /// The semantic setup as the search page shows it.
+    let setup: QmdSetupBoard
     private let flags = Mutex(Flags())
     private let owned: OwnedFolders
     private let running = Mutex<[UUID: Task<Void, Never>]>([:])
@@ -29,13 +31,20 @@ public final class QmdSearchProvider: SearchProvider, Sendable {
 
     init(dependencies: QmdEngine.Dependencies, semantic: Bool = false) {
         let owned = OwnedFolders()
+        let board = QmdSetupBoard()
         var deps = dependencies
         let publish = deps.publishOwned
         deps.publishOwned = { map in
             owned.byKey.withLock { $0 = map }
             publish(map)
         }
+        let publishSetup = deps.publishSetup
+        deps.publishSetup = { version, collections, states in
+            Task { @MainActor in board.apply(version: version, collections: collections, states: states) }
+            publishSetup(version, collections, states)
+        }
         self.owned = owned
+        setup = board
         engine = QmdEngine(deps)
         flags.withLock { $0.semantic = semantic }
     }
@@ -77,6 +86,28 @@ public final class QmdSearchProvider: SearchProvider, Sendable {
     func shutdown() async {
         for task in running.withLock({ Array($0.values) }) { task.cancel() }
         await engine.shutdown()
+    }
+
+    /// While semantic search is on: `.preparing` until qmd's models are downloaded and the folder is embedded (the sparkles
+    /// button waits); `.failed` with a retry. Keyword search does not wait for any of it.
+    @MainActor public func semanticSetup(for workspace: URL) -> SemanticSetup {
+        flags.withLock { $0.semantic } ? setup.state(for: workspace) : .ready
+    }
+
+    @MainActor public func retrySemanticSetup(for workspace: URL) {
+        let engine = engine, key = workspace.fileKey
+        Task { await engine.retrySetup(workspaceKey: key) }
+    }
+
+    @MainActor public func cancelSemanticSetup(for workspace: URL) {
+        let engine = engine, key = workspace.fileKey
+        Task { await engine.cancelSetup(workspaceKey: key) }
+    }
+
+    /// The app is quitting: the processes of searches, setups and embeds are killed before this returns.
+    func terminateNow() {
+        for task in running.withLock({ Array($0.values) }) { task.cancel() }
+        engine.terminateNow()
     }
 
     public func folderActions(for folder: URL) -> [SearchFolderAction] {

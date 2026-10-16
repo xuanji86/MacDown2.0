@@ -142,6 +142,8 @@ struct EngineTests {
         let qmd = FakeQmd(answer: standardAnswers(collections: [("mine", realPath(workspace.path), nil)]))
         let provider = makeProvider(qmd: qmd, environment: try FakeEnvironment(), options: QmdOptions(semantic: true))
         #expect(provider.capabilities == [.keyword, .semantic])
+        _ = try await provider.prepare(workspace: workspace)
+        #expect(await eventually({ await provider.engine.setupState("mine") }, { $0 == .ready }) == .ready)  // SetupTests
         _ = try await collect(provider.search(SearchQuery(text: "how it works", isSemantic: true), in: workspace))
         #expect(qmd.commands.last == ["query", "-c", "mine", "-n", "30", "--format", "json", "--full-path", "--no-rerank", "--", "how it works"])
 
@@ -153,9 +155,12 @@ struct EngineTests {
         // Keyword search still works.
         #expect(try await collect(provider.search(SearchQuery(text: "how"), in: workspace)).isEmpty)
 
+        qmd.answer = standardAnswers(collections: [("mine", realPath(workspace.path), nil)])
         let reranking = makeProvider(qmd: qmd, environment: try FakeEnvironment(), options: QmdOptions(semantic: true, rerank: true))
-        _ = try? await collect(reranking.search(SearchQuery(text: "how", isSemantic: true), in: workspace))
-        #expect(qmd.commands.last?.contains("--no-rerank") == false)
+        _ = try await reranking.prepare(workspace: workspace)
+        #expect(await eventually({ await reranking.engine.setupState("mine") }, { $0 == .ready }) == .ready)
+        _ = try await collect(reranking.search(SearchQuery(text: "how", isSemantic: true), in: workspace))
+        #expect(qmd.commands.last?.first == "query" && qmd.commands.last?.contains("--no-rerank") == false)
         #expect(makeProvider(qmd: qmd, environment: try FakeEnvironment()).capabilities == .keyword)
     }
 
