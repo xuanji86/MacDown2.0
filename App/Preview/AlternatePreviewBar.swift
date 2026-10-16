@@ -10,7 +10,9 @@ private let log = Logger(subsystem: "io.github.xuanji86.MacDown2", category: "al
 @MainActor @Observable
 final class AlternatePreviewState {
     var session: (any AlternatePreviewSession)?
-    var confirmed = false
+    /// The file the user agreed to render (asked once per opened document); a move or Save As to another path asks again, so a
+    /// document moved into a Quarto project gets the project question.
+    private var confirmedURL: URL?
     /// The availability check and the question before a start; cancelled by `switchOff` (the document closed or moved meanwhile).
     private var starting: Task<Void, Never>?
     /// An availability check or the confirmation is under way: a second click must not ask twice.
@@ -33,11 +35,11 @@ final class AlternatePreviewState {
                 await Self.alert(title: String(localized: "Real rendering is not available"), message: reason, button: nil, in: window)
                 return
             }
-            if !confirmed, let ask = mode.confirmation(for: fileURL) {
+            if confirmedURL != fileURL.standardizedFileURL, let ask = mode.confirmation(for: fileURL) {
                 let go = await Self.alert(title: ask.title, message: ask.message, button: ask.confirmButton, in: window)
                 log.info("real render: confirmation answered \(go ? "render" : "cancel", privacy: .public)")
                 guard go, !Task.isCancelled else { return }
-                confirmed = true
+                confirmedURL = fileURL.standardizedFileURL
                 mode.confirmed(for: fileURL)
             }
             let session = mode.session(for: fileURL)
