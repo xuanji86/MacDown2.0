@@ -12,6 +12,8 @@
 // `<p>`/`<li>`) yields the wrong segment count; the caller compares against blocks.length and falls back to a
 // full render. Upgrade path: render emits per-block HTML, then delete this file.
 
+import { hashRange } from '../render/text.ts';
+
 export interface Segment {
   start: number;
   end: number;
@@ -60,26 +62,6 @@ function tagEnd(html: string, p: number, skips: number[]): number {
     }
     if (isLine) skips.push(nameStart - (isSpace(html.charCodeAt(nameStart - 1)) ? 1 : 0), p);
   }
-}
-
-// cyrb53 over html[a, b) minus the skip ranges skips[s0 .. s1) (pairs [from, to), ascending, inside [a, b)).
-export function hashRange(html: string, a: number, b: number, skips: number[], s0: number, s1: number): number {
-  let h1 = 0xdeadbeef;
-  let h2 = 0x41c6ce57;
-  let i = a;
-  for (let k = s0; ; k += 2) {
-    const stop = k < s1 ? skips[k] : b;
-    for (; i < stop; i++) {
-      const c = html.charCodeAt(i);
-      h1 = Math.imul(h1 ^ c, 2654435761);
-      h2 = Math.imul(h2 ^ c, 1597334677);
-    }
-    if (k >= s1) break;
-    i = skips[k + 1];
-  }
-  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
-  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
-  return 4294967296 * (2097151 & h2) + (h1 >>> 0);
 }
 
 // null when the markup is unbalanced or unterminated (caller falls back to a full render).

@@ -33,7 +33,7 @@
 // inside a section that is most of the text, a change to the definitions that most sections would render again for, or more
 // re-parsing than the text is long (then the next renders are whole too, for a while: backing off).
 import type { MarkdownIt, RendererRule, StateBlock, StateCore, Token } from 'markdown-it';
-import { alignSegments, FOOTNOTES, hashRange, splitBlocks, type Segment } from '../preview/split-html.ts';
+import { alignSegments, FOOTNOTES, splitBlocks, type Segment } from '../preview/split-html.ts';
 import {
   blocksOf,
   build,
@@ -52,7 +52,7 @@ import {
 } from './core.ts';
 import { TOC, tocList } from './plugins/toc.ts';
 import { LRU, ownCopy } from './lru.ts';
-import { dedupeSlug, hash53, slugBase, textStats, type TextStats } from './text.ts';
+import { dedupeSlug, hash53, hashRange, slugBase, textStats, type TextStats } from './text.ts';
 
 type IncrementalResult = RenderResult & { segments?: Segment[] | null };
 

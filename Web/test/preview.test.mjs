@@ -5,8 +5,10 @@ import { MAX_MIDDLE, planPatch } from '../src/preview/dom-patch.ts';
 import { resolveImageSrc } from '../src/preview/images.ts';
 import { lastLE, lineToY, yToLine } from '../src/preview/scroll-map.ts';
 import { blockAt, lineOf, shown } from '../src/preview/shown.ts';
-import { alignSegments, hashRange, splitBlocks } from '../src/preview/split-html.ts';
-import { hash53 } from '../src/render/text.ts';
+import { alignSegments, splitBlocks } from '../src/preview/split-html.ts';
+import { flavors } from '../src/render/core.ts';
+import { inlineMap } from '../src/render/inline-map.ts';
+import { hash53, hashRange } from '../src/render/text.ts';
 
 const options = {
   flavor: 'markdown',
@@ -174,6 +176,12 @@ test('hashRange leaves the skipped ranges out (only skips[s0 ..< s1)); hash53 is
   assert.equal(hashRange('xabcy', 1, 4, [], 0, 0), hash53('abc'));
   assert.equal(hashRange('a12b34c', 0, 7, [1, 3, 4, 6], 0, 4), hash53('abc'));
   assert.equal(hashRange('a12b34c', 0, 7, [9, 9, 1, 3, 4, 6, 8, 8], 2, 6), hash53('abc'));
+});
+
+test('the inline map renderer changes generation when a flavor registers (the page drops what it kept)', () => {
+  const before = inlineMap.generation;
+  flavors.register('generation-test', () => {});
+  assert.equal(inlineMap.generation, before + 1);
 });
 
 // --- images ----------------------------------------------------------------------------------------------

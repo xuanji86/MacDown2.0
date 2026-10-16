@@ -63,7 +63,12 @@ interface Instrumented {
 
 let fallbackAt = -1; // the position the parser's one-character fallback appends from (set just before it does)
 const instances = new Map<string, Instrumented>();
-onFlavorRegistered(() => instances.clear());
+// Bumped whenever the instances are rebuilt; the page keeps results only for the generation that made them (source-map.ts).
+let generation = 0;
+onFlavorRegistered(() => {
+  instances.clear();
+  generation++;
+});
 
 function instrumented(o: RenderOptions): Instrumented {
   const key = optionsKey(o);
@@ -530,4 +535,11 @@ export function documentContext(source: string, options: RenderOptions): BlockCo
   return { references: found.references, labels: found.footnotes?.refs };
 }
 
-export const inlineMap = { probe: probeBlock, render: renderBlock, context: documentContext };
+export const inlineMap = {
+  probe: probeBlock,
+  render: renderBlock,
+  context: documentContext,
+  get generation(): number {
+    return generation;
+  },
+};
