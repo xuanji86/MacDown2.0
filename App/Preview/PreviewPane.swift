@@ -739,12 +739,14 @@ struct PreviewPane: View {
     @Environment(\.colorScheme) private var systemScheme
     private let renderSettings = RenderSettings.shared
 
-    /// The appearance the web view draws its scroll bar in: a fixed style's own, else the system's. The page has no background
-    /// of its own behind the scroll bar (`webViewContentBackground(.hidden)`), so without this a light style on a dark system
-    /// (or the reverse) got a knob for one appearance over a track of the other (#87).
-    private var pageScheme: ColorScheme {
+    /// The appearance of the background laid behind the web view: a fixed style's own, else the system's. With scroll bars always
+    /// shown the track is translucent and shows that background (the page paints none under it), while the knob follows the
+    /// page's `color-scheme`; on the system's background a light style on a dark system (or the reverse) got a knob for one
+    /// appearance over a track of the other (#87). The `colorScheme` environment alone does not reach WebKit's scroll bar: the
+    /// background is what fixes it. Quarto's page is not styled by ours: the system's.
+    private func pageScheme(external: Bool) -> ColorScheme {
         let (light, dark) = PreviewStyles.resolve(id: style, followSystem: followsSystem)
-        guard dark == nil else { return systemScheme }
+        guard !external, dark == nil else { return systemScheme }
         return PreviewStyles.style(id: light).appearance == "dark" ? .dark : .light
     }
 
@@ -755,7 +757,7 @@ struct PreviewPane: View {
         WebView(model.page)
             .webViewContentBackground(.hidden)
             .background(Color(nsColor: .windowBackgroundColor), ignoresSafeAreaEdges: [])  // not up under the toolbar
-            .environment(\.colorScheme, pageScheme)
+            .environment(\.colorScheme, pageScheme(external: external))
             .overlay(alignment: .top) { PreviewNotices(badge: external ? nil : flavor?.badge, hint: AppExtensions.disabledHint(for: documentURL)) }
             .safeAreaInset(edge: .top, spacing: 0) {
                 if let mode, let documentURL {
