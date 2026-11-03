@@ -736,7 +736,19 @@ struct PreviewPane: View {
     @AppStorage(PreviewEditingKey.enabled) private var previewEditing = true
     @AppStorage(ViewZoom.key) private var zoomPercent = ViewZoom.actualSize
     @AppStorage(PreviewRenderKey.auto) private var autoRender = true
+    @Environment(\.colorScheme) private var systemScheme
     private let renderSettings = RenderSettings.shared
+
+    /// The appearance of the background laid behind the web view: a fixed style's own, else the system's. With scroll bars always
+    /// shown the track is translucent and shows that background (the page paints none under it), while the knob follows the
+    /// page's `color-scheme`; on the system's background a light style on a dark system (or the reverse) got a knob for one
+    /// appearance over a track of the other (#87). The `colorScheme` environment alone does not reach WebKit's scroll bar: the
+    /// background is what fixes it. Quarto's page is not styled by ours: the system's.
+    private func pageScheme(external: Bool) -> ColorScheme {
+        let (light, dark) = PreviewStyles.resolve(id: style, followSystem: followsSystem)
+        guard !external, dark == nil else { return systemScheme }
+        return PreviewStyles.style(id: light).appearance == "dark" ? .dark : .light
+    }
 
     var body: some View {
         let mode = AlternatePreviewState.mode(of: flavor, fileURL: documentURL)
@@ -744,6 +756,8 @@ struct PreviewPane: View {
         let external = mode != nil && alternate.isActive
         WebView(model.page)
             .webViewContentBackground(.hidden)
+            .background(Color(nsColor: .windowBackgroundColor), ignoresSafeAreaEdges: [])  // not up under the toolbar
+            .environment(\.colorScheme, pageScheme(external: external))
             .overlay(alignment: .top) { PreviewNotices(badge: external ? nil : flavor?.badge, hint: AppExtensions.disabledHint(for: documentURL)) }
             .safeAreaInset(edge: .top, spacing: 0) {
                 if let mode, let documentURL {
