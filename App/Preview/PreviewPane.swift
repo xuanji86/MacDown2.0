@@ -736,7 +736,17 @@ struct PreviewPane: View {
     @AppStorage(PreviewEditingKey.enabled) private var previewEditing = true
     @AppStorage(ViewZoom.key) private var zoomPercent = ViewZoom.actualSize
     @AppStorage(PreviewRenderKey.auto) private var autoRender = true
+    @Environment(\.colorScheme) private var systemScheme
     private let renderSettings = RenderSettings.shared
+
+    /// The appearance the web view draws its scroll bar in: a fixed style's own, else the system's. The page has no background
+    /// of its own behind the scroll bar (`webViewContentBackground(.hidden)`), so without this a light style on a dark system
+    /// (or the reverse) got a knob for one appearance over a track of the other (#87).
+    private var pageScheme: ColorScheme {
+        let (light, dark) = PreviewStyles.resolve(id: style, followSystem: followsSystem)
+        guard dark == nil else { return systemScheme }
+        return PreviewStyles.style(id: light).appearance == "dark" ? .dark : .light
+    }
 
     var body: some View {
         let mode = AlternatePreviewState.mode(of: flavor, fileURL: documentURL)
@@ -744,6 +754,8 @@ struct PreviewPane: View {
         let external = mode != nil && alternate.isActive
         WebView(model.page)
             .webViewContentBackground(.hidden)
+            .background(Color(nsColor: .windowBackgroundColor), ignoresSafeAreaEdges: [])  // not up under the toolbar
+            .environment(\.colorScheme, pageScheme)
             .overlay(alignment: .top) { PreviewNotices(badge: external ? nil : flavor?.badge, hint: AppExtensions.disabledHint(for: documentURL)) }
             .safeAreaInset(edge: .top, spacing: 0) {
                 if let mode, let documentURL {
