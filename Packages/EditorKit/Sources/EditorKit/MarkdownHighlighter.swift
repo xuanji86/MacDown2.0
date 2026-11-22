@@ -18,6 +18,15 @@ final class MarkdownHighlighter {
 
     private(set) var theme: EditorTheme
 
+    /// What the owner hears about the styling: a chunk was written into the storage (it can change line heights, headings), the
+    /// highlighter has nothing more to do for now (however its last request ended), the text was edited.
+    enum Event { case styled, idle, edited }
+    var onEvent: ((Event) -> Void)?
+    /// Token requests that have not answered yet, and a count of everything that happened to them: `idle` is when nothing moved and
+    /// none is waiting over one main-queue hop (`noteActivity`).
+    private var requestsInFlight = 0
+    private var activity = 0
+
     /// A document flavor's regex overlay (PLAN 4.3.3), painted over the tree-sitter tokens of every chunk styled.
     private(set) var decorator: DecorationProvider?
 
@@ -85,6 +94,7 @@ final class MarkdownHighlighter {
 
     func stop() {
         isStopped = true
+        onEvent = nil
         if let observer { NotificationCenter.default.removeObserver(observer) }
         observer = nil
         pendingInvalidation = IndexSet()
@@ -95,6 +105,7 @@ final class MarkdownHighlighter {
     func setTheme(_ theme: EditorTheme) {
         self.theme = theme
         scheduler.invalidate(.all)
+        noteActivity()  // the owner waits for `idle`; with nothing to restyle (an empty text) no request would ever say so
     }
 
     func setDecorator(_ decorator: DecorationProvider?) {
@@ -119,6 +130,7 @@ final class MarkdownHighlighter {
 
     private func storageDidEdit() {
         guard !isStopped, storage.editedMask.contains(.editedCharacters) else { return }  // our own attribute writes
+        onEvent?(.edited)
         let started = ContinuousClock.now
         defer { lastEditHandling = ContinuousClock.now - started }
         rowCursor = nil
@@ -198,23 +210,44 @@ final class MarkdownHighlighter {
         if textView?.hasMarkedText() == true {
             needsRepaintAfterComposition = true
             done(.failure(HighlightError.markedText))
+            noteActivity()
             return
         }
+        requestsInFlight += 1
         engine.tokens(in: range) { [weak self] result in
             guard let self else { return done(.failure(HighlightError.staleContent)) }
+            requestsInFlight -= 1
+            var styled = false
+            let answer: Result<TokenApplication, Error>
             switch result {
-            case .failure(let error): done(.failure(error))
+            case .failure(let error): answer = .failure(error)
             case .success(let tokens):
-                // Composition may have started while an asynchronous query ran.
-                guard textView?.hasMarkedText() != true else {
+                if textView?.hasMarkedText() == true {  // composition may have started while an asynchronous query ran
                     needsRepaintAfterComposition = true
-                    return done(.failure(HighlightError.markedText))
+                    answer = .failure(HighlightError.markedText)
+                } else {
+                    let clamped = NSIntersectionRange(range, NSRange(location: 0, length: storage.length))
+                    apply(tokens, in: clamped)
+                    answer = .success(TokenApplication(tokens: [], range: clamped, action: .apply))
+                    styled = true
                 }
-                let clamped = NSIntersectionRange(range, NSRange(location: 0, length: storage.length))
-                apply(tokens, in: clamped)
-                done(.success(TokenApplication(tokens: [], range: clamped, action: .apply)))
             }
+            done(answer)
+            if styled { onEvent?(.styled) }
+            noteActivity()
         }
+    }
+
+    /// Every request, whatever it comes to (styled, failed, refused during a composition), and every theme change ends here, after
+    /// `done`: Neon asks for the next chunk on a main-queue hop of its own, queued inside `done`, so the hop queued here runs after it.
+    /// If by then nothing else happened and no request is waiting for its tokens, Neon has no more to ask for: that is `idle`. A later
+    /// request queues a later hop, so the last one always gets to say it; there is no timer.
+    private func noteActivity() {
+        activity += 1
+        let seen = activity
+        DispatchQueue.main.async { MainActor.assumeIsolated { [self] in
+            if !isStopped, activity == seen, requestsInFlight == 0 { onEvent?(.idle) }
+        } }
     }
 
     private func apply(_ tokens: [HighlightToken], in range: NSRange) {

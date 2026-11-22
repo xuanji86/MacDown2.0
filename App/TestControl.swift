@@ -31,7 +31,7 @@ import WorkspaceKit
 ///                                      Special keys: return tab space escape delete forwarddelete left right up down home end pageup pagedown
 ///   click x= y= [count=1]              a left click (mouse down / up) at that point
 ///   scroll x= y= dy= [dx=0]            a scroll-wheel event at that point (pixels; negative dy moves towards the end)
-///   editor                             the editor's text and selection
+///   editor                             the editor's text, selection and top visible line (`topLine`, 0-based, fractional)
 ///   select from= to=                   the editor's selection (UTF-16 offsets)
 ///   js script=".." [args={..}]         run JavaScript in the preview page (an async function body: `return` a JSON value)
 ///   ax [depth=40]                      the window's accessibility tree, flattened (role, label, id, value, frame)
@@ -208,7 +208,7 @@ enum TestControl {
         case "editor":
             let editor = try self.editor(in: try window(args))
             let selection = editor.selectedRange()
-            return ["text": editor.string, "selection": [selection.location, selection.length], "marked": editor.hasMarkedText()]
+            return ["text": editor.string, "selection": [selection.location, selection.length], "marked": editor.hasMarkedText(), "topLine": editor.topVisibleLine]
         case "select":
             let editor = try self.editor(in: try window(args))
             guard let from = int(args, "from"), let to = int(args, "to"), 0 <= from, from <= to, to <= (editor.string as NSString).length else { throw Failure(message: "select needs 0 <= from <= to <= length") }

@@ -86,6 +86,17 @@ public struct EditorTheme: @unchecked Sendable {
         return copy
     }
 
+    /// Whether text laid out in `self` stays as it is in `other`: the same body font and the same size and weight of every token
+    /// (heading scales, bold, italic). Colours, underlines and the like do not move any text.
+    func sameLayout(as other: EditorTheme) -> Bool {
+        guard font.isEqual(other.font) else { return false }
+        for kind in Set(tokens.keys).union(other.tokens.keys) {
+            let a = tokens[kind], b = other.tokens[kind]
+            if (a?.bold ?? false) != (b?.bold ?? false) || (a?.italic ?? false) != (b?.italic ?? false) || a?.fontScale != b?.fontScale { return false }
+        }
+        return true
+    }
+
     /// Attributes of unstyled text.
     var baseAttributes: [NSAttributedString.Key: Any] { [.font: font, .foregroundColor: text, .paragraphStyle: paragraphStyle] }
 
