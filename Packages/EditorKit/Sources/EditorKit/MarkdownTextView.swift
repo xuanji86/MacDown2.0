@@ -230,10 +230,8 @@ public final class MarkdownTextView: NSTextView {
     private func observeScrolling() {
         guard let scrollView = enclosingScrollView else { return }
         let center = NotificationCenter.default
-        center.addObserver(self, selector: #selector(visibleContentChanged), name: NSView.boundsDidChangeNotification, object: scrollView.contentView)
+        center.addObserver(self, selector: #selector(clipViewChanged), name: NSView.boundsDidChangeNotification, object: scrollView.contentView)
         center.addObserver(self, selector: #selector(visibleContentChanged), name: NSView.frameDidChangeNotification, object: scrollView)
-        // Wheel, trackpad and dragging the scroller, wherever the event lands (also on the scroller and the line numbers).
-        center.addObserver(self, selector: #selector(userScrollStarted), name: NSScrollView.willStartLiveScrollNotification, object: scrollView)
     }
 
     /// The theme plus the view-level settings that end up in text attributes.
@@ -288,16 +286,40 @@ public final class MarkdownTextView: NSTextView {
         }
     }
 
-    /// The marked range was committed or discarded: what waited for it (the theme's text attributes, the repaint) happens now.
+    /// The marked range was committed or discarded: what waited for it (the theme's text attributes, the repaint) happens now, and keeps
+    /// the top line as the theme change would have.
     private func compositionDidEnd() {
         if themeNeedsStorage {
-            applyStorageTheme()
-            refreshGutter()
+            keepingTopLine {
+                applyStorageTheme()
+                refreshGutter()
+            }
         }
         highlighter?.compositionDidEnd()
     }
 
-    @objc private func userScrollStarted() { keptTopLine = nil }
+    /// The clip view's origin when it last changed, and whether the view is moving it itself: `moveTop`, and its layout pass, where TextKit
+    /// re-places the viewport after the text changed size. Any other move is someone scrolling (the scroller, a wheel or trackpad, a page
+    /// key, Jump to Selection, Find), and the kept line is let go before the restyle that the move starts could put it back.
+    private var clipOriginY: CGFloat = 0
+    private var movesItself = false
+
+    private func movingItself(_ body: () -> Void) {
+        let outer = movesItself
+        movesItself = true
+        defer { movesItself = outer }
+        body()
+    }
+
+    public override func layout() { movingItself { super.layout() } }
+
+    @objc private func clipViewChanged() {
+        if let y = enclosingScrollView?.contentView.bounds.origin.y, y != clipOriginY {
+            if !movesItself { keptTopLine = nil }
+            clipOriginY = y
+        }
+        visibleContentChanged()
+    }
 
     @objc private func visibleContentChanged() {
         if viewSettings.showsLineNumbers { gutter?.needsDisplay = true }
@@ -713,8 +735,8 @@ public final class MarkdownTextView: NSTextView {
 
     /// The line to keep at the top while the highlighter restyles after a relayout (set by `keepingTopLine`). It lives until the highlighter
     /// says it is idle, which it does however its requests end (`MarkdownHighlighter.noteActivity`), and ends sooner when someone else
-    /// moves the view: `scroll(toLine:)` (scroll sync, goTo), `scrollRangeToVisible`, a wheel, trackpad or scroller (live scroll), a key,
-    /// an edit, another text.
+    /// moves the view: `scroll(toLine:)` (scroll sync, goTo), `scrollRangeToVisible` (also when it scrolls later, once the range is laid
+    /// out), any other move of the clip view (`clipViewChanged`), an edit, another text.
     var keptTopLine: Double?
 
     /// Runs `relayout` (which lays the whole text out again, at other sizes) and keeps the top source line where it was. Everything
@@ -733,7 +755,8 @@ public final class MarkdownTextView: NSTextView {
     /// `scroll(toLine:)` until the line shown is the anchor. One scroll is not enough: scrolling far makes TextKit 2 lay the viewport out
     /// again and place its fragments afresh, so the first position misses by up to dozens of lines and the next scroll lands closer
     /// (1 to 4 passes in a 20 000-line document, measured). Laying out everything above first does not change that, only costs a
-    /// quarter of a second.
+    /// quarter of a second. Where the line cannot come up that far (the end of the text, or a view that has not yet grown to the height
+    /// TextKit just laid out) the passes change nothing, and a later highlighter event tries again (`PerformanceTests`, extreme sizes).
     // lazy: 8 passes, whatever has not converged by then stays a few lines off; upgrade = a layout-stable scroll (TextKit 2 gives none under NSTextView)
     private func restoreTop() {
         guard let line = keptTopLine else { return }
@@ -758,7 +781,9 @@ public final class MarkdownTextView: NSTextView {
         moveTop(toLine: line)
     }
 
-    private func moveTop(toLine line: Double) {
+    private func moveTop(toLine line: Double) { movingItself { moveTopNow(toLine: line) } }
+
+    private func moveTopNow(toLine line: Double) {
         guard let layout = textLayoutManager, let content = layout.textContentManager,
               let scrollView = enclosingScrollView else { return }
         let whole = max(0, Int(line.rounded(.down)))
