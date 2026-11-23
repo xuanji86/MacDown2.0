@@ -103,7 +103,6 @@ extension MarkdownTextView {
     /// The user types here again: the system's automatic changes are theirs to have.
     public override func keyDown(with event: NSEvent) {
         typedByPreview.remove(self)
-        keptTopLine = nil  // typing, or keys that scroll (the page keys go straight to the clip view)
         super.keyDown(with: event)
     }
 

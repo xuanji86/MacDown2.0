@@ -180,36 +180,99 @@ struct ScrollLineTests {
         #expect(view.keptTopLine == nil)
     }
 
-    /// The ways a user scrolls that do not go through `scroll(toLine:)`: a wheel, a trackpad or the scroller (AppKit's live scroll, which
-    /// also covers events that never reach the text view), a key (the page keys go straight to the clip view).
-    @Test func aWheelOrAKeyReleasesTheKeptLine() async throws {
-        let (view, scrollView) = deepView()
-        defer { withExtendedLifetime(scrollView) {} }
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600), styleMask: [.titled], backing: .buffered, defer: false)
+    /// `scrollView` in a window, the view first responder (key events, the scroller, layout on display). Close it when done.
+    func inWindow(_ scrollView: NSScrollView?, width: CGFloat = 800) throws -> NSWindow {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: width, height: 600), styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.contentView = try #require(scrollView)
-        window.makeFirstResponder(view)
+        window.makeFirstResponder(scrollView?.documentView)
         window.displayIfNeeded()
+        return window
+    }
+
+    /// A scroller whose last hit is set by hand: its action then does what dragging the knob does, through the scroll view's own scroller
+    /// handling (a real drag runs a tracking loop on window-server events).
+    final class HitScroller: NSScroller {
+        override var hitPart: NSScroller.Part { .knob }
+    }
+
+    /// Ways to scroll other than `scroll(toLine:)` and the text view's range scrolling: the scroller, a page key, the scroll and Jump to
+    /// Selection commands as a menu item or a key binding sends them (no key event). Each one lets the kept line go; otherwise the restyle
+    /// that the scroll itself starts (newly visible text) takes the view straight back. A wheel or trackpad moves the clip view the same
+    /// way (measured), but a made-up wheel event sent through the scroll view crashes the test host a turn later.
+    @Test func everyOtherScrollReleasesTheKeptLine() async throws {
+        let (view, scrollView) = deepView()
+        defer { withExtendedLifetime(scrollView) {} }
+        let window = try inWindow(scrollView)
         defer { window.close() }
+        let scroller = HitScroller()
+        scrollView?.verticalScroller = scroller
+        let pageDown = try #require(NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil,
+            characters: String(UnicodeScalar(NSPageDownFunctionKey)!), charactersIgnoringModifiers: String(UnicodeScalar(NSPageDownFunctionKey)!),
+            isARepeat: false, keyCode: 121))
         var size = 7.0
-        func arm() async throws {
+        let moves: [(String, () -> Void)] = [
+            ("the scroller", { scroller.doubleValue = 0.3; NSApp.sendAction(scroller.action!, to: scroller.target, from: scroller) }),
+            ("a page key", { view.keyDown(with: pageDown) }),
+            ("scrollPageDown:", { view.scrollPageDown(nil) }),
+            ("scrollToBeginningOfDocument:", { view.scrollToBeginningOfDocument(nil) }),
+            ("Jump to Selection", { view.setSelectedRange(NSRange(location: view.offsetOfLine(200), length: 0)); view.centerSelectionInVisibleArea(nil) }),
+        ]
+        for (name, move) in moves {
+            _ = try await scrollFar(view, toLine: 800)
             try await Task.sleep(for: .milliseconds(300))  // the previous one's highlighting is done
             size += 1
             view.theme = EditorTheme.classic.withFont(name: "", size: size)
             #expect(view.keptTopLine != nil)
+            let before = view.topVisibleLine
+            move()
+            #expect(view.keptTopLine == nil, "\(name)")
+            #expect(abs(view.topVisibleLine - before) > 1, "\(name) moved the view, and it was taken back")
         }
-        try await arm()
-        // What NSScrollView posts when a wheel, a trackpad or the scroller starts a scroll, wherever the event lands (measured: also for
-        // a wheel event sent to the scroll view itself, as over the line numbers). Posted by hand: a made-up wheel event sent through
-        // the scroll view crashes the test host a turn later.
-        NotificationCenter.default.post(name: NSScrollView.willStartLiveScrollNotification, object: scrollView)
-        #expect(view.keptTopLine == nil, "a live scroll")
-        try await arm()
-        let key = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil,
-                                                characters: String(UnicodeScalar(NSPageDownFunctionKey)!), charactersIgnoringModifiers: String(UnicodeScalar(NSPageDownFunctionKey)!),
-                                                isARepeat: false, keyCode: 121))
-        view.keyDown(with: key)
-        #expect(view.keptTopLine == nil, "a page key")
+    }
+
+    /// A theme change while an input method composes leaves the text alone until the composition ends (`ThemeCompositionTests`). The
+    /// relayout that follows the commit keeps the top line like any other theme change (it used to keep whatever line the old pixel
+    /// offset fell on: 800 -> 1586 here), and lets it go once the highlighter is done.
+    @Test(arguments: [true, false]) func aFontChangeDuringACompositionKeepsTheTopLineThroughTheCommit(commitsByTyping: Bool) async throws {
+        let (view, scrollView) = deepView()
+        defer { withExtendedLifetime(scrollView) {} }
+        let window = try inWindow(scrollView)
+        defer { window.close() }
+        let before = try await composeAndChangeTheFont(view)
+        if commitsByTyping { view.insertText("中", replacementRange: NSRange(location: NSNotFound, length: 0)) } else { view.unmarkText() }
+        #expect(!view.hasMarkedText())
+        // The commit is an edit, so the highlighter's first tokens wait for the parse; the line is held until it is done.
+        for _ in 0..<400 where view.keptTopLine != nil { try await Task.sleep(for: .milliseconds(50)) }
+        #expect(view.keptTopLine == nil)
+        let after = try await settledTopLine(of: view)
+        #expect(abs(after - before) < 0.5, "after the commit: \(before) -> \(after)")
+    }
+
+    @Test func typingAfterTheCommitReleasesTheKeptLine() async throws {
+        let (view, scrollView) = deepView()
+        defer { withExtendedLifetime(scrollView) {} }
+        let window = try inWindow(scrollView)
+        defer { window.close() }
+        _ = try await composeAndChangeTheFont(view)
+        view.insertText("中", replacementRange: NSRange(location: NSNotFound, length: 0))
+        #expect(view.keptTopLine != nil)
+        view.insertText("a", replacementRange: NSRange(location: NSNotFound, length: 0))
+        #expect(view.keptTopLine == nil)
+    }
+
+    /// Scrolled far, an input method composing a few lines below the top, then a font change; returns the top line before it.
+    func composeAndChangeTheFont(_ view: MarkdownTextView) async throws -> Double {
+        let before = try await scrollFar(view, toLine: 800)
+        view.setSelectedRange(NSRange(location: view.offsetOfLine(Int(before) + 3), length: 0))
+        view.setMarkedText("zhong", selectedRange: NSRange(location: 5, length: 0), replacementRange: NSRange(location: NSNotFound, length: 0))
+        try #require(view.hasMarkedText())
+        view.theme = EditorTheme.classic.withFont(name: "", size: 7)
+        let composing = try await settledTopLine(of: view)
+        #expect(view.hasMarkedText())
+        #expect(abs(composing - before) < 0.5, "while composing: \(before) -> \(composing)")
+        return before
     }
 
     /// The top line once two reads 0.1 s apart agree: the highlighter restyles (heading sizes) a moment after a scroll or a theme change.
@@ -217,6 +280,7 @@ struct ScrollLineTests {
         var last = view.topVisibleLine
         for _ in 0..<50 {
             try await Task.sleep(for: .milliseconds(100))
+            view.window?.displayIfNeeded()
             let now = view.topVisibleLine
             if abs(now - last) < 0.01 { return now }
             last = now

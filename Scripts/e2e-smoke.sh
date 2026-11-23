@@ -149,5 +149,27 @@ theme_keeps_top_line() {
 check "switching the editor theme keeps the top line" theme_keeps_top_line
 cat "$OUT/theme-top-lines.txt"
 
+# A zoom while an input method composes reaches the text when the composition is committed: the top line is kept through that too.
+zoom_while_composing_keeps_top_line() {
+  local log="$OUT/compose-top-lines.txt" ok=0 before
+  : > "$log"
+  C tab path=zoom.md >/dev/null && C focus target=editor >/dev/null && C defaults key=view.zoomPercent value:=100 >/dev/null || return 1
+  C select from=18000 to=18000 >/dev/null
+  settled_top
+  before="$top"
+  C mark text=ni >/dev/null
+  C defaults key=view.zoomPercent value:=150 >/dev/null
+  settled_top
+  echo "composing, 100% -> 150%: top line $before -> $top" >> "$log"
+  C type text="你" >/dev/null
+  settled_top
+  echo "committed: top line $before -> $top" >> "$log"
+  python3 -c "import sys; sys.exit(0 if abs($top - $before) <= 0.5 else 1)" || ok=1
+  C defaults key=view.zoomPercent value:=100 >/dev/null
+  return $ok
+}
+check "a zoom while composing keeps the top line through the commit" zoom_while_composing_keeps_top_line
+cat "$OUT/compose-top-lines.txt"
+
 echo
 if [ "$failures" -eq 0 ]; then echo "e2e smoke: all passed (screenshots in $OUT/)"; else echo "e2e smoke: $failures failed (screenshots in $OUT/)"; exit 1; fi

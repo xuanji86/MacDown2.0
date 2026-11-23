@@ -183,4 +183,37 @@ struct PerformanceTests {
         print("PERF 1MB doc, line spacing change (whole-text paragraph style + viewport restyle request): \(f(took)) ms")
         #expect(took < 1000)
     }
+
+    /// The restore loop (`restoreTop`) against what makes TextKit 2 place far fragments badly: 20 000 lines of long wrapped paragraphs,
+    /// scaled headings and long code lines in a narrow window with line numbers, at the smallest and the largest font size. Every change
+    /// keeps the top line within half a line, except at the end of the text, where the clip view cannot bring the line up any further
+    /// and the view must then show the end. Here and not in `make test`: it holds the main thread for seconds at a time, which starves the
+    /// tests running beside it.
+    @Test func theTopLineIsKeptAtExtremeSizesInALongNarrowDocument() async throws {
+        let lines = ScrollLineTests()
+        let block = ["# Title", "", String(repeating: "A long paragraph that wraps onto many rows in a narrow window. ", count: 6), "",
+                     "### Sub", "", "```", "code " + String(repeating: "x", count: 120), "more code", "```", "",
+                     "- item", "- item two " + String(repeating: "word ", count: 20), "", "## Section", ""]
+        let view = ViewTests.makeSizedView((0..<1250).flatMap { _ in block }.joined(separator: "\n"))
+        let scrollView = try #require(view.enclosingScrollView)
+        defer { withExtendedLifetime(scrollView) {} }
+        let window = try lines.inWindow(scrollView, width: 220)
+        defer { window.close() }
+        var settings = view.viewSettings
+        settings.showsLineNumbers = true
+        view.apply(settings: settings)
+        view.theme = EditorTheme.classic.withFont(name: "", size: 14)
+        for target in [10_000.0, 19_990] {
+            for size in [4.0, 216, 14] {
+                _ = try await lines.scrollFar(view, toLine: target)
+                let before = try await lines.settledTopLine(of: view)
+                view.theme = EditorTheme.classic.withFont(name: "", size: size)
+                let after = try await lines.settledTopLine(of: view)
+                if abs(after - before) < 0.5 { continue }
+                for _ in 0..<5 { view.scroll(toLine: 99_999) }
+                let end = try await lines.settledTopLine(of: view)
+                #expect(after > before - 60 && abs(end - after) < 0.5, "line \(target), size \(size): \(before) -> \(after), the end is at \(end)")
+            }
+        }
+    }
 }
