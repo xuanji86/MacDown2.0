@@ -17,6 +17,7 @@ final class WindowModel {
     let controller: WorkspaceController
     let sidebar: SidebarModel
     let search: SearchModel
+    let find = FindModel()
     var sidebarSection = SidebarSection.files
     /// Hidden in a new window until the user has chosen otherwise (the last choice is kept in `AppDefaults.store`).
     var visibility = SidebarVisibility.forNewWindow(defaults: AppDefaults.store)
@@ -131,6 +132,12 @@ final class WindowModel {
     func showOutline() {
         sidebarSection = .outline
         sidebarVisible = true
+    }
+
+    /// ⌘F: the find bar at the top of the editor, field focused.
+    func showFind(replace: Bool = false) {
+        if !layout.showsEditor { userSetLayout(SplitLayout(mode: .both, editorFraction: layout.editorFraction)) }
+        find.present(replace: replace)
     }
 
     /// ⌘⇧F: the search page, the sidebar shown, the field ready for typing.

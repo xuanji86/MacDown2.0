@@ -28,6 +28,22 @@ struct EditorPane: NSViewRepresentable {
     /// The user changed the text (typing, paste, undo): the workspace turns a preview tab into a regular one.
     var onUserEdit: ((MarkdownDocument) -> Void)?
 
+    init(
+        document: MarkdownDocument,
+        scrollSync: ScrollSyncController,
+        editor: EditorHandle? = nil,
+        status: EditorStatus? = nil,
+        flavor: (any DocumentFlavor)? = nil,
+        onUserEdit: ((MarkdownDocument) -> Void)? = nil
+    ) {
+        self.document = document
+        self.scrollSync = scrollSync
+        self.editor = editor
+        self.status = status
+        self.flavor = flavor
+        self.onUserEdit = onUserEdit
+    }
+
     func makeCoordinator() -> Coordinator { Coordinator(scrollSync: scrollSync) }
 
     func makeNSView(context: Context) -> NSScrollView {
@@ -152,6 +168,7 @@ struct EditorPane: NSViewRepresentable {
         func textDidChange(_ notification: Notification) {
             (notification.object as? MarkdownTextView)?.clearPeerHighlight()  // its ranges were of the old text
             session?.textDidChange()
+            editor?.onTextChange?()
         }
     }
 }

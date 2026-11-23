@@ -86,6 +86,7 @@
       <a href="#tech">技术</a>
       <a href="#performance">性能</a>
       <a href="#features">功能</a>
+      <a href="#find">查找与替换</a>
       <a href="#cli">命令行</a>
       <a href="https://github.com/xuanji86/MacDown2.0">GitHub</a>
     </nav>
@@ -204,6 +205,9 @@
       <div class="cell"><div class="glyph" aria-hidden="true">␣</div><h3>Quick Look</h3><p>在 Finder 里按空格，直接看到渲染后的效果。</p></div>
       <div class="cell"><div class="glyph" aria-hidden="true">.qmd</div><h3>Quarto</h3><p>近似预览 callout、分块和交叉引用。代码单元只高亮，不执行。</p></div>
       <div class="cell"><div class="glyph" aria-hidden="true">7 + 8</div><h3>主题</h3><p>编辑器 7 套、预览 8 套，各自独立选择，也可以跟随系统深浅色。</p></div>
+      <div class="cell"><div class="glyph" aria-hidden="true">⌘F</div><h3>查找与替换</h3><p>Xcode 风格的查找栏，支持区分大小写 (Aa)、正则表达式 (.*)、捕获组 ($1)、换行符 (\n) 以及批量替换。</p></div>
+      <div class="cell"><div class="glyph" aria-hidden="true">⌘E</div><h3>使用所选查找</h3><p>在编辑器内选中文字按 ⌘E，立即填入查找框，无需重新打字。</p></div>
+      <div class="cell"><div class="glyph" aria-hidden="true">⌘Z</div><h3>整洁的撤销</h3><p>全部替换和交互式任务勾选均整合成单步撤销，完美融入 TextKit 2 原生撤销栈。</p></div>
       <div class="cell"><div class="glyph" aria-hidden="true">EN / 中</div><h3>双语界面</h3><p>中英文界面，可按应用单独设置语言。</p></div>
     </div>
   </section>
@@ -225,6 +229,59 @@
           <source type="image/webp" srcset="../images/workspace.zh-CN-1200.webp 1200w, ../images/workspace.zh-CN.webp 2400w" sizes="(min-width: 1200px) 1120px, (min-width: 861px) calc(100vw - 80px), calc(100vw - 40px)">
           <img src="../images/workspace.zh-CN.png" width="2400" height="1600" loading="lazy" alt="MacDown2.0 打开了一个工作区文件夹：侧栏显示整个文件夹的全文搜索结果，编辑区上方有三个标签页，右边是预览">
         </picture>
+      </div>
+    </div>
+  </section>
+
+  <section class="wrap sec" id="find">
+    <div class="ws">
+      <div class="wshead">
+        <div>
+          <div class="kicker">查找与替换</div>
+          <h2 class="s">文档内查找与替换，延续 Xcode 经典设计。</h2>
+        </div>
+        <div>
+          <p class="sub flush">嵌入编辑器的查找横条，支持实时匹配计数、正则表达式、捕获组引用、转义字符、循环跳转以及全部替换。与工作区全局搜索 (⇧⌘F) 分工明确。</p>
+          <div class="keys">
+            <span class="kbd">⌘F 查找</span>
+            <span class="kbd">⌥⌘F 替换</span>
+            <span class="kbd">⌘G 下一个</span>
+            <span class="kbd">⇧⌘G 上一个</span>
+            <span class="kbd">⌘E 使用所选内容查找</span>
+          </div>
+        </div>
+      </div>
+      <div class="spec">
+        <div class="row">
+          <div class="k">Xcode 风格查找栏</div>
+          <div class="d">吸附在编辑器顶部。可从下拉菜单切换「查找」与「替换」。实时显示匹配计数（如“3 of 12”、“无匹配”或语法错误），带有方向跳转箭头与「完成」按钮（按 Esc 亦可退出）。</div>
+          <div class="v mono">⌘F · ⌥⌘F</div>
+        </div>
+        <div class="row">
+          <div class="k">区分大小写 (Aa)</div>
+          <div class="d">点击 Aa 按钮开启严格大小写区分。纯文本匹配与正则表达式模式均可使用。</div>
+          <div class="v mono">Aa</div>
+        </div>
+        <div class="row">
+          <div class="k">正则表达式 (.*)</div>
+          <div class="d">完整的 ICU 正则表达式引擎，支持多行边界符（^ 与 $ 匹配行首行尾）。若正则语法有误，会在查找栏内实时提示。</div>
+          <div class="v mono">.*</div>
+        </div>
+        <div class="row">
+          <div class="k">捕获组与换行符</div>
+          <div class="d">在正则替换中，用 $1、$2 等引用小括号捕获组，$0 代表完整匹配。支持用 \n 插入换行符、\t 插入制表符、\\ 输入反斜杠、\$ 输入美元符号。</div>
+          <div class="v mono">$1 · $2 · \n · \t</div>
+        </div>
+        <div class="row">
+          <div class="k">单次替换与全部替换</div>
+          <div class="d">按回车即可替换当前匹配项并自动跳到下一个；点击「全部」可一次性替换全文所有匹配。批量替换会整合成单次撤销操作。</div>
+          <div class="v mono">Replace · All · ⌘Z</div>
+        </div>
+        <div class="row">
+          <div class="k">快速导航与快捷键</div>
+          <div class="d">用 ⌘G（下一个）和 ⇧⌘G（上一个）在匹配项间循环跳转。按 ⌘E 可直接将编辑器中选中的文本填入查找框。</div>
+          <div class="v mono">⌘G · ⇧⌘G · ⌘E</div>
+        </div>
       </div>
     </div>
   </section>

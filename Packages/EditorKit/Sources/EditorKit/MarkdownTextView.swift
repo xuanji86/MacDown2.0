@@ -418,6 +418,57 @@ public final class MarkdownTextView: NSTextView {
         if viewSettings.showsLineNumbers { gutter?.needsDisplay = true }  // the current line's number is emphasised
     }
 
+    public var onCancelOperation: (() -> Bool)?
+
+    public override func cancelOperation(_ sender: Any?) {
+        if onCancelOperation?() == true { return }
+        super.cancelOperation(sender)
+    }
+
+    @discardableResult
+    public func replaceMatch(range: NSRange, with string: String, actionName: String = "Replace") -> NSRange? {
+        guard isEditable, !hasMarkedText(), let storage = textStorage, NSMaxRange(range) <= storage.length else { return nil }
+        breakUndoCoalescing()
+        let manager = undoManager
+        manager?.beginUndoGrouping()
+        defer {
+            manager?.endUndoGrouping()
+            breakUndoCoalescing()
+        }
+        guard shouldChangeText(in: range, replacementString: string) else { return nil }
+        storage.replaceCharacters(in: range, with: string)
+        didChangeText()
+        manager?.setActionName(actionName)
+        let newRange = NSRange(location: range.location, length: (string as NSString).length)
+        setSelectedRange(newRange)
+        return newRange
+    }
+
+    @discardableResult
+    public func replaceMatches(_ replacements: [(range: NSRange, string: String)], actionName: String = "Replace All") -> Int {
+        guard isEditable, !hasMarkedText(), let storage = textStorage else { return 0 }
+        breakUndoCoalescing()
+        let manager = undoManager
+        manager?.beginUndoGrouping()
+        defer {
+            manager?.endUndoGrouping()
+            breakUndoCoalescing()
+        }
+        let sorted = replacements.sorted { $0.range.location > $1.range.location }
+        var count = 0
+        for item in sorted {
+            guard NSMaxRange(item.range) <= storage.length else { continue }
+            guard shouldChangeText(in: item.range, replacementString: item.string) else { continue }
+            storage.replaceCharacters(in: item.range, with: item.string)
+            count += 1
+        }
+        if count > 0 {
+            didChangeText()
+            manager?.setActionName(actionName)
+        }
+        return count
+    }
+
     // MARK: Paste (PLAN parity: paste image, smart URL)
 
     /// The file of the document this view shows, asked at paste time (the view is reused across tabs). nil closure = image
@@ -652,6 +703,7 @@ public final class MarkdownTextView: NSTextView {
         }
         storageGeneration += 1
         forgetPreviewTyping()
+        clearFindHighlights()
     }
 
     /// Swaps the storage so that the layout manager starts over on the new text, as on a first attach. A storage swapped under it

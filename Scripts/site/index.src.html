@@ -13,6 +13,7 @@
       <a href="#tech"><span class="en">Technology</span><span class="zh">技术</span></a>
       <a href="#performance"><span class="en">Performance</span><span class="zh">性能</span></a>
       <a href="#features"><span class="en">Features</span><span class="zh">功能</span></a>
+      <a href="#find"><span class="en">Find &amp; Replace</span><span class="zh">查找与替换</span></a>
       <a href="#cli"><span class="en">Command line</span><span class="zh">命令行</span></a>
       <a href="https://github.com/xuanji86/MacDown2.0">GitHub</a>
     </nav>
@@ -135,6 +136,9 @@
       <div class="cell"><div class="glyph" aria-hidden="true">␣</div><h3>Quick Look</h3><p><span class="en">Press Space in Finder to see the rendered document.</span><span class="zh">在 Finder 里按空格，直接看到渲染后的效果。</span></p></div>
       <div class="cell"><div class="glyph" aria-hidden="true">.qmd</div><h3>Quarto</h3><p><span class="en">Preview of callouts, divs and cross-references. Code cells are highlighted, never run.</span><span class="zh">近似预览 callout、分块和交叉引用。代码单元只高亮，不执行。</span></p></div>
       <div class="cell"><div class="glyph" aria-hidden="true">7 + 8</div><h3><span class="en">Themes</span><span class="zh">主题</span></h3><p><span class="en">Seven editor and eight preview themes, chosen independently or following the system.</span><span class="zh">编辑器 7 套、预览 8 套，各自独立选择，也可以跟随系统深浅色。</span></p></div>
+      <div class="cell"><div class="glyph" aria-hidden="true">⌘F</div><h3><span class="en">Find &amp; Replace</span><span class="zh">查找与替换</span></h3><p><span class="en">Xcode-style find bar with case sensitivity (Aa), regex (.*), capture groups ($1), newlines (\n), and batch replace.</span><span class="zh">Xcode 风格的查找栏，支持区分大小写 (Aa)、正则表达式 (.*)、捕获组 ($1)、换行符 (\n) 以及批量替换。</span></p></div>
+      <div class="cell"><div class="glyph" aria-hidden="true">⌘E</div><h3><span class="en">Selection to find</span><span class="zh">使用所选查找</span></h3><p><span class="en">Select any text in the editor and press ⌘E to populate the search field instantly without typing.</span><span class="zh">在编辑器内选中文字按 ⌘E，立即填入查找框，无需重新打字。</span></p></div>
+      <div class="cell"><div class="glyph" aria-hidden="true">⌘Z</div><h3><span class="en">Clean undo</span><span class="zh">整洁的撤销</span></h3><p><span class="en">Batch replacements and interactive task toggles group into single undo/redo steps across TextKit 2.</span><span class="zh">全部替换和交互式任务勾选均整合成单步撤销，完美融入 TextKit 2 原生撤销栈。</span></p></div>
       <div class="cell"><div class="glyph" aria-hidden="true">EN / 中</div><h3><span class="en">Two languages</span><span class="zh">双语界面</span></h3><p><span class="en">English and Simplified Chinese interface, set per app.</span><span class="zh">中英文界面，可按应用单独设置语言。</span></p></div>
     </div>
   </section>
@@ -160,6 +164,59 @@
           <source type="image/webp" srcset="images/workspace.zh-CN-1200.webp 1200w, images/workspace.zh-CN.webp 2400w" sizes="(min-width: 1200px) 1120px, (min-width: 861px) calc(100vw - 80px), calc(100vw - 40px)">
           <img src="images/workspace.zh-CN.png" width="2400" height="1600" loading="lazy" alt="MacDown2.0 打开了一个工作区文件夹：侧栏显示整个文件夹的全文搜索结果，编辑区上方有三个标签页，右边是预览">
         </picture>
+      </div>
+    </div>
+  </section>
+
+  <section class="wrap sec" id="find">
+    <div class="ws">
+      <div class="wshead">
+        <div>
+          <div class="kicker"><span class="en">Find &amp; Replace</span><span class="zh">查找与替换</span></div>
+          <h2 class="s"><span class="en">In-file search and replace, designed like Xcode.</span><span class="zh">文档内查找与替换，延续 Xcode 经典设计。</span></h2>
+        </div>
+        <div>
+          <p class="sub flush"><span class="en">An in-editor find bar with live match counts, regex pattern matching, capture group reuse, escape sequences, circular navigation, and batch replacement. Cleanly separated from workspace search (⇧⌘F).</span><span class="zh">嵌入编辑器的查找横条，支持实时匹配计数、正则表达式、捕获组引用、转义字符、循环跳转以及全部替换。与工作区全局搜索 (⇧⌘F) 分工明确。</span></p>
+          <div class="keys">
+            <span class="kbd"><span class="en">⌘F find</span><span class="zh">⌘F 查找</span></span>
+            <span class="kbd"><span class="en">⌥⌘F replace</span><span class="zh">⌥⌘F 替换</span></span>
+            <span class="kbd"><span class="en">⌘G next</span><span class="zh">⌘G 下一个</span></span>
+            <span class="kbd"><span class="en">⇧⌘G previous</span><span class="zh">⇧⌘G 上一个</span></span>
+            <span class="kbd"><span class="en">⌘E use selection</span><span class="zh">⌘E 使用所选内容查找</span></span>
+          </div>
+        </div>
+      </div>
+      <div class="spec">
+        <div class="row">
+          <div class="k"><span class="en">Xcode-style find bar</span><span class="zh">Xcode 风格查找栏</span></div>
+          <div class="d"><span class="en">Docked at the top of the editor. Switch between Find and Replace from the dropdown. Displays real-time match counters ("3 of 12", "No matches", or syntax errors) with chevron navigation and a Done button (Esc) to dismiss.</span><span class="zh">吸附在编辑器顶部。可从下拉菜单切换「查找」与「替换」。实时显示匹配计数（如“3 of 12”、“无匹配”或语法错误），带有方向跳转箭头与「完成」按钮（按 Esc 亦可退出）。</span></div>
+          <div class="v mono">⌘F · ⌥⌘F</div>
+        </div>
+        <div class="row">
+          <div class="k"><span class="en">Case matching (Aa)</span><span class="zh">区分大小写 (Aa)</span></div>
+          <div class="d"><span class="en">Toggle exact case matching with the Aa button. Works in both plain text and regular expression modes.</span><span class="zh">点击 Aa 按钮开启严格大小写区分。纯文本匹配与正则表达式模式均可使用。</span></div>
+          <div class="v mono">Aa</div>
+        </div>
+        <div class="row">
+          <div class="k"><span class="en">Regular expressions (.*)</span><span class="zh">正则表达式 (.*)</span></div>
+          <div class="d"><span class="en">Full ICU regex engine with multiline anchor support (^ and $ match line starts and ends). Syntax errors are flagged inline in real time.</span><span class="zh">完整的 ICU 正则表达式引擎，支持多行边界符（^ 与 $ 匹配行首行尾）。若正则语法有误，会在查找栏内实时提示。</span></div>
+          <div class="v mono">.*</div>
+        </div>
+        <div class="row">
+          <div class="k"><span class="en">Capture groups &amp; \n</span><span class="zh">捕获组与换行符</span></div>
+          <div class="d"><span class="en">In regex replacement, reuse matched parentheses with $1, $2, etc., and the whole match with $0. Insert line breaks with \n, tabs with \t, backslashes with \\, and literal dollar signs with \$.</span><span class="zh">在正则替换中，用 $1、$2 等引用小括号捕获组，$0 代表完整匹配。支持用 \n 插入换行符、\t 插入制表符、\\ 输入反斜杠、\$ 输入美元符号。</span></div>
+          <div class="v mono">$1 · $2 · \n · \t</div>
+        </div>
+        <div class="row">
+          <div class="k"><span class="en">Single &amp; batch replace</span><span class="zh">单次替换与全部替换</span></div>
+          <div class="d"><span class="en">Replace the active match and advance to the next with Return, or click All to replace all occurrences at once. Batch replacements group into a single undo step.</span><span class="zh">按回车即可替换当前匹配项并自动跳到下一个；点击「全部」可一次性替换全文所有匹配。批量替换会整合成单次撤销操作。</span></div>
+          <div class="v mono">Replace · All · ⌘Z</div>
+        </div>
+        <div class="row">
+          <div class="k"><span class="en">Navigation &amp; shortcuts</span><span class="zh">快速导航与快捷键</span></div>
+          <div class="d"><span class="en">Jump between occurrences with ⌘G (next) and ⇧⌘G (previous). Press ⌘E to populate the find bar with the current text selection without opening or typing.</span><span class="zh">用 ⌘G（下一个）和 ⇧⌘G（上一个）在匹配项间循环跳转。按 ⌘E 可直接将编辑器中选中的文本填入查找框。</span></div>
+          <div class="v mono">⌘G · ⇧⌘G · ⌘E</div>
+        </div>
       </div>
     </div>
   </section>

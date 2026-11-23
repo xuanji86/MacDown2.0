@@ -87,6 +87,7 @@
       <a href="#tech">Technology</a>
       <a href="#performance">Performance</a>
       <a href="#features">Features</a>
+      <a href="#find">Find &amp; Replace</a>
       <a href="#cli">Command line</a>
       <a href="https://github.com/xuanji86/MacDown2.0">GitHub</a>
     </nav>
@@ -205,6 +206,9 @@
       <div class="cell"><div class="glyph" aria-hidden="true">␣</div><h3>Quick Look</h3><p>Press Space in Finder to see the rendered document.</p></div>
       <div class="cell"><div class="glyph" aria-hidden="true">.qmd</div><h3>Quarto</h3><p>Preview of callouts, divs and cross-references. Code cells are highlighted, never run.</p></div>
       <div class="cell"><div class="glyph" aria-hidden="true">7 + 8</div><h3>Themes</h3><p>Seven editor and eight preview themes, chosen independently or following the system.</p></div>
+      <div class="cell"><div class="glyph" aria-hidden="true">⌘F</div><h3>Find &amp; Replace</h3><p>Xcode-style find bar with case sensitivity (Aa), regex (.*), capture groups ($1), newlines (\n), and batch replace.</p></div>
+      <div class="cell"><div class="glyph" aria-hidden="true">⌘E</div><h3>Selection to find</h3><p>Select any text in the editor and press ⌘E to populate the search field instantly without typing.</p></div>
+      <div class="cell"><div class="glyph" aria-hidden="true">⌘Z</div><h3>Clean undo</h3><p>Batch replacements and interactive task toggles group into single undo/redo steps across TextKit 2.</p></div>
       <div class="cell"><div class="glyph" aria-hidden="true">EN / 中</div><h3>Two languages</h3><p>English and Simplified Chinese interface, set per app.</p></div>
     </div>
   </section>
@@ -226,6 +230,59 @@
           <source type="image/webp" srcset="images/workspace-1200.webp 1200w, images/workspace.webp 2400w" sizes="(min-width: 1200px) 1120px, (min-width: 861px) calc(100vw - 80px), calc(100vw - 40px)">
           <img src="images/workspace.png" width="2400" height="1600" loading="lazy" alt="MacDown2.0 with a workspace folder open: the sidebar shows full-text search results across the folder's files, three tabs sit above the editor, and the preview is on the right">
         </picture>
+      </div>
+    </div>
+  </section>
+
+  <section class="wrap sec" id="find">
+    <div class="ws">
+      <div class="wshead">
+        <div>
+          <div class="kicker">Find &amp; Replace</div>
+          <h2 class="s">In-file search and replace, designed like Xcode.</h2>
+        </div>
+        <div>
+          <p class="sub flush">An in-editor find bar with live match counts, regex pattern matching, capture group reuse, escape sequences, circular navigation, and batch replacement. Cleanly separated from workspace search (⇧⌘F).</p>
+          <div class="keys">
+            <span class="kbd">⌘F find</span>
+            <span class="kbd">⌥⌘F replace</span>
+            <span class="kbd">⌘G next</span>
+            <span class="kbd">⇧⌘G previous</span>
+            <span class="kbd">⌘E use selection</span>
+          </div>
+        </div>
+      </div>
+      <div class="spec">
+        <div class="row">
+          <div class="k">Xcode-style find bar</div>
+          <div class="d">Docked at the top of the editor. Switch between Find and Replace from the dropdown. Displays real-time match counters ("3 of 12", "No matches", or syntax errors) with chevron navigation and a Done button (Esc) to dismiss.</div>
+          <div class="v mono">⌘F · ⌥⌘F</div>
+        </div>
+        <div class="row">
+          <div class="k">Case matching (Aa)</div>
+          <div class="d">Toggle exact case matching with the Aa button. Works in both plain text and regular expression modes.</div>
+          <div class="v mono">Aa</div>
+        </div>
+        <div class="row">
+          <div class="k">Regular expressions (.*)</div>
+          <div class="d">Full ICU regex engine with multiline anchor support (^ and $ match line starts and ends). Syntax errors are flagged inline in real time.</div>
+          <div class="v mono">.*</div>
+        </div>
+        <div class="row">
+          <div class="k">Capture groups &amp; \n</div>
+          <div class="d">In regex replacement, reuse matched parentheses with $1, $2, etc., and the whole match with $0. Insert line breaks with \n, tabs with \t, backslashes with \\, and literal dollar signs with \$.</div>
+          <div class="v mono">$1 · $2 · \n · \t</div>
+        </div>
+        <div class="row">
+          <div class="k">Single &amp; batch replace</div>
+          <div class="d">Replace the active match and advance to the next with Return, or click All to replace all occurrences at once. Batch replacements group into a single undo step.</div>
+          <div class="v mono">Replace · All · ⌘Z</div>
+        </div>
+        <div class="row">
+          <div class="k">Navigation &amp; shortcuts</div>
+          <div class="d">Jump between occurrences with ⌘G (next) and ⇧⌘G (previous). Press ⌘E to populate the find bar with the current text selection without opening or typing.</div>
+          <div class="v mono">⌘G · ⇧⌘G · ⌘E</div>
+        </div>
       </div>
     </div>
   </section>

@@ -50,9 +50,27 @@ struct FormatCommands: Commands {
                 .disabled(actions == nil)
         }
         CommandGroup(after: .textEditing) {
-            Button("Search in Files") { workspace?.showSearch() }
-                .keyboardShortcut("f", modifiers: [.command, .shift])
-                .disabled(workspace == nil)
+            Menu("Find") {
+                Button("Find…") { actions?.showFind(false) }
+                    .keyboardShortcut("f")
+                    .disabled(actions?.canFind != true)
+                Button("Find and Replace…") { actions?.showFind(true) }
+                    .keyboardShortcut("f", modifiers: [.command, .option])
+                    .disabled(actions?.canFind != true)
+                Button("Find Next") { actions?.findNext() }
+                    .keyboardShortcut("g")
+                    .disabled(actions?.canFind != true)
+                Button("Find Previous") { actions?.findPrevious() }
+                    .keyboardShortcut("g", modifiers: [.command, .shift])
+                    .disabled(actions?.canFind != true)
+                Button("Use Selection for Find") { actions?.useSelectionForFind() }
+                    .keyboardShortcut("e")
+                    .disabled(actions?.canFind != true)
+                Divider()
+                Button("Search in Files") { workspace?.showSearch() }
+                    .keyboardShortcut("f", modifiers: [.command, .shift])
+                    .disabled(workspace == nil)
+            }
         }
         CommandGroup(after: .toolbar) {
             Divider()

@@ -22,7 +22,7 @@ SRC = ROOT / "Scripts/site/index.src.html"
 SITE = "https://xuanji86.github.io/MacDown2.0/"
 REPO = "https://github.com/xuanji86/MacDown2.0"
 DMG = REPO + "/releases/latest/download/MacDown2.dmg"
-LASTMOD = "2026-10-05"
+LASTMOD = "2026-11-21"
 OG_SIZE = (2400, 1800)
 
 LANGS = {

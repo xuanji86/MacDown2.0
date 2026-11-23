@@ -9,6 +9,56 @@ final class EditorHandle {
 
     /// The selection in the editor changed, and not by an edit typed in the preview: the preview shows the same range (two-way selection).
     var onSelectionChange: (() -> Void)?
+    /// The text in the editor changed (typing, undo, replace).
+    var onTextChange: (() -> Void)?
+
+    func showFindHighlights(_ ranges: [NSRange], activeIndex: Int?) {
+        textView?.showFindHighlights(ranges, activeIndex: activeIndex)
+    }
+
+    func clearFindHighlights() {
+        textView?.clearFindHighlights()
+    }
+
+    func selectAndScrollTo(range: NSRange) {
+        guard let textView else { return }
+        textView.setSelectedRange(range)
+        textView.scrollRangeToVisible(range)
+    }
+
+    @discardableResult
+    func replaceMatch(range: NSRange, with string: String) -> NSRange? {
+        textView?.replaceMatch(range: range, with: string, actionName: String(localized: "Replace"))
+    }
+
+    @discardableResult
+    func replaceMatches(_ replacements: [(range: NSRange, string: String)]) -> Int {
+        textView?.replaceMatches(replacements, actionName: String(localized: "Replace All")) ?? 0
+    }
+
+    var selectedString: String? {
+        guard let textView else { return nil }
+        let range = textView.selectedRange()
+        guard range.length > 0, let storage = textView.textStorage, NSMaxRange(range) <= storage.length else { return nil }
+        return (storage.string as NSString).substring(with: range)
+    }
+
+    var selectedRange: NSRange? {
+        textView?.selectedRange()
+    }
+
+    var textString: String? {
+        textView?.textStorage?.string
+    }
+
+    var isEditable: Bool {
+        textView?.isEditable ?? false
+    }
+
+    func makeFirstResponder() {
+        guard let textView else { return }
+        textView.window?.makeFirstResponder(textView)
+    }
 
     func perform(_ command: MarkdownCommand) {
         guard let textView else { return }

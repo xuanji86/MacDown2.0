@@ -12,7 +12,12 @@ struct WindowActions {
     let renderPreview: () -> Void
     /// "Render with Quarto" (⌘⌥R) for a document whose flavor has a real render; nil for any other.
     var alternatePreview: AlternatePreviewCommand? = nil
+    let showFind: (Bool) -> Void
+    let findNext: () -> Void
+    let findPrevious: () -> Void
+    let useSelectionForFind: () -> Void
 
+    var canFind: Bool { true }
     var editorEnabled: Bool { layout.showsEditor }
     func cycleLayout() { setLayout(layout.cycled) }
 }

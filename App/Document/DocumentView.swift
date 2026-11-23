@@ -66,6 +66,18 @@ struct DocumentView: View {
                         alternate.toggle(mode, fileURL: url, window: model.window)
                     }
                 }
+            },
+            showFind: { [model] replace in
+                model.showFind(replace: replace)
+            },
+            findNext: { [model] in
+                model.find.findNext()
+            },
+            findPrevious: { [model] in
+                model.find.findPrevious()
+            },
+            useSelectionForFind: { [model] in
+                model.find.useSelectionForFind()
             }
         )
         GeometryReader { geometry in
@@ -75,10 +87,15 @@ struct DocumentView: View {
             let swapped = editorOnRight && layout.mode == .both
             let dividerX = swapped ? total - editorWidth : editorWidth
             ZStack(alignment: .topLeading) {
-                EditorPane(
-                    document: document, scrollSync: scrollSync, editor: editor, status: status, flavor: flavor,
-                    onUserEdit: { [model] document in if let url = document.tabURL { model.controller.pin(url) } }
-                )
+                VStack(spacing: 0) {
+                    if model.find.isPresented {
+                        FindBarView(find: model.find, editor: editor)
+                    }
+                    EditorPane(
+                        document: document, scrollSync: scrollSync, editor: editor, status: status, flavor: flavor,
+                        onUserEdit: { [model] document in if let url = document.tabURL { model.controller.pin(url) } }
+                    )
+                }
                     .frame(width: layout.mode == .both ? editorWidth : total, height: height)
                     .offset(x: swapped ? total - editorWidth : 0)
                     .visible(layout.showsEditor)
@@ -104,6 +121,7 @@ struct DocumentView: View {
         .task { await IsolatedTestHooks.tabSwitchUndo(model: model, editor: editor) }
         .task { await IsolatedTestHooks.previewEditing(model: model, preview: preview, editor: editor, document: document) }
         .onAppear {
+            model.find.bind(editor: editor)
             scrollSync.attach(preview: preview)
             preview.onToggleTask = { [editor] task, checked, text in editor.toggleTask(task, checked: checked, renderedText: text) }
             preview.editorLine = { [weak editor] in editor?.textView?.topVisibleLine }
@@ -124,6 +142,7 @@ struct DocumentView: View {
         }
         .onChange(of: syncScrolling, initial: true) { _, on in scrollSync.isEnabled = on }
         .onChange(of: previewFollowsCaret, initial: true) { _, on in scrollSync.followsCaret = on }
+        .onChange(of: fileURL) { model.find.updateMatches() }
     }
 
     /// One-point separator (drawn only with "show divider" on) with a wider invisible grab area (always there).
