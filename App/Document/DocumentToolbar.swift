@@ -218,7 +218,7 @@ struct DocumentToolbar: ToolbarContent {
             .accessibilityLabel("Copy HTML")
     }
 
-    /// The icon cycles both / editor only / preview only; the arrow beside it offers the ratio presets.
+    /// The layout segments; the arrow beside them offers the ratio presets.
     /// (A Menu with a primary action loses its split arrow in a toolbar item without a glass background.)
     private var layoutControl: some View {
         HStack(spacing: 0) {
@@ -227,17 +227,25 @@ struct DocumentToolbar: ToolbarContent {
         }
     }
 
+    /// Three segments (both / editor only / preview only) with a sliding selection; ⌘⌃L still cycles them from the View menu.
     private var layoutButton: some View {
-        Button { actions.cycleLayout() } label: {
-            Label {
-                Text("Layout")
-            } icon: {
-                Image(systemName: symbol).font(.system(size: compact ? 15 : 17, weight: compact ? .light : .regular)).frame(minWidth: compact ? 0 : 22)
+        Picker(selection: Binding(
+            get: { actions.layout.mode },
+            set: { actions.setLayout(SplitLayout(mode: $0, editorFraction: actions.layout.editorFraction)) }
+        )) {
+            ForEach(SplitLayout.Mode.allCases, id: \.self) { mode in
+                Label { Text(Self.title(mode)) } icon: { Image(systemName: Self.symbol(mode)) }
+                    .labelStyle(.iconOnly)
+                    .help(Text(Self.title(mode)))
+                    .tag(mode)
             }
-            .labelStyle(.iconOnly)
+        } label: {
+            Text("Layout")
         }
-        .buttonStyle(ToolbarIconStyle(compact: compact))
-        .help(Text("Cycle Editor and Preview") + Text(verbatim: " (\(KeyboardShortcut.cycleLayout.label))"))
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .controlSize(compact ? .small : .regular)
+        .fixedSize()
     }
 
     private var layoutPresets: some View {
@@ -252,11 +260,19 @@ struct DocumentToolbar: ToolbarContent {
         .help("Layout Presets")
     }
 
-    private var symbol: String {
-        switch actions.layout.mode {
+    private static func symbol(_ mode: SplitLayout.Mode) -> String {
+        switch mode {
         case .both: "rectangle.split.2x1"
         case .editorOnly: "rectangle.lefthalf.inset.filled"
         case .previewOnly: "rectangle.righthalf.inset.filled"
+        }
+    }
+
+    private static func title(_ mode: SplitLayout.Mode) -> LocalizedStringKey {
+        switch mode {
+        case .both: "Editor and Preview"
+        case .editorOnly: "Editor Only"
+        case .previewOnly: "Preview Only"
         }
     }
 }
