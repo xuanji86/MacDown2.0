@@ -76,9 +76,11 @@ final class WindowModel {
         }
     }
 
-    /// The toolbar, the View menu or ⌃⌘L: this window keeps it, and so does the workspace folder, for the next window that opens it.
+    /// The toolbar, the View menu or ⌃⌘L: this window keeps it, the next new window starts with it (Settings ▸ Startup Layout follows),
+    /// and the workspace folder keeps it for the next window that opens that folder.
     func userSetLayout(_ new: SplitLayout) {
         layout = new
+        AppDefaults.store.set(new.mode.rawValue, forKey: SplitMode.settingKey)
         let roots = sidebar.folders.roots.map(\.fileKey)
         guard !roots.isEmpty else { return }
         var memory = LayoutMemory(defaults: AppDefaults.store)

@@ -1673,6 +1673,16 @@
         }
       }
     },
+    "Editor and Preview" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "编辑与预览"
+          }
+        }
+      }
+    },
     "Editor and Preview, Equal" : {
       "localizations" : {
         "zh-Hans" : {
